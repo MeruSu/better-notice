@@ -1,6 +1,27 @@
 # Changelog
 
-版本号跟 `client.js` 里的 `const VERSION` 一致。设置数据另有一套 schema 版本（`SETTINGS_VERSION`），两者不同：前者是发布版本，后者只在**数据结构**变化时才动。
+版本号跟 `client.js` 里的 `const VERSION` 一致，也与 `package.json` 的 `version` 一致（后者同时是 npm 分发版本号）。设置数据另有一套 schema 版本（`SETTINGS_VERSION`），两者不同：前者是发布版本，后者只在**数据结构**变化时才动。
+
+## 4.5.0
+
+**设置页减法 + 内置音效换成两个 wav。首个公开版本。**
+
+- **删掉设置页「浮层尺寸」那一栏**（`overlay.sizeMin` / `sizeMax`）。字段与「取中值再按视口收窄」的算法都保留，只是不再有 UI；想改用 API。
+- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:184`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
+- 包名从本地命名空间 `@local/dsh-hotlist` 改为 **`@merusu/dsh-better-notice`**，`package.json` 的 `version` 与 `VERSION` 对齐到 `4.5.0`（此前是 `1.0.0`）。
+- 仓库随附 `tools/meru-tts/`：生成这两条提示音用的 TTS 小工具（不参与插件运行）。
+
+## 4.4.0
+
+**设置页按用户反馈做减法，动效改成「播放频率」。**
+
+- 删掉四类行：`hideNativeDot`、快捷键三条（`Alt+Shift+[` / `]` / `S` 的行为全保留，只是不再有 UI）、「全部恢复默认」、「另有 N 个待处理会话未显示」提示条。
+- 图标组不再选「尺寸」（固定 20px / 16px），「来源」与「上传」并排一行。
+- 每类的动效「平均间隔（毫秒）」→ **播放频率滑块 0–1**（`glyph.frequency`，默认 `1` = 每拍都播，`0` = 不播）；旧值按 `f = 1 − (ms − 2000) / 58000` 迁移。
+- `idle` 卡里的「收录窗口」搬成全局 **「最近对话展示时间」**（`collect.recentWindowMinutes`，默认 5 分钟，0–120）。
+- **修 `motionTarget:'row'`**：根因不是没命中标题，而是文字 keyframes 只改 `opacity`、肉眼看不出动。给四个文字 keyframes 加 1–2px 位移（不加 scale，避免发虚）。
+- 预览改成按播放频率**常驻循环**（原来只播一次，看不出频率感）。
+- 修侧栏适配器漏传 `pinned` / `children`：置顶会话现在侧栏也显示 📌，「子代理在跑」也会并入 ⏳。
 
 ## 4.3.1
 

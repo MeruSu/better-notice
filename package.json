@@ -1,8 +1,8 @@
 {
-  "name": "@local/dsh-hotlist",
-  "version": "1.0.0",
-  "private": true,
-  "description": "热表 / Hot List — hot sessions first",
+  "name": "@merusu/dsh-better-notice",
+  "version": "4.5.0",
+  "private": false,
+  "description": "Better Notice — unified visual and audible session notices for DeepSeek Harness: hot-session tab seats, sidebar state glyphs, per-state sounds and popout artwork",
   "type": "module",
   "main": "index.js",
   "exports": {

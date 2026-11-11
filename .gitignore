@@ -7,3 +7,5 @@ Thumbs.db
 .idea/
 tmp/
 .cangku/
+__pycache__/
+*.pyc

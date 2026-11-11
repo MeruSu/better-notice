@@ -72,14 +72,14 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@local/dsh-hotlist',
+  id: '@merusu/dsh-better-notice',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.3.1';
+    const VERSION = '4.5.0';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -122,7 +122,7 @@ window.__ModuleLoader__.load({
     /** Default glyph per category (`glyphSecondary` starts on `pending` only). */
     const CATEGORY_GLYPHS = { pinned: '📌', error: '⛔', pending: '🔐', completed: '✅', running: '⏳', idle: '💤', favorite: '⭐' };
     const CATEGORY_MOTION = { pinned: 'none', error: 'bounce', pending: 'blink', completed: 'none', running: 'spin', idle: 'none', favorite: 'none' };
-    /** `[tab, sidebar, topbar]` per category; `idle` defaults to the sidebar only. */
+    /** `[tab, sidebar, topbar]` per category: every category reaches the tab and sidebar rows, none the top bar. */
     const CATEGORY_SURFACES = {
       pinned: { tab: true, sidebar: true, topbar: false },
       error: { tab: true, sidebar: true, topbar: false },
@@ -135,12 +135,16 @@ window.__ModuleLoader__.load({
     };
     const MOTION_NAMES = ['none', 'spin', 'pulse', 'bounce', 'blink'];
     const MOTION_TARGETS = ['glyph', 'row'];
-    const GLYPH_SIZES = [16, 20, 24, 32];
     const REDUCE_MOTION_VALUES = ['auto', 'on', 'off'];
     /** What a glyph shows: an emoji, an uploaded image, or that category's popout artwork. */
     const GLYPH_SOURCES = ['emoji', 'upload', 'popout'];
-    /** One animation burst per category at most every N ms; `0` means that category never animates. */
-    const MOTION_INTERVAL_MS = { min: 2000, max: 60000, step: 1000, fallback: 8000, off: 0 };
+    /**
+     * How often a category bursts: `1` fires on every tick, `0` never animates.
+     * Each category rolls once per tick, so the slider is a playback frequency.
+     */
+    const MOTION_FREQUENCY = { min: 0, max: 1, step: 0.05, fallback: 1 };
+    /** Builds up to 4.3 stored an average interval; 2000ms meant "as often as possible". */
+    const LEGACY_INTERVAL_MS = { min: 2000, max: 60000 };
     const POPOUT_ENTRANCES = ['slide', 'unfold', 'overshoot', 'fade'];
     const POPOUT_AMBIENTS = ['none', 'breath', 'float'];
     const POPOUT_EXITS = ['drop', 'particles', 'fade', 'slide-out'];
@@ -153,7 +157,8 @@ window.__ModuleLoader__.load({
     /** Urgent categories (pinned/pending/error) may exceed `maxSeats`, but never by more than this. */
     const ALWAYS_OVERFLOW = 4;
     const TTL_MINUTES = { min: 1, max: 1440 };
-    const WITHIN_MINUTES = { min: 0, max: 120 };
+    /** One global window: how recently a session moved to enter the idle tier. */
+    const RECENT_WINDOW_MINUTES = { min: 0, max: 120, fallback: 5 };
     const PIN_LEVELS = { min: 1, max: 99, maxEntries: 50 };
     /** One-slot animation bursts: never more than this many glyphs animating at once. */
     const MOTION_CONCURRENCY = 2;
@@ -170,11 +175,15 @@ window.__ModuleLoader__.load({
     const ASSET_KINDS = ['glyph', 'popout', 'sound'];
     /** Uploaded sounds are data URLs; anything that is not audio is refused before it is stored. */
     const SOUND_AUDIO_RE = /^data:audio\/[\w.+-]+;base64,[A-Za-z0-9+/=]+$/;
-    /** Built-in sounds: seven files per category, served by the host at this same-origin prefix. */
-    const SOUND_BUILTIN = 7;
+    /**
+     * Built-in sounds: two packaged clips, served by the host at this same-origin
+     * prefix and mapped one-to-one — one alert sound and one completion sound,
+     * not a random pool.
+     */
     const SOUND_URL = '/hotlist-sound/';
+    const BUILTIN_SOUND = { pending: 'attention.wav', error: 'attention.wav', completed: 'complete.wav' };
     /** Only these three classes have packaged files on the host. */
-    const SOUND_CATEGORIES = ['pending', 'error', 'completed'];
+    const SOUND_CATEGORIES = Object.keys(BUILTIN_SOUND);
     /** Two sounds closer than this are one event: the later one is dropped, never queued. */
     const SOUND_THROTTLE_MS = 1500;
     /** Physical code of the manual popout key; `shortcuts.overlayKey` is its display string. */
@@ -192,20 +201,19 @@ window.__ModuleLoader__.load({
     };
 
     /** One glyph entry: what to draw, how big, how it moves, and how often it may animate. */
-    function defaultGlyph(category, size) {
+    function defaultGlyph(category) {
       return {
         kind: 'emoji',
         value: CATEGORY_GLYPHS[category] ?? '',
         source: 'emoji',
         motion: CATEGORY_MOTION[category] ?? 'none',
         motionTarget: 'glyph',
-        motionIntervalMs: MOTION_INTERVAL_MS.fallback,
-        size,
+        frequency: MOTION_FREQUENCY.fallback,
         uploads: [],
       };
     }
 
-    /** One category: the v4 contract table plus the v4.1 `glyph.source` / `motionIntervalMs` fields. */
+    /** One category: the v4 contract table plus the `glyph.source` / `glyph.frequency` fields. */
     function defaultCategory(category) {
       const popout = category === 'error' || category === 'pending' || category === 'completed';
       return {
@@ -215,9 +223,9 @@ window.__ModuleLoader__.load({
         sortBy: category === 'pinned' ? 'manual' : 'time',
         pinLevel: null,
         surfaces: { ...CATEGORY_SURFACES[category] },
-        glyph: defaultGlyph(category, 20),
+        glyph: defaultGlyph(category),
         glyphSecondary: category === 'pending'
-          ? { ...defaultGlyph('pending', 16), value: '❓', motion: 'blink' }
+          ? { ...defaultGlyph('pending'), value: '❓', motion: 'blink' }
           : null,
         popout: {
           enabled: popout,
@@ -230,7 +238,6 @@ window.__ModuleLoader__.load({
           side: 'auto',
         },
         sound: { enabled: false, builtin: true, uploads: [] },
-        within: category === 'idle' ? 5 : 0,
       };
     }
 
@@ -247,11 +254,11 @@ window.__ModuleLoader__.load({
         positions: { tab: true, topbar: false, sidebar: true },
         takeOverStatusDot: true,
         hideNativeDot: true,
-        /** Bursts are per-category and scheduled by `glyph.motionIntervalMs`; nothing global gates them. */
+        /** Bursts are per-category: each one rolls its own `glyph.frequency` on every tick. */
         display: { reduceMotion: 'auto' },
         shortcuts: { jumpEnabled: true, overlayEnabled: false, overlayKey: 'Alt+Shift+S' },
         overlay: { side: 'auto', sizeMin: OVERLAY_SIZE.fallbackMin, sizeMax: OVERLAY_SIZE.fallbackMax, fallbackImage: '' },
-        collect: { completedTtlMs: 7 * 60 * 1000 },
+        collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: RECENT_WINDOW_MINUTES.fallback },
         sound: { volume: 60 },
         pins: {},
         categories: defaultCategories(),
@@ -285,6 +292,8 @@ window.__ModuleLoader__.load({
       'settings.maxSeatsAuto': '自动',
       'settings.ttl': '刚完成保持时长（分钟）',
       'settings.ttlHint': '会话跑完后仍留在列表里的时间。',
+      'settings.recentWindow': '最近对话展示时间',
+      'settings.recentWindowHint': '最后活动在这个时间内的会话，会进第 3 级（闲置）并出现在对话区 tab 行；0 = 不显示。',
       'settings.motion': '动效',
       'settings.motion.none': '不动',
       'settings.motion.spin': '旋转',
@@ -294,7 +303,8 @@ window.__ModuleLoader__.load({
       'settings.motionTarget': '作用于',
       'settings.motionTarget.glyph': '仅图标',
       'settings.motionTarget.row': '图标+标题',
-      'settings.previewOnce': '预览一次',
+      'settings.frequency': '播放频率',
+      'settings.frequencyHint': '0% 不播；100% 每个节拍都播，越往左越稀。',
       'settings.glyphReserved': '预留：子代理活动并入 ⏳',
       'settings.glyphFollowHint': '跟随',
       'settings.position.tab': '对话区 tab 行',
@@ -304,22 +314,12 @@ window.__ModuleLoader__.load({
       'settings.position.allOff': '热表当前不可见，可从设置重新打开。',
       'settings.takeOverStatusDot': '接管会话行首标记',
       'settings.takeOverStatusDotHint': '隐藏其它插件在会话行首画的状态点（仅侧栏）。',
-      'settings.hideNativeDot': '隐藏宿主原生状态点',
-      'settings.hideNativeDotHint': '隐藏宿主自带的会话状态点。',
-      'settings.resetAll': '全部恢复默认',
       'settings.storageFailed': '设置未能写入本地存储，本次改动只在当前页面生效。',
       'settings.group.global': '全局',
       'settings.group.icon': '图标',
       'settings.group.popout': '弹出',
       'settings.group.sound': '音效',
       'settings.group.order': '顺序',
-      'settings.group.shortcuts': '快捷键',
-      'settings.shortcuts.jump': 'Ctrl/Alt + 1–9 直跳',
-      'settings.shortcuts.jumpSoon': '下一版；宿主与第三方插件已占用这几个组合键。',
-      'settings.shortcuts.overlay': 'Alt + Shift + S 手动弹出速查浮层',
-      'settings.shortcuts.overlayHint': '默认关闭；打开后按键立即弹一次，不看冷却与「首次进入」。',
-      'settings.shortcuts.keys': '循环切换',
-      'settings.shortcuts.keysHint': 'Alt + Shift + [ / ] 在会话 tab 之间前后切换。',
       'settings.category.pinned': '置顶',
       'settings.category.error': '报错',
       'settings.category.pending': '待处理',
@@ -342,7 +342,6 @@ window.__ModuleLoader__.load({
       'settings.card.pinnedOrder': '第 0 位（固定）',
       'settings.card.reserved': '预留',
       'settings.card.disabled': '停用',
-      'settings.glyphSize': '尺寸',
       'settings.glyphSecondary': '提问样式',
       'settings.glyphPlaceholder': '输入字符',
       'settings.glyphTextLimit': '最多 8 个字符；留空用默认图标。',
@@ -398,25 +397,16 @@ window.__ModuleLoader__.load({
       'settings.pins.up': '上移',
       'settings.pins.down': '下移',
       'settings.pins.remove': '取消置顶',
-      'settings.within': '收录窗口（分钟）',
-      'settings.withinHint': '闲置超过这个时长就不再出现（上限 120 分钟）。',
-      'settings.overflow': '另有 {count} 个待处理会话未显示。',
       'settings.takeOverStatusDotOff': '已停用：dsh-sessions-manager 的状态点将恢复显示。',
       'shortcuts.cyclePrev': '热表：上一个会话',
       'shortcuts.cycleNext': '热表：下一个会话',
       'shortcuts.overlayOnce': '热表：弹出速查浮层',
-      'settings.resetConfirm': '再次点击确认',
-      'settings.resetConfirmHint': '清空所有自定义设置（含置顶）。',
       'settings.glyphSource': '图标来源',
       'settings.glyphSource.emoji': '内置图标',
       'settings.glyphSource.upload': '上传图片',
       'settings.glyphSource.popout': '弹出图',
       'settings.glyphValue': '图标值',
-      'settings.motionInterval': '平均间隔（秒）',
-      'settings.motionIntervalHint': '2–60 秒，0 = 该类不动；到点随机挑一个播一遍。',
       'settings.popout.entranceFixed': '固定为探出',
-      'settings.overlay.size': '弹出图尺寸（像素）',
-      'settings.overlay.sizeHint': '最小/最大，120–900；最小大于最大会自动交换。',
     };
     const EN = {
       'tab.untitled': 'Untitled session',
@@ -432,7 +422,9 @@ window.__ModuleLoader__.load({
       'settings.maxSeatsHint': 'How many sessions the tab row may show (1–12).',
       'settings.maxSeatsAuto': 'Automatic',
       'settings.ttl': 'Keep finished seats for (minutes)',
-      'settings.ttlHint': 'How long a finished session keeps its seat.',
+      'settings.ttlHint': 'How long a finished session stays in the list.',
+      'settings.recentWindow': 'Recent conversation window',
+      'settings.recentWindowHint': 'Sessions active within this window enter the third tier (idle) and show in the conversation tab row; 0 = hidden.',
       'settings.motion': 'Motion',
       'settings.motion.none': 'Still',
       'settings.motion.spin': 'Spin',
@@ -442,7 +434,8 @@ window.__ModuleLoader__.load({
       'settings.motionTarget': 'Applies to',
       'settings.motionTarget.glyph': 'Glyph only',
       'settings.motionTarget.row': 'Glyph + title',
-      'settings.previewOnce': 'Preview once',
+      'settings.frequency': 'Playback frequency',
+      'settings.frequencyHint': '0% never plays; 100% fires every beat. Further left is rarer.',
       'settings.glyphReserved': 'Reserved: subagent activity folds into ⏳',
       'settings.glyphFollowHint': 'Follows',
       'settings.position.tab': 'Conversation tab row',
@@ -452,22 +445,12 @@ window.__ModuleLoader__.load({
       'settings.position.allOff': 'The hot list is hidden right now — turn a position back on here.',
       'settings.takeOverStatusDot': 'Take over the row marker',
       'settings.takeOverStatusDotHint': 'Hides state dots drawn by other plugins at the start of a session row (sidebar only).',
-      'settings.hideNativeDot': 'Hide the built-in state dot',
-      'settings.hideNativeDotHint': 'Hide the session state dot the host draws itself.',
-      'settings.resetAll': 'Restore defaults',
       'settings.storageFailed': 'Could not save; this change lasts for the current page only.',
       'settings.group.global': 'Global',
       'settings.group.icon': 'Icon',
       'settings.group.popout': 'Popout',
       'settings.group.sound': 'Sound',
       'settings.group.order': 'Order',
-      'settings.group.shortcuts': 'Shortcuts',
-      'settings.shortcuts.jump': 'Ctrl/Alt + 1–9 to jump',
-      'settings.shortcuts.jumpSoon': 'Next version; the host and another plugin already own these chords.',
-      'settings.shortcuts.overlay': 'Alt + Shift + S pops the peek overlay',
-      'settings.shortcuts.overlayHint': 'Off by default; while on, the key pops one immediately and ignores the cooldown and the "first entry" rule.',
-      'settings.shortcuts.keys': 'Cycle seats',
-      'settings.shortcuts.keysHint': 'Alt + Shift + [ / ] walks the session tabs backwards and forwards.',
       'settings.category.pinned': 'Pinned',
       'settings.category.error': 'Failed',
       'settings.category.pending': 'Waiting',
@@ -490,7 +473,6 @@ window.__ModuleLoader__.load({
       'settings.card.pinnedOrder': 'always first',
       'settings.card.reserved': 'reserved',
       'settings.card.disabled': 'off',
-      'settings.glyphSize': 'Size',
       'settings.glyphSecondary': 'Question style',
       'settings.glyphPlaceholder': 'Type a character',
       'settings.glyphTextLimit': 'Up to 8 characters; empty uses the default icon.',
@@ -546,25 +528,16 @@ window.__ModuleLoader__.load({
       'settings.pins.up': 'Move up',
       'settings.pins.down': 'Move down',
       'settings.pins.remove': 'Unpin',
-      'settings.within': 'Include within (minutes)',
-      'settings.withinHint': 'Idle longer than this and the row disappears (max 120 minutes).',
-      'settings.overflow': '{count} more waiting session(s) are not shown.',
       'settings.takeOverStatusDotOff': 'Disabled: status dots from dsh-sessions-manager show again.',
       'shortcuts.cyclePrev': 'Hot List: previous session',
       'shortcuts.cycleNext': 'Hot List: next session',
       'shortcuts.overlayOnce': 'Hot List: peek at the hot list',
-      'settings.resetConfirm': 'Click again to confirm',
-      'settings.resetConfirmHint': 'Clears every custom setting, pins included.',
       'settings.glyphSource': 'Glyph source',
       'settings.glyphSource.emoji': 'Built-in',
       'settings.glyphSource.upload': 'Upload',
       'settings.glyphSource.popout': 'Popout image',
       'settings.glyphValue': 'Glyph value',
-      'settings.motionInterval': 'Average interval (s)',
-      'settings.motionIntervalHint': '2–60 s, 0 = this class stays still; one random row animates once when due.',
       'settings.popout.entranceFixed': 'Fixed: peek reveal',
-      'settings.overlay.size': 'Popout image size (px)',
-      'settings.overlay.sizeHint': 'Min/max, 120–900; min greater than max is swapped.',
     };
 
 const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/;
@@ -584,9 +557,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return typeof value === 'string' && GLYPH_IMAGE_RE.test(value) && decodedBytes(value) <= GLYPH_MAX_BYTES;
     }
 
-    const nearestGlyphSize = (size) => GLYPH_SIZES.reduce((best, step) => (
-      Math.abs(step - size) < Math.abs(best - size) ? step : best
-    ), GLYPH_SIZES[0]);
+    /** 2000ms ("always") .. 60000ms ("rare") -> the same intent on the 0..1 slider. */
+    function frequencyOfInterval(ms) {
+      const span = LEGACY_INTERVAL_MS.max - LEGACY_INTERVAL_MS.min;
+      const raw = 1 - (clamp(Math.round(ms), LEGACY_INTERVAL_MS.min, LEGACY_INTERVAL_MS.max) - LEGACY_INTERVAL_MS.min) / span;
+      return clamp(
+        Math.round(raw / MOTION_FREQUENCY.step) * MOTION_FREQUENCY.step,
+        MOTION_FREQUENCY.min,
+        MOTION_FREQUENCY.max,
+      );
+    }
 
     /** Stored popout sizes are plain CSS px; the pair is always ordered min <= max. */
     function sanitizeOverlaySize(raw, fallback) {
@@ -601,7 +581,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
     /**
      * One glyph entry -> a legal one. Canonical shape is `{kind,value,source,motion,
-     * motionTarget,motionIntervalMs,size}`; the old `{emoji,image}` pair is still readable
+     * motionTarget,frequency}`; the old `{emoji,image}` pair is still readable
      * (and is never written back). An unknown kind keeps the default glyph.
      */
     /** Decoded size of one uploaded asset, from the base64 payload. */
@@ -686,12 +666,19 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (MOTION_NAMES.includes(own.motion)) next.motion = own.motion;
       else if (MOTION_NAMES.includes(old.motion)) next.motion = old.motion;
       if (MOTION_TARGETS.includes(own.motionTarget)) next.motionTarget = own.motionTarget;
-      if (typeof own.motionIntervalMs === 'number' && Number.isFinite(own.motionIntervalMs)) {
-        const value = Math.round(own.motionIntervalMs);
-        if (value === MOTION_INTERVAL_MS.off) next.motionIntervalMs = 0;
-        else next.motionIntervalMs = clamp(Math.round(value / MOTION_INTERVAL_MS.step) * MOTION_INTERVAL_MS.step, MOTION_INTERVAL_MS.min, MOTION_INTERVAL_MS.max);
+      if (typeof own.frequency === 'number' && Number.isFinite(own.frequency)) {
+        next.frequency = clamp(
+          Math.round(own.frequency / MOTION_FREQUENCY.step) * MOTION_FREQUENCY.step,
+          MOTION_FREQUENCY.min,
+          MOTION_FREQUENCY.max,
+        );
+      } else {
+        /** v4.3 stored an interval and 0 meant "never": that is frequency 0, not the default 1. */
+        const { motionIntervalMs: legacyInterval } = own;
+        if (typeof legacyInterval === 'number' && Number.isFinite(legacyInterval)) {
+          next.frequency = legacyInterval === 0 ? 0 : frequencyOfInterval(legacyInterval);
+        }
       }
-      if (typeof own.size === 'number' && Number.isFinite(own.size)) next.size = nearestGlyphSize(own.size);
       return next;
     }
 
@@ -750,10 +737,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         if (typeof sound.builtin === 'boolean') next.sound.builtin = sound.builtin;
         else if (sound.kind === 'upload') next.sound.builtin = false;
       }
-      /** Only `idle` has a collection window; every other category reports `within: 0` (contract #25). */
-      next.within = category === 'idle' && typeof raw.within === 'number' && Number.isFinite(raw.within)
-        ? clamp(Math.round(raw.within), WITHIN_MINUTES.min, WITHIN_MINUTES.max)
-        : next.within;
       return next;
     }
 
@@ -782,9 +765,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       const display = isPlainObject(raw.display) ? raw.display : {};
       if (REDUCE_MOTION_VALUES.includes(display.reduceMotion)) next.display.reduceMotion = display.reduceMotion;
-      /** v4.1 moved the interval onto each class; a v4 record's global value is spread over every class. */
+      /** v4.0 kept one global interval; the same value now becomes every class's frequency. */
       const legacyInterval = typeof display.motionIntervalMs === 'number' && Number.isFinite(display.motionIntervalMs)
-        ? clamp(Math.round(display.motionIntervalMs), MOTION_INTERVAL_MS.min, MOTION_INTERVAL_MS.max)
+        ? (display.motionIntervalMs === 0 ? 0 : frequencyOfInterval(display.motionIntervalMs))
         : null;
 
       if (isPlainObject(raw.shortcuts)) {
@@ -818,6 +801,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const minutes = clamp(Math.round(raw.collect.completedTtlMs / 60000), TTL_MINUTES.min, TTL_MINUTES.max);
         next.collect.completedTtlMs = minutes * 60000;
       }
+      /** v4.3 kept the idle window on the class; a stray 5 is that class's old default. */
+      const legacyIdle = isPlainObject(raw.categories) && isPlainObject(raw.categories.idle) ? raw.categories.idle : null;
+      const legacyWithin = legacyIdle !== null && typeof legacyIdle.within === 'number' && Number.isFinite(legacyIdle.within)
+        ? clamp(Math.round(legacyIdle.within), RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max)
+        : null;
+      if (isPlainObject(raw.collect) && typeof raw.collect.recentWindowMinutes === 'number' && Number.isFinite(raw.collect.recentWindowMinutes)) {
+        next.collect.recentWindowMinutes = clamp(Math.round(raw.collect.recentWindowMinutes), RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max);
+      } else if (legacyWithin !== null) {
+        next.collect.recentWindowMinutes = legacyWithin;
+      }
       if (isPlainObject(raw.pins)) {
         /** Pins are per session: `pins[sessionId] = pinLevel` (1 = first). */
         let used = 0;
@@ -833,8 +826,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       for (const category of CATEGORY_IDS) {
         const entry = sanitizeCategory(rawCategories[category], category, next.categories[category]);
         if (legacyInterval !== null) {
-          entry.glyph.motionIntervalMs = legacyInterval;
-          if (entry.glyphSecondary !== null) entry.glyphSecondary.motionIntervalMs = legacyInterval;
+          entry.glyph.frequency = legacyInterval;
+          if (entry.glyphSecondary !== null) entry.glyphSecondary.frequency = legacyInterval;
         }
         next.categories[category] = entry;
       }
@@ -905,7 +898,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     /** A tab/sidebar token (approval | question | pinned | error | running | completed | idle). */
     function tokenGlyph(settings, token) {
       const category = CATEGORY_OF_TOKEN[token];
-      if (category === void 0) return defaultGlyph('running', 20);
+      if (category === void 0) return defaultGlyph('running');
       if (token === 'question') return settings.categories.pending.glyphSecondary ?? settings.categories.pending.glyph;
       return settings.categories[category].glyph;
     }
@@ -915,7 +908,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      * module loader resolves exactly like `require.asset` would.
      */
     function popoutAssetRef(category) {
-      return 'plugins/@local/dsh-hotlist/assets/' + category + '.svg';
+      return 'plugins/@merusu/dsh-better-notice/assets/' + category + '.svg';
     }
 
     /** FNV-1a: a small deterministic hash, used to keep one pick while a state holds. */
@@ -948,15 +941,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     }
 
     /**
-     * What one sound plays: a random upload when the pool has one, else a
-     * packaged file. Only the three classes the host ships files for may build
-     * a URL, so a click on the `running` card can never ask for a 404.
+     * What one sound plays: a random upload when the pool has one, else the
+     * packaged clip mapped to that category. Only the three classes the host
+     * ships files for may build a URL, so a click on the `running` card can
+     * never ask for a 404.
      */
     function pickSoundUrl(settings, category) {
       const sound = settings.categories[category].sound;
       if (sound.uploads.length > 0) return sound.uploads[randomIndex(sound.uploads.length)].dataUrl;
-      if (sound.builtin === true && SOUND_CATEGORIES.includes(category)) {
-        return `${SOUND_URL}${category}-${1 + randomIndex(SOUND_BUILTIN)}.mp3`;
+      if (sound.builtin === true && BUILTIN_SOUND[category] !== void 0) {
+        return `${SOUND_URL}${BUILTIN_SOUND[category]}`;
       }
       return '';
     }
@@ -1314,7 +1308,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           rows.push({ ...base, category: 'running', token: 'running', pinLevel: null });
           continue;
         }
-        const within = settings.categories.idle.within;
+        const within = settings.collect.recentWindowMinutes;
         if (within > 0 && input.now - updatedAt <= within * 60000
           && usable.has('idle') && categoryVisible(settings, 'idle', surface)) {
           rows.push({ ...base, category: 'idle', token: 'idle', pinLevel: null });
@@ -1518,15 +1512,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     const SIDEBAR_TICK_MS = 1000;
     /** How long one burst animation runs; the attribute is dropped again afterwards. */
     const MOTION_MS = { spin: 2400, pulse: 1600, bounce: 1200, blink: 1200 };
-    /** One roll per due interval: below this the category fires, above it stays still. */
-    const MOTION_BURST_CHANCE = 0.5;
     /** Full repaint cadence; store changes and DOM mutations repaint much sooner. */
     const SIDEBAR_REFRESH_MS = 30 * 1000;
     /** A live run failure stays visible for half an hour unless the session runs again. */
     const SIDEBAR_ERROR_TTL_MS = 30 * 60 * 1000;
     /**
-     * Text variants: no `scale` on text (it looks blurry), so pulse becomes an
-     * opacity breath and spin never rotates the title — the glyph still spins.
+     * Text variants: no `scale` on text (it looks blurry), so each one is a small
+     * translate plus an opacity wave; the glyph itself keeps the full motion.
      */
     const TEXT_MOTION = {
       spin: 'hl-text-spin 2.4s linear infinite',
@@ -1562,10 +1554,10 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '@keyframes hl-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}',
       '@keyframes hl-bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-3px)}70%{transform:translateY(0)}90%{transform:translateY(-1.5px)}}',
       '@keyframes hl-blink{0%,100%{opacity:1}50%{opacity:.35}}',
-      '@keyframes hl-text-pulse{0%,100%{opacity:1}50%{opacity:.55}}',
-      '@keyframes hl-text-spin{0%,100%{opacity:1}50%{opacity:.7}}',
-      '@keyframes hl-text-bounce{0%,100%{opacity:1}40%{opacity:.45}70%,90%{opacity:1}}',
-      '@keyframes hl-text-blink{0%,100%{opacity:1}50%{opacity:.35}}',
+      '@keyframes hl-text-pulse{0%,100%{opacity:1;transform:translateX(0)}50%{opacity:.55;transform:translateX(1px)}}',
+      '@keyframes hl-text-spin{0%,100%{opacity:1;transform:translateY(0)}25%{opacity:.7;transform:translateY(-1px)}75%{opacity:.85;transform:translateY(1px)}}',
+      '@keyframes hl-text-bounce{0%,100%{opacity:1;transform:translateY(0)}40%{opacity:.45;transform:translateY(-2px)}70%{opacity:1;transform:translateY(0)}90%{opacity:.9;transform:translateY(-1px)}}',
+      '@keyframes hl-text-blink{0%,100%{opacity:1;transform:none}50%{opacity:.35}}',
     ].join('');
     /**
      * Takeover of another plugin's state dot: hidden, never removed. The rule
@@ -1637,7 +1629,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const finished = status?.completionUnread === true
         || (completedAt !== undefined && now - completedAt < settings.collect.completedTtlMs);
       if (finished && visible('completed')) return 'completed';
-      const within = settings.categories.idle.within;
+      const within = settings.collect.recentWindowMinutes;
       const updatedAt = typeof session.updatedAt === 'number' ? session.updatedAt : 0;
       if (within > 0 && now - updatedAt <= within * 60000 && visible('idle')) return 'idle';
       return null;
@@ -1778,11 +1770,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       /** sessionId -> {timer}: the one burst this span is playing; clears itself on a timer. */
       const burstMotion = new Map();
-      /** category -> ms accumulated since that category's last roll. */
-      const motionClock = new Map();
       /** Rows of the last repaint: the cadence timer bursts from these, not from a DOM read. */
       let lastRows = [];
-      let motionTickAt = 0;
 
       function quietTakeoverDots(row) {
         const dots = typeof row.querySelectorAll === 'function' ? row.querySelectorAll('[data-dsm-dot]') : [];
@@ -1821,12 +1810,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         if (tokenMotion(settings, item.state).motionTarget === 'row') animateTitle(marker, motion, true);
       }
 
-      /** One roll per due category; at most `MOTION_CONCURRENCY` spans move at any time. */
+      /** One roll per category per tick; at most `MOTION_CONCURRENCY` spans move at any time. */
       function motionBursts(rows) {
         const settings = readSettingsRef();
-        const now = Date.now();
-        const elapsed = motionTickAt === 0 ? 0 : Math.max(0, now - motionTickAt);
-        motionTickAt = now;
         if (settings.display.reduceMotion === 'on') {
           for (const sessionId of [...burstMotion.keys()]) stopBurst(sessionId);
           return;
@@ -1840,21 +1826,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           else list.push(item);
         }
         for (const [category, items] of byCategory) {
-          const interval = settings.categories[category].glyph.motionIntervalMs | 0;
-          if (interval <= 0) continue;
-          const clock = (motionClock.get(category) ?? 0) + elapsed;
-          if (clock < interval) {
-            motionClock.set(category, clock);
-            continue;
-          }
-          motionClock.set(category, clock % interval);
-          if (burstMotion.size >= MOTION_CONCURRENCY) continue;
+          const frequency = settings.categories[category].glyph.frequency;
+          if (!(frequency > 0)) continue;
           const roll = Math.random();
-          if (roll >= MOTION_BURST_CHANCE) continue;
+          if (roll >= frequency) continue;
+          if (burstMotion.size >= MOTION_CONCURRENCY) continue;
           const ready = items.filter((item) => !burstMotion.has(item.sessionId)
             && tokenMotion(settings, item.state).motion !== 'none');
           if (ready.length === 0) continue;
-          const item = ready[Math.min(ready.length - 1, Math.floor((roll / MOTION_BURST_CHANCE) * ready.length))];
+          /** The same roll picks the span: one random call per category per tick. */
+          const item = ready[Math.min(ready.length - 1, Math.floor((roll / frequency) * ready.length))];
           startBurst(item, tokenMotion(settings, item.state).motion, settings);
         }
       }
@@ -1886,6 +1867,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             status: data.status,
             error: data.error,
             completedAt: data.completedAt,
+            pinned: data.pinned,
+            children: data.children,
             settings,
             now: Date.now(),
           });
@@ -1974,9 +1957,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           observer = null;
         }
         for (const sessionId of [...burstMotion.keys()]) stopBurst(sessionId);
-        motionClock.clear();
         lastRows = [];
-        motionTickAt = 0;
         for (const sessionId of [...markers.keys()]) dropMarker(sessionId);
         restoreDots();
         for (const title of [...textAnimated.keys()]) restoreTextMotion(title);
@@ -2064,8 +2045,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     // -------------------------------------------------------------------------
     const PAGE_STYLE_ATTR = 'page';
     const PAGE_OPEN_KEY = 'dsh.hotlist.open';
-    /** Two clicks on "reset" only count inside this window; it re-arms itself afterwards. */
-    const RESET_CONFIRM_MS = 3000;
     /**
      * Finished-session timestamps survive a reload; TTL and workspace are pruned on read.
      * Written as a regex and stored through .source: the pre-restart gate blanks
@@ -2075,13 +2054,38 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     const COMPLETED_AT_KEY = /dsh.hotlist.completedAt.v1/;
     /** Coalesces a burst of finishes into one write. */
     const COMPLETED_FLUSH_MS = 500;
-    /** Page-local one-shot preview animations: the sidebar sheet may not exist. */
-    const PREVIEW_MOTION = {
-      spin: 'hl-pv-spin 2.4s linear 1',
-      pulse: 'hl-pv-pulse 1.6s ease-in-out 1',
-      bounce: 'hl-pv-bounce 1.2s ease-in-out 1',
-      blink: 'hl-pv-blink 1.2s ease-in-out 1',
+    /** Preview loops: the motion fills `frequency` of the cycle, so the slider reads as density. */
+    const PREVIEW_STEPS = 20;
+    const PREVIEW_FRAMES = {
+      spin: [[0, 'rotate(0deg)'], [1, 'rotate(360deg)']],
+      pulse: [[0, 'scale(1)'], [0.5, 'scale(1.12)'], [1, 'scale(1)']],
+      bounce: [[0, 'translateY(0)'], [0.4, 'translateY(-3px)'], [0.7, 'translateY(0)'], [0.9, 'translateY(-1.5px)'], [1, 'translateY(0)']],
+      blink: [[0, 'opacity:1'], [0.5, 'opacity:.35'], [1, 'opacity:1']],
     };
+
+    /** One `@keyframes` per motion and duty step: the hold after the motion is the visible gap. */
+    function previewKeyframes() {
+      const rules = [];
+      for (const motion of MOTION_NAMES) {
+        const frames = PREVIEW_FRAMES[motion];
+        if (frames === undefined) continue;
+        for (let step = 1; step <= PREVIEW_STEPS; step += 1) {
+          const duty = step / PREVIEW_STEPS;
+          const stops = frames.map(([at, declaration]) => `${(at * duty * 100).toFixed(2)}%{${declaration}}`);
+          rules.push(`@keyframes hl-pv-${motion}-${step}{${stops.join('')}}`);
+        }
+      }
+      return rules.join('');
+    }
+
+    const PREVIEW_KEYFRAMES = previewKeyframes();
+
+    /** The cycle the sidebar runs: motion for `frequency` of the period, still for the rest. */
+    function previewStyle(motion, frequency) {
+      const step = clamp(Math.round(frequency * PREVIEW_STEPS), 1, PREVIEW_STEPS);
+      const duration = Math.round((MOTION_MS[motion] ?? 1200) * PREVIEW_STEPS / step);
+      return `hl-pv-${motion}-${step} ${duration}ms linear infinite`;
+    }
     /** Upload gate: static raster only; 16KB is enforced after canvas compression. */
     const GLYPH_FILE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
     const GLYPH_SOURCE_MAX_BYTES = 4 * 1024 * 1024;
@@ -2095,7 +2099,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '.hl-title{margin:0;font-size:20px;line-height:28px;font-weight:600;color:var(--dsw-alias-label-primary)}',
       '.hl-sub{margin:0;font-size:13px;line-height:20px;color:var(--dsw-alias-label-tertiary)}',
       '.hl-notice{margin:0;padding:8px 10px;border-radius:8px;background:var(--dsw-alias-bg-layer-2);font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}',
-      '.hl-notice[data-hotlist-overflow]{color:var(--dsw-alias-state-business-primary)}',
       '.hl-global{display:flex;flex-direction:column;gap:2px;padding:4px 0 8px;border-bottom:.5px solid var(--dsw-alias-border-l2)}',
       '.hl-groupTitle{margin:0 0 4px;font-size:13px;line-height:20px;font-weight:500;color:var(--dsw-alias-label-primary)}',
       '.hl-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:3px 0;border-top:.5px solid var(--dsw-alias-border-l2)}',
@@ -2138,6 +2141,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '.hl-input:focus-visible{outline:var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));outline-offset:1px}',
       '.hl-input[disabled]{opacity:.5;cursor:not-allowed}',
       '.hl-num{width:64px}',
+      '.hl-range{flex:1 1 auto;min-width:88px;height:26px;accent-color:var(--dsw-alias-state-business-primary)}',
       '.hl-emoji{width:64px;text-align:center;font-size:15px}',
       '.hl-select{height:28px;min-width:88px;padding:0 6px;border-radius:7px;border:1px solid var(--dsw-alias-border-l4);background:var(--dsw-alias-bg-layer-3);color:var(--dsw-alias-label-primary);font-size:13px;line-height:20px}',
       '.hl-select[disabled]{opacity:.5;cursor:not-allowed}',
@@ -2169,41 +2173,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '.hl-foot{display:flex;align-items:center;gap:12px}',
       '.hl-hidden{display:none}',
       '.hl-page[data-hotlist-glyph]::before{content:none}',
-      '@keyframes hl-pv-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}',
-      '@keyframes hl-pv-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}',
-      '@keyframes hl-pv-bounce{0%,100%{transform:translateY(0)}35%{transform:translateY(-3px)}65%{transform:translateY(-1.5px)}}',
-      '@keyframes hl-pv-blink{0%,100%{opacity:1}50%{opacity:.35}}',
-      '.hl-keys{font-family:var(--ds-font-family-code);font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+      PREVIEW_KEYFRAMES,
       '@media (prefers-reduced-motion:reduce){.hl-page .hl-preview,.hl-page .hl-cardGlyph{animation:none!important}}',
     ].join('');
-
-    /** Overflow count of the last seat plan, so the page can say "N more are hidden". */
-    let seatOverflow = 0;
-    const overflowListeners = new Set();
-
-    function currentOverflow() {
-      return seatOverflow;
-    }
-
-    function publishOverflow(count) {
-      const next = Number.isFinite(count) ? Math.max(0, Math.trunc(count)) : 0;
-      if (next === seatOverflow) return;
-      seatOverflow = next;
-      for (const listener of [...overflowListeners]) {
-        try {
-          listener(seatOverflow);
-        } catch {
-          /* a broken listener must not stop the others */
-        }
-      }
-    }
-
-    function onOverflowChange(listener) {
-      overflowListeners.add(listener);
-      return () => {
-        overflowListeners.delete(listener);
-      };
-    }
 
     /** Session titles for the pin list; `apply` wires it to `sessions.list`. */
     let sessionTitleOf = (sessionId) => sessionId;
@@ -2367,22 +2339,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const close = props.close;
       const t = props.t;
       const [settings, setSettings] = React.useState(() => snapshot());
-      const [overflow, setOverflow] = React.useState(() => currentOverflow());
       const [openCards, setOpenCards] = React.useState(() => readOpenCards());
       const [uploadError, setUploadError] = React.useState(null);
-      const [previewNonce, setPreviewNonce] = React.useState(0);
-      const [resetArmed, setResetArmed] = React.useState(false);
 
       React.useEffect(() => onSettingsChange(setSettings), []);
-      React.useEffect(() => onOverflowChange(setOverflow), []);
       React.useEffect(() => {
         injectPageCss();
       }, []);
-      React.useEffect(() => {
-        if (resetArmed !== true) return undefined;
-        const timer = setTimeout(() => setResetArmed(false), RESET_CONFIRM_MS);
-        return () => clearTimeout(timer);
-      }, [resetArmed]);
 
       const patch = (next) => setSettings(writeSettings(next));
       const patchCategory = (category, change) => patch({
@@ -2417,11 +2380,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           ? glyph.uploads[0].dataUrl
           : glyph.source === 'popout' ? pickPopoutArt(settings, category).value : '';
         const hasImage = preview !== '';
-        const animate = glyph.motion !== 'none' && settings.display.reduceMotion !== 'on';
+        const animate = glyph.motion !== 'none' && glyph.frequency > 0 && settings.display.reduceMotion !== 'on';
         const style = { fontSize: `${size}px`, lineHeight: `${size + 2}px` };
-        if (animate) style.animation = PREVIEW_MOTION[glyph.motion] ?? 'none';
+        if (animate) style.animation = previewStyle(glyph.motion, glyph.frequency);
         return h('span', {
-          key: `glyph-${category}-${secondary === true ? 'secondary' : 'primary'}-${previewNonce}`,
+          key: `glyph-${category}-${secondary === true ? 'secondary' : 'primary'}`,
           className: size >= 20 ? 'hl-preview' : 'hl-cardGlyph',
           'data-hotlist-glyph': '',
           'data-hotlist-glyph-kind': hasImage ? 'img' : 'emoji',
@@ -2466,6 +2429,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           const next = Number(event.target.value);
           if (Number.isFinite(next)) onChange(next);
         },
+      });
+      /** Playback frequency slider: one step is 5%, so the preview loop always matches the value. */
+      const rangeInput = (value, onChange, disabled) => h('input', {
+        className: 'hl-range',
+        type: 'range',
+        min: MOTION_FREQUENCY.min,
+        max: MOTION_FREQUENCY.max,
+        step: MOTION_FREQUENCY.step,
+        value,
+        disabled: disabled === true,
+        onChange: (event) => onChange(Number(event.target.value)),
       });
       const field = (labelText, control, hintText, attrs) => h('div', Object.assign({
         className: 'hl-field',
@@ -2564,16 +2538,12 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const rows = [
           multi([
             cell(t('settings.glyphSource'), select(GLYPH_SOURCES, glyph.source, (value) => patchGlyph(category, false, { source: value }), (value) => t(`settings.glyphSource.${value}`), locked === true)),
-            cell(t('settings.glyphSize'), segmented(GLYPH_SIZES, glyph.size, (value) => patchGlyph(category, false, { size: value }), undefined, locked === true)),
+            cell(t('settings.asset.upload'), h('div', { key: 'tools', className: 'hl-fieldControl' }, assetTools(category, 'glyph', glyph.uploads, locked === true)), assetHint(glyph.uploads, 'glyph')),
           ], 2),
           field(t('settings.glyphValue'), [
             glyphNode(category, false, glyph, 20),
             emojiInput(glyphText(category, false, glyph), (value) => patchGlyph(category, false, { value }), locked === true || glyph.source !== 'emoji'),
-            ...assetTools(category, 'glyph', glyph.uploads, locked === true),
-          ], assetHint(glyph.uploads, 'glyph')),
-          field(t('settings.motionInterval'), [
-            numberInput(Math.round(glyph.motionIntervalMs / 1000), MOTION_INTERVAL_MS.min / 1000, MOTION_INTERVAL_MS.max / 1000, 1, (value) => patchGlyph(category, false, { motionIntervalMs: value * 1000 }), locked === true),
-          ], t('settings.motionIntervalHint')),
+          ], t('settings.glyphTextLimit')),
         ];
         if (category === 'pending') {
           rows.push(field(t('settings.glyphSecondary'), [
@@ -2590,14 +2560,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           multi([
             cell(t('settings.motion'), select(MOTION_NAMES, glyph.motion, (value) => patchGlyph(category, false, { motion: value }), (value) => t(`settings.motion.${value}`), locked === true)),
             cell(t('settings.motionTarget'), segmented(MOTION_TARGETS, glyph.motionTarget, (value) => patchGlyph(category, false, { motionTarget: value }), (value) => t(`settings.motionTarget.${value}`), locked === true)),
-            cell(t('settings.previewOnce'), h('button', {
-              key: 'play',
-              type: 'button',
-              className: 'hl-step',
-              disabled: locked === true,
-              onClick: () => setPreviewNonce((value) => value + 1),
-            }, '▶')),
-          ], 3),
+          ], 2),
+          field(t('settings.frequency'), [
+            rangeInput(glyph.frequency, (value) => patchGlyph(category, false, { frequency: value }), locked === true),
+            h('span', { key: 'value', className: 'hl-rowHint' }, `${Math.round(glyph.frequency * 100)}%`),
+          ], t('settings.frequencyHint')),
         ], locked === true);
       };
 
@@ -2654,10 +2621,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             : numberInput(entry.order, 1, 99, 1, (value) => patchCategory(category, { order: value }), locked === true), t('settings.orderHint')),
         ], locked === true);
       };
-
-      const withinRow = (locked) => h('div', { key: 'within', className: 'hl-cardGroup', 'data-disabled': locked === true ? 'true' : 'false' }, [
-        field(t('settings.within'), numberInput(settings.categories.idle.within, WITHIN_MINUTES.min, WITHIN_MINUTES.max, 1, (value) => patchCategory('idle', { within: value }), locked === true), t('settings.withinHint'), { 'data-hotlist-row': 'within' }),
-      ]);
 
       const pins = Object.entries(settings.pins)
         .map(([sessionId, level]) => ({ sessionId, level }))
@@ -2755,7 +2718,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           popoutRows(category, locked),
           soundRows(category, locked),
           orderRows(category, locked),
-          category === 'idle' ? withinRow(locked) : null,
           category === 'pinned' ? pinBlock() : null,
         ]);
         return h('section', {
@@ -2830,49 +2792,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           ]),
           h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.sound.volume, 0, 100, 5, (value) => patch({ sound: { ...settings.sound, volume: value } }))),
         ]),
-        h('div', { key: 'size', className: 'hl-row', 'data-hotlist-row': 'overlay.size' }, [
+        h('div', { key: 'recent', className: 'hl-row', 'data-hotlist-row': 'recentWindow' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
-            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.overlay.size')),
-            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.overlay.sizeHint')),
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.recentWindow')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.recentWindowHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, [
-            numberInput(settings.overlay.sizeMin, OVERLAY_SIZE.min, OVERLAY_SIZE.max, 20, (value) => patch({ overlay: { ...settings.overlay, sizeMin: value } })),
-            numberInput(settings.overlay.sizeMax, OVERLAY_SIZE.min, OVERLAY_SIZE.max, 20, (value) => patch({ overlay: { ...settings.overlay, sizeMax: value } })),
-          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.collect.recentWindowMinutes, RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max, 1, (value) => patch({ collect: { ...settings.collect, recentWindowMinutes: value } }))),
         ]),
         switchRow('positions.tab', t('settings.position.tab'), t('settings.position.tabHint'), settings.positions.tab, () => toggled('positions.tab', settings.positions.tab !== true)),
         switchRow('positions.topbar', t('settings.position.topbar'), t('settings.position.soon'), settings.positions.topbar, () => {}, true),
         switchRow('takeOverStatusDot', t('settings.takeOverStatusDot'), settings.takeOverStatusDot === true ? t('settings.takeOverStatusDotHint') : t('settings.takeOverStatusDotOff'), settings.takeOverStatusDot, () => patch({ takeOverStatusDot: settings.takeOverStatusDot !== true })),
-        switchRow('hideNativeDot', t('settings.hideNativeDot'), t('settings.hideNativeDotHint'), settings.hideNativeDot, () => patch({ hideNativeDot: settings.hideNativeDot !== true })),
-        h('h3', { key: 'shortcutsTitle', className: 'hl-groupTitle' }, t('settings.group.shortcuts')),
-        switchRow('shortcuts.jumpEnabled', t('settings.shortcuts.jump'), t('settings.shortcuts.jumpSoon'), settings.shortcuts.jumpEnabled === true, () => {}, true),
-        switchRow('shortcuts.overlayEnabled', t('settings.shortcuts.overlay'), t('settings.shortcuts.overlayHint'), settings.shortcuts.overlayEnabled === true, () => toggled('shortcuts.overlayEnabled', settings.shortcuts.overlayEnabled !== true)),
-        h('div', { key: 'shortcutKeys', className: 'hl-row', 'data-hotlist-row': 'shortcuts.keys' }, [
-          h('div', { key: 'main', className: 'hl-rowMain' }, [
-            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.shortcuts.keys')),
-            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.shortcuts.keysHint')),
-          ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, h('code', { className: 'hl-keys' }, 'Alt+Shift+[ / ] / S')),
-        ]),
-        h('div', { key: 'reset', className: 'hl-row', 'data-hotlist-row': 'reset' }, [
-          h('div', { key: 'main', className: 'hl-rowMain' }, [
-            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.resetAll')),
-            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.resetConfirmHint')),
-          ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, h('button', {
-            key: 'resetButton',
-            type: 'button',
-            className: 'hl-step',
-            onClick: () => {
-              if (resetArmed === true) {
-                resetSettings();
-                setResetArmed(false);
-                return;
-              }
-              setResetArmed(true);
-            },
-          }, resetArmed === true ? t('settings.resetConfirm') : t('settings.resetAll'))),
-        ]),
       ]);
 
       const ordered = orderedCategories(settings);
@@ -2880,7 +2809,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const positions = positionsOf(settings);
       const notices = [];
       if (positions.allPositionsOff === true) notices.push(h('p', { key: 'off', className: 'hl-notice' }, t('settings.position.allOff')));
-      if (overflow > 0) notices.push(h('p', { key: 'overflow', className: 'hl-notice', 'data-hotlist-overflow': String(overflow) }, t('settings.overflow', { count: overflow })));
       if (uploadError !== null) notices.push(h('p', { key: 'upload', className: 'hl-warn' }, uploadError));
 
       return h('div', { className: 'hl-page', 'data-hotlist-settings': `v${VERSION}` }, [
@@ -2970,7 +2898,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
     /** Asset path string; the caller resolves it through `require.asset`. */
     function assetRef(category, tier) {
-      return `plugins/@local/dsh-hotlist/assets/${category}-${tier}.webp`;
+      return `plugins/@merusu/dsh-better-notice/assets/${category}-${tier}.webp`;
     }
 
     /** Offline fallback SVG: the same packaged artwork the popout glyph source uses. */
@@ -4259,7 +4187,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           cycleRing = [];
           cycleCurrent = snapshot.currentId ?? null;
           disposeTabSeats();
-          publishOverflow(0);
           sidebar?.refresh();
           return;
         }
@@ -4271,7 +4198,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         for (const id of cycleIds) if (!kept.includes(id)) kept.push(id);
         cycleRing = kept;
         cycleCurrent = snapshot.currentId ?? null;
-        publishOverflow(plan.overflow ?? 0);
         const present = new Set(snapshot.list.ids);
         restoreRecentSeats(plan, snapshot, limit, now);
         /**
@@ -4531,9 +4457,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       labelOf,
       snapshot,
       onSettingsChange,
-      onOverflowChange,
-      currentOverflow,
-      publishOverflow,
       glyphUploadReject,
       soundUploadReject,
       toGlyphDataUrl,
@@ -4546,6 +4469,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       randomIndex,
       pickPopoutArt,
       pickSoundUrl,
+      BUILTIN_SOUND,
       SOUND_CATEGORIES,
       createSoundPlayer,
       createHotlistApi,

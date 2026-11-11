@@ -7,11 +7,11 @@
 需要 Node.js（`node --check` / `node test/...` 只用到标准库，没有 npm 依赖，不需要 `npm install`）和一份 DSH Web profile。
 
 ```powershell
-git clone https://github.com/JiaoMeru/better-notice.git C:\src\better-notice
-dsh plugin --profile <profile> add link:C:/src/better-notice
+git clone https://github.com/MeruSu/better-notice.git C:\src\better-notice
+dsh plugin --profile <profile> add C:/src/better-notice
 ```
 
-- 用 **`link:` + 绝对路径、正斜杠**。`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会落到 profile 里去。
+- 用 **绝对路径、正斜杠**（`add <目录>` 装的就是 `link:`）。`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会落到 profile 里去。
 - 装完**重启该 profile 的 GUI**。之后只改 `client.js` 就不用再重启了——刷新页面即加载新代码。
 - **别拿正在用的 profile 做试验**。另建一个（比如 `test`）装，改坏了不影响你日常那个。
 
@@ -37,17 +37,17 @@ cd C:\src\better-notice
 
 node --check client.js          # 语法闸门。client.js 的语法错只在真机 boot 时炸，没有别的地方会替你发现
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 53 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 58 groups
 ```
 
 然后进真机：
 
-1. **强刷页面**（`Ctrl+F5`），控制台敲 `window.__HOTLIST_VERSION__`，必须是 `'4.3.1'`（或你改后的版本号）。不是旧值说明加载的还是缓存。
+1. **强刷页面**（`Ctrl+F5`），控制台敲 `window.__HOTLIST_VERSION__`，必须是 `'4.5.0'`（或你改后的版本号）。不是旧值说明加载的还是缓存。
 2. 打开 设置 → 热表，确认设置页能渲染、7 张卡都在。
 3. 按你改的那块功能实际走一遍：座位数量、侧栏图标、弹出图、音效。**能在界面上看见的才算改完**，单测绿了不代表平时能看。
 4. 改了 `index.js` / `cordis.patch.yml` / `package.json` 的，**重启 GUI 再看**，光刷新不算。
 
-新增或改动单测组时，同步更新 [docs/TESTING.md](docs/TESTING.md) §1.2 的表格（一行一组，`test:<行号>`）和组数（现在是 53）。
+新增或改动单测组时，同步更新 [docs/TESTING.md](docs/TESTING.md) §1.2 的表格（一行一组，`test:<行号>`）和组数（现在是 58）。
 
 ## 一条必须记住的教训：宿主会调用的回调，传函数，不要传值
 
@@ -64,7 +64,7 @@ register('hotlist.cycle.prev', 'BracketLeft', () => t('shortcuts.cyclePrev'));
 
 通则：**凡是宿主（或别的插件）加了以后由它调用的字段——`label`、`describe`、`getX`、`render`——一律传函数。** 传值的后果是延迟到对方的调用时刻才炸，测试和 `node --check` 都拦不住你，因为你写的是合法 JS。
 
-单测组 `shortcut labels are thunks`（`test/classify.test.mjs:2172`）就是守这条的。它只抓「已经知道的字段」，新接一个宿主 API 时要自己想一遍：这个字段是我调用，还是它调用？
+单测组 `shortcut labels are thunks`就是守这条的。它只抓「已经知道的字段」，新接一个宿主 API 时要自己想一遍：这个字段是我调用，还是它调用？
 
 更一般的规矩：**宿主 API 的字段语义，读宿主源码确认，别按名字猜。** 拿不准就在 PR 里写「未确认」。
 
@@ -86,7 +86,7 @@ register('hotlist.cycle.prev', 'BracketLeft', () => t('shortcuts.cyclePrev'));
   - 差：`fix bug`
 - 一个提交只做一件事。格式化、重命名混在功能改动里，复核时看不出哪行是真正的改动。
 - 改了用户能看见的行为，同步更新 [CHANGELOG.md](CHANGELOG.md)（一条一段：改了什么、为什么、影响谁）。
-- 版本号在两处：`client.js` 的 `VERSION` 和 `package.json` 的 `version`。**它们目前不同步**（`4.3.1` vs `1.0.0`），改版本时两处都要动，并以 `client.js` 的 `VERSION` 为准。
+- 版本号在两处，必须一致：`client.js` 的 `VERSION`（`client.js:82`）与 `package.json` 的 `version`。发布版两者同步（当前都是 `4.5.0`）；`package.json` 的 `version` 同时是 npm 分发版本号。
 
 ## 几件不要做的事
 
@@ -98,7 +98,7 @@ register('hotlist.cycle.prev', 'BracketLeft', () => t('shortcuts.cyclePrev'));
 ## PR 前自查
 
 - [ ] `node --check client.js` 和 `node --check index.js` 都过
-- [ ] `node test/classify.test.mjs` 末行是 `PASS — 53 groups`（或你更新后的组数）
+- [ ] `node test/classify.test.mjs` 末行是 `PASS — 58 groups`（或你更新后的组数）
 - [ ] 强刷后 `window.__HOTLIST_VERSION__` 是新版本号
 - [ ] 在真机界面上实际看过改动（不是只看测试输出）
 - [ ] 改了设置形状的，迁移和迁移单测都在

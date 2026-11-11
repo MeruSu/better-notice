@@ -1,8 +1,9 @@
-# Bundle patch: one row for @local/dsh-hotlist.
+# Bundle patch: one row for @merusu/dsh-better-notice.
 # The host half registers the /hotlist-sound prefix route so the client can load
-# bundled mp3 cues (the shared package-asset route only serves images). The client
-# half (dsh.client) registers one tab per hot session in the conversation view tab
-# row, plus the sidebar markers and the popout overlay.
+# the bundled sound cues (the shared package-asset route only serves images, so
+# .wav/.mp3 would 404 there). The client half (dsh.client) registers one tab per
+# hot session in the conversation view tab row, plus the sidebar markers, the
+# popout overlay and the settings page.
 - insert:
     - id: hotlist
-      name: '@local/dsh-hotlist'
+      name: '@merusu/dsh-better-notice'

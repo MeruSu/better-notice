@@ -257,7 +257,7 @@ const source = await readFile(new URL('./../client.js', import.meta.url), 'utf8'
 new Function(source)();
 
 const api = loaded.api;
-assert.equal(loaded.id, '@local/dsh-hotlist');
+assert.equal(loaded.id, '@merusu/dsh-better-notice');
 assert.ok(api && typeof api.apply === 'function');
 
 const tick = async () => {
@@ -882,15 +882,15 @@ test('surface gating', () => {
 test('idle third tier on the tab row', () => {
   const settings = api.defaultSettings();
   assert.equal(settings.categories.idle.surfaces.tab, true);
-  assert.equal(settings.categories.idle.within, 5);
+  assert.equal(settings.collect.recentWindowMinutes, 5);
   const list = { ids: ['plain'], byId: { plain: session({ id: 'plain' }) } };
   const input = {
     surface: 'tab', list, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5,
   };
   const rows = api.classify(settings, input);
   assert.deepEqual(rows.map((row) => [row.sessionId, row.category]), [['plain', 'idle']]);
-  /** `within: 0` closes the window, so the same session gets no row. */
-  assert.deepEqual(api.classify(api.sanitizeSettings({ ...settings, categories: { idle: { within: 0 } } }), input), []);
+  /** `recentWindowMinutes: 0` closes the window, so the same session gets no row. */
+  assert.deepEqual(api.classify(api.sanitizeSettings({ ...settings, collect: { recentWindowMinutes: 0 } }), input), []);
   /** The user can still mute the third tier on the tab row only. */
   const muted = api.sanitizeSettings({ ...settings, categories: { idle: { surfaces: { tab: false } } } });
   assert.deepEqual(api.classify(muted, input), []);
@@ -936,10 +936,10 @@ test('settings sanitizing', () => {
         glyphSecondary: { kind: 'img', value: 'data:image/svg+xml;base64,PHN2Zz4=' },
         popout: { displayMs: 123456, entrance: 'nope', ambient: 'float', exit: 'fade', side: 'right' },
         sound: { kind: 'chime2', volume: 400, enabled: true, src: 'data:audio/mpeg;base64,AAAA' },
-        within: 500,
       },
       error: { glyph: { motion: 'wiggle' }, sound: { kind: 'beep' } },
     },
+    collect: { recentWindowMinutes: 500 },
     overlay: { scale: 2.5, side: 'right' },
   });
   assert.equal(sanitized.maxSeats, 'auto');
@@ -957,7 +957,7 @@ test('settings sanitizing', () => {
   assert.equal(sanitized.categories.pending.sound.uploads.length, 0);
   assert.equal('volume' in sanitized.categories.pending.sound, false);
   assert.equal(sanitized.sound.volume, 100);
-  assert.equal(sanitized.categories.pending.within, 0);
+  assert.equal(sanitized.collect.recentWindowMinutes, 120);
   assert.equal(sanitized.categories.error.glyph.motion, 'bounce');
   assert.equal(sanitized.categories.error.sound.enabled, true);
   /** A v3 zoom multiplier has no v4.1 counterpart: both size fields keep their defaults. */
@@ -1096,6 +1096,35 @@ test('adapter sidebar markers', () => {
 });
 
 // 18. Takeover gate: the style block and the inline dot hide exist only while the flag is on.
+// 17b. The sidebar must see what the tab row sees: a pin and a parent waiting on children.
+test('adapter sidebar pinned and children', () => {
+  clearSidebarRows();
+  clearStyleBlocks();
+  const pinnedRow = sidebarRow('session-pin', '置顶会话');
+  const parentRow = sidebarRow('session-parent', '父会话');
+  const settings = api.defaultSettings();
+  const adapter = api.createSidebarAdapter({
+    document: globalThis.document,
+    readSettings: () => settings,
+    readSession: (sessionId) => ({
+      session: session({ id: sessionId }),
+      status: {},
+      error: undefined,
+      completedAt: undefined,
+      pinned: sessionId === 'session-pin',
+      children: sessionId === 'session-parent' ? 2 : 0,
+    }),
+  });
+  adapter.start();
+  const charOf = (row) => row.children
+    .find((child) => child.hasAttribute('data-hotlist-glyph'))
+    ?.getAttribute('data-hotlist-char');
+  assert.equal(charOf(pinnedRow.row), '📌');
+  assert.equal(charOf(parentRow.row), '⏳');
+  adapter.stop();
+  clearSidebarRows();
+});
+
 test('takeover gate', () => {
   clearSidebarRows();
   clearStyleBlocks();
@@ -1177,17 +1206,20 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.3.1');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.5.0');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
   for (const key of [
-    'maxSeats', 'collect.completedTtlMs', 'sound.volume', 'overlay.size',
+    'maxSeats', 'collect.completedTtlMs', 'sound.volume', 'recentWindow',
     'positions.tab', 'positions.topbar',
-    'takeOverStatusDot', 'hideNativeDot',
-    'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.keys', 'reset',
+    'takeOverStatusDot',
   ]) {
     assert.equal(rows.includes(key), true, `missing row ${key}`);
+  }
+  /** v4.4 and v4.5 removed these rows: the fields survive for compatibility, the controls do not. */
+  for (const key of ['hideNativeDot', 'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.keys', 'reset', 'within', 'overlay.size']) {
+    assert.equal(rows.includes(key), false, `removed row ${key} is still rendered`);
   }
   for (const category of ['pinned', 'error', 'pending', 'completed', 'running', 'idle', 'favorite']) {
     assert.equal(rows.includes(`categories.${category}`), true, `missing card ${category}`);
@@ -1258,24 +1290,25 @@ test('settings page favorite locked', () => {
   delete globalThis.sessionStorage;
 });
 
-// 23. The overflow notice comes from the tab adapter's own plan, not from a second computation.
+// 23. v4.4 dropped the overflow notice: the plan still counts, nothing on the page shows it.
 test('settings page overflow notice', () => {
-  const withOverflow = createCtx({ list: { ids: [], byId: {} }, statuses: new Map(), groups: { items: [], archivedSessionIds: [] } });
-  api.apply(withOverflow.ctx, {});
-  /** `sync()` owns the number: a real plan publishes it (and publishes 0 when nothing is hidden). */
-  api.publishOverflow(3);
-  let page = withOverflow.entries.get('hotlist').Component({ close() {}, t: (key) => DICT[key] ?? key });
-  if (typeof page.type === 'function') page = page.type(page.props);
-  const notices = collect(page, (props) => props['data-hotlist-overflow'] !== undefined);
-  assert.equal(notices.length, 1);
-  assert.equal(notices[0].props['data-hotlist-overflow'], '3');
-  assert.equal(textOf(notices[0]).includes('settings.overflow'), true);
-  withOverflow.cleanup();
+  assert.equal(typeof api.publishOverflow, 'undefined', 'the overflow channel went with the notice');
+  assert.equal(typeof api.currentOverflow, 'undefined');
+  assert.equal(typeof api.onOverflowChange, 'undefined');
+  const harness = renderPage();
+  const notices = collect(harness.page, (props) => props['data-hotlist-overflow'] !== undefined);
+  assert.equal(notices.length, 0);
+  assert.equal(textOf(harness.page).includes('settings.overflow'), false);
+  harness.harness.cleanup();
 
-  api.publishOverflow(0);
-  const empty = renderPage();
-  assert.equal(collect(empty.page, (props) => props['data-hotlist-overflow'] !== undefined).length, 0);
-  empty.harness.cleanup();
+  /** The plan still reports how many rows the limit hid, so nothing was lost under the notice. */
+  const ids = ['a', 'b', 'c'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id });
+  const plan = api.buildSeatPlan({
+    surface: 'tab', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 1,
+  }, api.defaultSettings());
+  assert.equal(plan.overflow, 2);
 });
 
 // 24. Upload gate: type whitelist first, source size second, 16KB after re-encoding.
@@ -1382,8 +1415,8 @@ test('popout side resolution', () => {
   assert.equal(api.tierFor(260, 1), 320);
   assert.equal(api.tierFor(260, 3), 780);
   assert.equal(api.tierFor(780, 3), 1560);
-  assert.equal(api.assetRef('error', 320), 'plugins/@local/dsh-hotlist/assets/error-320.webp');
-  assert.equal(api.fallbackRef('error'), 'plugins/@local/dsh-hotlist/assets/error.svg');
+  assert.equal(api.assetRef('error', 320), 'plugins/@merusu/dsh-better-notice/assets/error-320.webp');
+  assert.equal(api.fallbackRef('error'), 'plugins/@merusu/dsh-better-notice/assets/error.svg');
   assert.equal(api.dropDistance(400), 184);
 });
 
@@ -1517,19 +1550,38 @@ test('overlay size sanitising', () => {
   assert.equal(missing.overlay.sizeMax, DEFAULTS.overlay.sizeMax);
 });
 
-// 37. Motion interval: 0 means "this category never moves"; otherwise 2–60s in 1s steps.
-test('glyph motion interval sanitising', () => {
-  const off = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 0 } } } });
-  assert.equal(off.categories.pending.glyph.motionIntervalMs, 0);
+// 37. Playback frequency: 0 never plays, 1 every beat, and a v4.3 interval migrates onto the same scale.
+test('playback frequency sanitising', () => {
+  const off = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 0 } } } });
+  assert.equal(off.categories.pending.glyph.frequency, 0);
 
-  const low = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 500 } } } });
-  assert.equal(low.categories.pending.glyph.motionIntervalMs, 2000);
+  const full = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 1 } } } });
+  assert.equal(full.categories.pending.glyph.frequency, 1);
 
-  const high = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 300000 } } } });
-  assert.equal(high.categories.pending.glyph.motionIntervalMs, 60000);
+  const snapped = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 0.42 } } } });
+  assert.equal(snapped.categories.pending.glyph.frequency, 0.4, 'the slider only has 5% steps');
 
-  const rounded = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 2500 } } } });
-  assert.equal(rounded.categories.pending.glyph.motionIntervalMs, 3000, 'intervals snap to whole seconds');
+  const high = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 9 } } } });
+  assert.equal(high.categories.pending.glyph.frequency, 1);
+  const low = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: -3 } } } });
+  assert.equal(low.categories.pending.glyph.frequency, 0);
+
+  /** v4.3 stored an average interval: 2s meant "every beat", 60s meant "almost never". */
+  const everyBeat = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 2000 } } } });
+  assert.equal(everyBeat.categories.pending.glyph.frequency, 1);
+  const never = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 0 } } } });
+  assert.equal(never.categories.pending.glyph.frequency, 0, 'interval 0 meant "never", so it maps to 0 not 1');
+  const rare = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 60000 } } } });
+  assert.equal(rare.categories.pending.glyph.frequency, 0);
+  const middle = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 8000 } } } });
+  assert.equal(middle.categories.pending.glyph.frequency, 0.9);
+  assert.equal('motionIntervalMs' in middle.categories.pending.glyph, false, 'only the frequency is written back');
+
+  /** A v4.0 global interval lands on every class at once. */
+  const global = api.sanitizeSettings({ display: { motionIntervalMs: 30000 } });
+  assert.equal(global.categories.pending.glyph.frequency, 0.5);
+  assert.equal(global.categories.running.glyph.frequency, 0.5);
+  assert.equal(global.categories.pending.glyphSecondary.frequency, 0.5);
 });
 
 // 38. `glyph.source` decides what is drawn: the upload, that category's popout art, or the emoji.
@@ -1567,19 +1619,17 @@ test('glyph source resolution', () => {
   assert.equal(api.resolveStateGlyph(settings, 'approval').value, '🔐', 'an empty emoji falls back to the built-in');
 });
 
-// 39. Sidebar motion is a scheduled burst: one draw per due category, two at most, none under reduce.
+// 39. Sidebar motion is a scheduled burst: one roll per class per tick, two spans at most, none under reduce.
 test('sidebar motion bursts', () => {
-  const realNow = Date.now;
   const realRandom = Math.random;
-  let clock = NOW;
   let rolls = 0;
-  Date.now = () => clock;
+  let value = 0.2;
   Math.random = () => {
     rolls += 1;
-    return 0.2;
+    return value;
   };
   const settings = api.sanitizeSettings(api.defaultSettings());
-  for (const category of ['pending', 'running', 'error']) settings.categories[category].glyph.motionIntervalMs = 2000;
+  for (const category of ['pending', 'running', 'error']) settings.categories[category].glyph.frequency = 1;
   const rows = {
     'session-pending': { status: { running: true, pendingInteraction: { kind: 'approval' } } },
     'session-running': { status: { running: true } },
@@ -1601,31 +1651,35 @@ test('sidebar motion bursts', () => {
   });
   try {
     adapter.start();
-    /** The first tick only starts the clock; the second one has 2s of budget. */
     adapter.tick();
-    clock += 2000;
-    adapter.tick();
+    assert.equal(rolls, 3, 'one roll per class, never one per row');
     assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 2, 'concurrency caps the burst at two');
-    assert.equal(rolls, 2, 'a category that cannot draw is not rolled for');
 
     /** Reduce stops every running burst and never rolls again. */
     settings.display.reduceMotion = 'on';
-    clock += 2000;
     adapter.tick();
     assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 0);
-    assert.equal(rolls, 2);
+    assert.equal(rolls, 3);
 
-    /** Interval 0 is the explicit "never animate this category" switch. */
+    /** Frequency 0 is the explicit "never animate this class" switch, and it skips the roll itself. */
     settings.display.reduceMotion = 'auto';
-    for (const category of ['pending', 'running', 'error']) settings.categories[category].glyph.motionIntervalMs = 0;
-    adapter.tick();
-    clock += 10_000;
+    for (const category of ['pending', 'running', 'error']) settings.categories[category].glyph.frequency = 0;
     adapter.tick();
     assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 0);
-    assert.equal(rolls, 2, 'interval 0 skips the category before it ever rolls');
+    assert.equal(rolls, 3, 'a class at 0% is skipped before it ever rolls');
+
+    /** A low frequency still rolls once, then almost always loses: that is the whole point of the slider. */
+    for (const category of ['pending', 'running', 'error']) settings.categories[category].glyph.frequency = 0.05;
+    value = 0.9;
+    adapter.tick();
+    assert.equal(rolls, 6);
+    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 0, 'a 5% class usually loses its roll');
+    value = 0.02;
+    adapter.tick();
+    assert.equal(rolls, 9);
+    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length <= 2, true, 'a winner still respects the cap');
   } finally {
     adapter.stop();
-    Date.now = realNow;
     Math.random = realRandom;
     clearSidebarRows();
     clearStyleBlocks();
@@ -1676,8 +1730,9 @@ test('settings page densified rows', () => {
 
     const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
       .map((node) => node.props['data-hotlist-row']);
-    assert.equal(rows.includes('within'), true, 'the idle card keeps its include window inline');
-    assert.equal(rows.includes('overlay.size'), true, 'the global block owns both size numbers');
+    assert.equal(rows.includes('recentWindow'), true, 'the recent window lives in the global block, not in a card');
+    assert.equal(rows.includes('within'), false, 'the idle card no longer owns a window of its own');
+    assert.equal(rows.includes('overlay.size'), false, 'v4.5 dropped the size row; the numbers stay in the schema');
     assert.equal(rows.includes('sound.volume'), true);
     assert.equal(rows.some((row) => row.includes('positions.sidebar')), false);
     assert.equal(rows.some((row) => row.startsWith('categories.favorite')), true);
@@ -1692,43 +1747,23 @@ test('settings page densified rows', () => {
   }
 });
 
-// 42. Reset needs a second click, and that armed state forgets itself after 3s.
-test('settings reset auto-disarms', () => {
-  const realSetTimeout = globalThis.setTimeout;
-  const realClearTimeout = globalThis.clearTimeout;
-  const realUseState = ReactStub.useState;
-  let armedDisarm = null;
-  let armedDelay = null;
-  let calls = 0;
-  ReactStub.useState = (initial) => {
-    calls += 1;
-    if (calls === 6) return [true, (next) => { armedDisarm = next; }];
-    return realUseState(initial);
-  };
-  globalThis.setTimeout = (fn, ms, ...rest) => {
-    if (ms === 3000) {
-      armedDelay = ms;
-      globalThis.__armedTimer = fn;
-      return -1;
-    }
-    return realSetTimeout(fn, ms, ...rest);
-  };
-  globalThis.clearTimeout = (id) => {
-    if (id !== -1) realClearTimeout(id);
-  };
-  let harness = null;
+// 42. v4.4 removed the reset row from the page; the API still resets for anyone scripting it.
+test('settings page has no reset row', () => {
+  const rendered = renderPage();
   try {
-    harness = renderPage().harness;
-    assert.equal(armedDelay, 3000, 'the second click is only armed for three seconds');
-    globalThis.__armedTimer();
-    assert.equal(armedDisarm, false);
+    const rows = collect(rendered.page, (props) => typeof props['data-hotlist-row'] === 'string')
+      .map((node) => node.props['data-hotlist-row']);
+    assert.equal(rows.includes('reset'), false, 'the reset control left the page in v4.4');
+    assert.equal(collect(rendered.page, (props) => props['data-hotlist-reset'] !== undefined).length, 0);
   } finally {
-    if (harness !== null) harness.cleanup();
-    delete globalThis.__armedTimer;
-    ReactStub.useState = realUseState;
-    globalThis.setTimeout = realSetTimeout;
-    globalThis.clearTimeout = realClearTimeout;
+    rendered.harness.cleanup();
   }
+  /** The documented API keeps working: a scripted reset writes the defaults back. */
+  const before = api.readSettings();
+  api.writeSettings({ maxSeats: 9 });
+  assert.equal(api.readSettings().maxSeats, 9);
+  api.resetSettings();
+  assert.deepEqual(api.readSettings(), before);
 });
 
 // 43. Finished marks survive a reload: throttled write, one per sync burst, immediate drop on view.
@@ -1849,7 +1884,7 @@ test('no undefined constants', () => {
 
 // 45. Boot smoke: the module loads and reads settings even from a corrupted store.
 test('module boot smoke', () => {
-  assert.equal(loaded.id, '@local/dsh-hotlist');
+  assert.equal(loaded.id, '@merusu/dsh-better-notice');
   assert.equal(typeof api.readSettings, 'function');
   const key = 'dsh.hotlist.settings.v1';
   const previous = storage.getItem(key);
@@ -1910,7 +1945,7 @@ test('sound player dedupe', () => {
   player.observe(shot([]), 4000);
   player.observe(shot([['a', pending]]), 5000);
   assert.equal(plays.length, 1, 'leaving and re-entering the class rings once');
-  assert.match(plays[0].url, /^\/hotlist-sound\/pending-[1-7]\.mp3$/);
+  assert.match(plays[0].url, /^\/hotlist-sound\/attention\.wav$/);
   assert.equal(plays[0].volume, 0.6, 'the global volume drives every sound');
 
   player.observe(shot([['b', pending]]), 6000);
@@ -1950,7 +1985,11 @@ test('seeded and random asset picks', () => {
 
   const settings = api.sanitizeSettings(api.defaultSettings());
   settings.categories.pending.sound.builtin = true;
-  assert.match(api.pickSoundUrl(settings, 'pending'), /^\/hotlist-sound\/pending-[1-7]\.mp3$/);
+  assert.match(api.pickSoundUrl(settings, 'pending'), /^\/hotlist-sound\/attention\.wav$/);
+  assert.match(api.pickSoundUrl(settings, 'error'), /^\/hotlist-sound\/attention\.wav$/);
+  assert.match(api.pickSoundUrl(settings, 'completed'), /^\/hotlist-sound\/complete\.wav$/);
+  assert.equal(api.pickSoundUrl(settings, 'pinned'), '', 'no packaged clip for pinned');
+  assert.deepEqual(api.BUILTIN_SOUND, { pending: 'attention.wav', error: 'attention.wav', completed: 'complete.wav' });
   settings.categories.pending.sound.builtin = false;
   assert.equal(api.pickSoundUrl(settings, 'pending'), '', 'no upload and no built-in means no sound');
 
@@ -2191,6 +2230,160 @@ test('shortcut labels are thunks', () => {
     ['BracketLeft', 'BracketRight', 'KeyS'],
   );
   ctx.cleanup();
+});
+
+// 46. The recent window used to belong to the idle class; v4.4 made it one global setting.
+test('recent window migration and clamping', () => {
+  const fromClass = api.sanitizeSettings({ categories: { idle: { within: 30 } } });
+  assert.equal(fromClass.collect.recentWindowMinutes, 30, 'a custom class window migrates into the global value');
+  assert.equal('within' in fromClass.categories.idle, false, 'the class field is gone after sanitising');
+
+  /** The old default is indistinguishable from "nothing set", so it falls back to the same default. */
+  const oldDefault = api.sanitizeSettings({ categories: { idle: { within: 5 } } });
+  assert.equal(oldDefault.collect.recentWindowMinutes, 5);
+
+  const stored = api.sanitizeSettings({ collect: { recentWindowMinutes: 500 }, categories: { idle: { within: 30 } } });
+  assert.equal(stored.collect.recentWindowMinutes, 120, 'the explicit value wins and clamps to the maximum');
+  const negative = api.sanitizeSettings({ collect: { recentWindowMinutes: -4 } });
+  assert.equal(negative.collect.recentWindowMinutes, 0, 'a negative window clamps to zero');
+
+  /** Zero closes the third tier: nothing lands in idle. */
+  const settings = api.defaultSettings();
+  settings.collect.recentWindowMinutes = 0;
+  const ids = ['fresh'];
+  const byId = { fresh: session({ id: 'fresh', updatedAt: NOW - 60_000 }) };
+  const input = { list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 6 };
+  assert.deepEqual(api.classify(settings, input).filter((row) => row.category === 'idle'), []);
+  settings.collect.recentWindowMinutes = 5;
+  assert.equal(api.classify(settings, input).filter((row) => row.category === 'idle').length, 1);
+});
+
+// 47. The preview loops while the card is open, and its duty cycle is the frequency.
+test('preview loop lifecycle', () => {
+  const glyphFor = (page, category) => collect(page, (props) => props.key === `glyph-${category}-primary`)
+    .find((node) => node.props['data-hotlist-glyph'] !== undefined);
+  api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 1 } } } });
+  try {
+    const full = renderPage();
+    assert.equal(glyphFor(full.page, 'pending').props.style.animation, 'hl-pv-blink-20 1200ms linear infinite', '100% plays every loop at the base tempo');
+    full.harness.cleanup();
+
+    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 0.5 } } } });
+    const half = renderPage();
+    assert.equal(glyphFor(half.page, 'pending').props.style.animation, 'hl-pv-blink-10 2400ms linear infinite', '50% halves the duty cycle and doubles the period');
+    half.harness.cleanup();
+
+    /** A class at 0% renders a still glyph: the animation is not merely slow, it is absent. */
+    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 0 } } } });
+    const still = renderPage();
+    assert.equal(glyphFor(still.page, 'pending').props.style.animation, undefined);
+    still.harness.cleanup();
+
+    /** Reduce motion overrides the slider entirely. */
+    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 1 } } }, display: { reduceMotion: 'on' } });
+    const reduced = renderPage();
+    assert.equal(glyphFor(reduced.page, 'pending').props.style.animation, undefined, 'reduce wins over a 100% frequency');
+    reduced.harness.cleanup();
+  } finally {
+    api.resetSettings();
+  }
+});
+
+/**
+ * `motionTarget: 'row'` used to look dead: the title keyframes only faded opacity,
+ * so a 1px-wide glyph moving read as "nothing happens". v4.4 adds a small translate
+ * and this group pins both halves — the title gets the burst, and the keyframes move.
+ */
+test('motion target row reaches the title', () => {
+  const settings = api.defaultSettings();
+  settings.categories.pending.glyph.motion = 'blink';
+  settings.categories.pending.glyph.frequency = 1;
+  settings.categories.pending.glyph.motionTarget = 'row';
+  clearSidebarRows();
+  const { row, title } = sidebarRow('session-ask', '会话 待审');
+  const adapter = api.createSidebarAdapter({
+    document: globalThis.document,
+    readSettings: () => settings,
+    readSession: () => ({
+      session: session({ id: 'session-ask' }),
+      status: { running: true, pendingInteraction: { kind: 'approval' } },
+      error: undefined,
+      completedAt: undefined,
+      pinned: false,
+      children: 0,
+    }),
+  });
+  try {
+    adapter.start();
+    adapter.tick();
+    assert.equal(title.style.animation, 'hl-text-blink 1.2s ease-in-out 1', 'the row target animates the title itself');
+    assert.equal(title.hasAttribute('data-hotlist-text-motion'), true);
+    assert.equal(row.querySelectorAll('[data-hotlist-burst]').length, 1);
+
+    /** The text keyframes must actually move pixels; opacity alone is what made the option look broken. */
+    const css = head.querySelectorAll('[data-hotlist-style]').map((node) => node.textContent).join('\n');
+    assert.equal(css.includes('@keyframes hl-text-bounce'), true);
+    assert.equal(/@keyframes hl-text-bounce\{[^}]*translateY/.test(css), true, 'row motion needs a translate, not just an opacity wave');
+  } finally {
+    adapter.stop();
+    clearSidebarRows();
+    clearStyleBlocks();
+  }
+});
+
+// 48. Every page control writes through the same store, so a change lands before the next frame.
+test('settings page writes land immediately', async () => {
+  const ids = ['q1', 'q2', 'q3'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, updatedAt: NOW - 60_000 });
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w1', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  await tick();
+  const entry = harness.entries.get('hotlist');
+  const render = () => {
+    let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
+    if (typeof page.type === 'function') page = page.type(page.props);
+    return page;
+  };
+  const controlIn = (page, rowKey, type) => {
+    const row = collect(page, (props) => props['data-hotlist-row'] === rowKey)[0];
+    assert.ok(row !== undefined, `row ${rowKey} is missing`);
+    let found = null;
+    walk(row, (node) => {
+      if (found === null && node.props?.type === type) found = node;
+    });
+    assert.ok(found !== null, `row ${rowKey} has no ${type} control`);
+    return found;
+  };
+  try {
+    /** A global number lands in the store on the same tick the control fires. */
+    controlIn(render(), 'recentWindow', 'number').props.onChange({ target: { value: '30' } });
+    assert.equal(api.readSettings().collect.recentWindowMinutes, 30);
+
+    /** A seat cap change reaches the tab row: three seats become two after the deferred dispose. */
+    assert.equal(orders(harness.entries).length, 3);
+    controlIn(render(), 'maxSeats', 'number').props.onChange({ target: { value: '1' } });
+    assert.equal(api.readSettings().maxSeats, 1, 'the write itself is synchronous');
+    await tick();
+    await tick();
+    assert.equal(orders(harness.entries).length, 1, 'the row follows within two frames');
+
+    /** A checkbox works the same way: the popout switch is a plain store write. */
+    const positionSwitch = controlIn(render(), 'positions.tab', 'checkbox');
+    positionSwitch.props.onChange();
+    assert.equal(api.readSettings().positions.tab, false);
+    await tick();
+    await tick();
+    assert.equal(orders(harness.entries).length, 0, 'turning the tab position off empties the row');
+
+    api.writeSettings({ positions: { tab: true }, maxSeats: 6, collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: 5 } });
+  } finally {
+    harness.cleanup();
+  }
 });
 
 console.log(`PASS — ${groups} groups`);
