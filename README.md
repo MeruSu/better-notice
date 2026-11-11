@@ -103,6 +103,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 dsh --profile <profile>
 ```
 
+- **Not on the npm registry yet.** The registry command above 404s until the first `npm publish`. In the meantime install the tarball attached to the [latest release](https://github.com/MeruSu/better-notice/releases): `dsh plugin --profile <profile> add C:/path/to/merusu-dsh-better-notice-4.6.1.tgz` — same result, same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
