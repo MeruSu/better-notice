@@ -2,7 +2,7 @@
 
 目标读者：下一个要改这份代码的人。看完应该能回答三件事——状态从哪来、三种显示位置各自怎么挂、哪些地方看起来"脏"但**换干净写法会更糟**。
 
-所有行号对 `client.js`（4671 行，v4.6.1）。
+所有行号对 `client.js`（4671 行，v4.6.2）。
 
 ## 1. 分层与真实名字
 
@@ -178,7 +178,7 @@ api-session/error│ sidebarStateOf          client.js:1838 │
 
 ## 12. 版本与标记（验收脚本依赖）
 
-- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:3860`，旧名别名 `client.js:3861`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:4109-4110`）、设置页根 `data-hotlist-settings="v4.6.1"`（`client.js:2978`）。
+- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:3860`，旧名别名 `client.js:3861`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:4109-4110`）、设置页根 `data-hotlist-settings="v4.6.2"`（`client.js:2978`）。
 - 设置页行选择器 `[data-hotlist-row]`；侧栏 marker `span[data-hotlist-glyph]`；我们注入的样式都带 `data-hotlist-style`（`sidebar` / `takeover` / `page`）。浮层 kit 的样式块是唯一例外：`id="hotlist-popout-kit-style"` + `data-hotlist-kit="style"`（`injectKitStyle`，`client.js:3130-3137`），见 §14。
 
 ## 13. v4.6 已落地与还没接的行为

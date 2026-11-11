@@ -2,14 +2,14 @@
 
 版本号跟 `client.js` 里的 `const VERSION` 一致，也与 `package.json` 的 `version` 一致（后者同时是 npm 分发版本号）。设置数据另有一套 schema 版本（`SETTINGS_VERSION`），两者不同：前者是发布版本，后者只在**数据结构**变化时才动。
 
-## 4.6.1
+## 4.6.2
 
 **删掉第 7 类「收藏」+ 最近对话窗口补单位、UI 收窄到 1–36。**
 
 - **`favorite`（收藏）整类删除**：`CATEGORY_IDS` 从 7 类变 **6 类**——`pinned / error / pending / completed / running / idle`。类型、`CATEGORY_ORDER` 里的 `favorite: 60`、设置页那张第 7 卡（以及它的「预留、只读」文案与 `settings.pins.*` 之外的 `favorite` 相关 i18n）、`reserved` 字段一起删掉。**旧数据里的 `categories.favorite` 会被丢弃**（`RETIRED_PATHS`，读时扔掉、写回不再带），不迁移、不报错。置顶不受影响，**仍然接宿主原生置顶**。设置页从 7 卡变 **6 卡**。仓库里 `assets/favorite-*` 五张历史素材也一并删除（`manifest.json` 的类别表同步去掉它）。
 - **老安装的旧默认顺序会被自动升级到新默认，逐类判断**：「某个值等于这一类的历史默认」就视为「用户没选过」，换成新版默认；改过的值原样保留。历史默认在 `LEGACY_DEFAULTS` 里：`pinned` 的 `0`（以及最早那版的 `1`）→ 新 `15`、`pending` 的 `20` → `10`、`completed` 的 `30` → `20`、`running` 的 `40` → `30`；`error` 一直是 `10`、`idle` 一直是 `50`，不需要动。所以「一次都没调过顺序」的老安装会整体看到新次序，只改过其中一类的则只保留它那一个值。
 - **「最近对话展示时间」补单位、UI 范围改为 `1`–`36`**：字段仍是 `collect.recentWindowMinutes`，**单位是分钟**。存储层夹取仍是 `0`–`120`（`0` = 不显示 `idle`），所以**通过 API 写 90 依然有效并保留**；只是设置页那一行现在只给 `1`–`36`（默认 5），不再让人填 0 或 120。两层范围是分开的两个常量（`RECENT_WINDOW_MINUTES` 管数据、`RECENT_WINDOW_UI` 管界面），改代码时别把 UI 上限当数据上限。旧字段 `categories.idle.within` 仍按原路迁移到它。
-- `VERSION` / `package.json.version` → `4.6.1`；`SETTINGS_VERSION` **保持 4**——删掉一个从不产出的类别不构成数据结构破坏，旧数据靠「读时丢弃 + 缺省补全」过关。
+- `VERSION` / `package.json.version` → `4.6.2`；`SETTINGS_VERSION` **保持 4**——删掉一个从不产出的类别不构成数据结构破坏，旧数据靠「读时丢弃 + 缺省补全」过关。
 
 ## 4.6.0
 

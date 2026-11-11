@@ -666,7 +666,7 @@ test('bad data falls back', () => {
   assert.equal(settings.categories.error.glyph.value, '');
   assert.equal(settings.categories.pending.glyphSecondary.value, '🎉');
   assert.equal('nope' in settings.categories, false);
-  /** v4.6.1 retired the favorite category: a stored copy is dropped, not kept as a future key. */
+  /** v4.6.2 retired the favorite category: a stored copy is dropped, not kept as a future key. */
   assert.equal('favorite' in settings.categories, false);
   assert.equal(String(storage.getItem('dsh.betterNotice.preserved.v1') ?? '').includes('categories.favorite'), false);
   storage.removeItem('dsh.hotlist.settings.v1');
@@ -1212,7 +1212,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.6.1');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.6.2');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);

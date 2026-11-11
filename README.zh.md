@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 ```
 
 - 包名：`@merusu/dsh-better-notice`（模块 id 与包名相同）
-- 版本：`4.6.1`（见 [CHANGELOG.md](CHANGELOG.md)）
+- 版本：`4.6.2`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
 
@@ -103,7 +103,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **还没上 npm registry。** 在上面那条 registry 命令能成功之前它会 404。先用 [最新 Release](https://github.com/MeruSu/better-notice/releases) 里附的 tarball：`dsh plugin --profile <profile> add C:/path/to/merusu-dsh-better-notice-4.6.1.tgz`——效果一样，同样要重启。
+- **已发布到 npm：**[@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice)（当前 `4.6.2`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add C:/path/to/merusu-dsh-better-notice-4.6.2.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -128,7 +128,7 @@ host 路由在进程启动时创建，只刷新页面不够。
 
 在 GUI 的浏览器控制台里依次确认：
 
-1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'4.6.1'`；
+1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'4.6.2'`；
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
 3. 打开设置，左导航有**「热表」**，页面里是一块全局区 + **6** 张可折叠的类别卡；
 4. 侧栏的会话行前面出现了状态图标；
@@ -422,7 +422,7 @@ s.lastError()      // 最近一次写盘错误（字符串或 null）
 
 // 设置 + 三个素材池
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.1'
+api.version                                        // '4.6.2'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -462,7 +462,7 @@ api.assets.preview('pending')                      // 立刻试听 → boolean
 
 给「拿到仓库就要动手改」的人或 AI。目标：读完这一节能定位改哪、改完能自己验证，不用回来问。
 
-> **行号怎么用**：下面的 `client.js:NNN` 是 4.6.1 发布时的位置，只作**起点**。文件一改行号就漂，所以先按**符号名**搜（`grep -n 'function classify' client.js`），行号对不上是正常的，符号名才是准的。`test/classify.test.mjs` 同理：组名比行号稳。
+> **行号怎么用**：下面的 `client.js:NNN` 是 4.6.2 发布时的位置，只作**起点**。文件一改行号就漂，所以先按**符号名**搜（`grep -n 'function classify' client.js`），行号对不上是正常的，符号名才是准的。`test/classify.test.mjs` 同理：组名比行号稳。
 
 ### 一句话架构
 

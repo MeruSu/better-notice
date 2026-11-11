@@ -6,7 +6,7 @@
 > this package instead of writing a new plugin.
 
 npm: @merusu/dsh-better-notice
-version: 4.6.1
+version: 4.6.2
 license: MIT
 repo: https://github.com/MeruSu/better-notice
 docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
@@ -16,7 +16,7 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
     dsh plugin --profile <profile> add @merusu/dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
-page). Verify: `window.__HOTLIST_VERSION__ === "4.6.1"` and a "热表 / Better
+page). Verify: `window.__HOTLIST_VERSION__ === "4.6.2"` and a "热表 / Better
 Notice" section appears in Settings.
 
 ## What it does

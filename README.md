@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 ```
 
 - Package: `@merusu/dsh-better-notice` (module id is the same string)
-- Version: `4.6.1` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `4.6.2` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -103,7 +103,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Not on the npm registry yet.** The registry command above 404s until the first `npm publish`. In the meantime install the tarball attached to the [latest release](https://github.com/MeruSu/better-notice/releases): `dsh plugin --profile <profile> add C:/path/to/merusu-dsh-better-notice-4.6.1.tgz` — same result, same restart.
+- **Published on npm:** [@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice) (current `4.6.2`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add C:/path/to/merusu-dsh-better-notice-4.6.2.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -128,7 +128,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.1'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.2'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -422,7 +422,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.1'
+api.version                                        // '4.6.2'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -462,7 +462,7 @@ More examples (bulk import, loading assets from URLs, the three preview paths) i
 
 For anyone — human or AI — who has to change behaviour. Goal: read this, find the place, verify it yourself, no follow-up questions.
 
-> **About line numbers:** `client.js:NNN` below are positions at the 4.6.1 release and are only a **starting point**. They drift as soon as the file changes, so search by **symbol name** (`grep -n 'function classify' client.js`). Mismatched line numbers are normal; the symbol name is the truth. Same for `test/classify.test.mjs`: group names are stabler than line numbers.
+> **About line numbers:** `client.js:NNN` below are positions at the 4.6.2 release and are only a **starting point**. They drift as soon as the file changes, so search by **symbol name** (`grep -n 'function classify' client.js`). Mismatched line numbers are normal; the symbol name is the truth. Same for `test/classify.test.mjs`: group names are stabler than line numbers.
 
 ### Architecture in one paragraph
 
