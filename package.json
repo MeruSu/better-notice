@@ -1,0 +1,29 @@
+{
+  "name": "@local/dsh-hotlist",
+  "version": "1.0.0",
+  "private": true,
+  "description": "热表 / Hot List — hot sessions first",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./assets/*": "./assets/*",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "assets"],
+  "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "web-ui", "sessions", "tab"],
+  "license": "MIT",
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-gateway",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

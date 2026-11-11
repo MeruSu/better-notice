@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="260" height="260" role="img" aria-labelledby="t"><title id="t">完成 · 得意挥手</title>
+<ellipse cx="130" cy="104" rx="88" ry="82" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<rect x="114" y="178" width="32" height="26" rx="12" fill="var(--hl-skin-2,#f2c6a4)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<polygon points="24,247 24,231 36,213 58,205 90,202 130,205 170,202 202,205 224,213 236,231 236,247" fill="var(--hl-cloth,#ff7f6e)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<polygon points="104,203 130,228 156,203" fill="var(--hl-shirt,#fdf8ee)" stroke="var(--hl-outline,#20222f)" stroke-width="4.2" stroke-linejoin="round"/>
+<path d="M 96 204 Q 130 220 164 204" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+<path d="M 60 207 Q 50 226 58 244" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 200 207 Q 210 226 202 244" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 130 231 L 130 246" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+<ellipse cx="130" cy="114" rx="80" ry="74" fill="var(--hl-skin,#ffe3ca)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<polygon points="56,86 60,58 74,44 96,38 130,36 164,38 186,44 200,58 204,86 196,100 184,88 172,104 158,90 146,106 134,92 130,104 126,92 114,106 102,90 88,104 76,88 64,100" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<path d="M 84 62 Q 108 50 126 56" stroke="var(--hl-hair-2,#8792bd)" stroke-width="4.2" stroke-linecap="round" fill="none"/>
+<path d="M 176 62 Q 152 50 134 56" stroke="var(--hl-hair-2,#8792bd)" stroke-width="4.2" stroke-linecap="round" fill="none"/>
+<polygon points="52,92 40,150 58,174 68,112" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<polygon points="208,92 220,150 202,174 192,112" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<ellipse cx="78" cy="150" rx="17" ry="9" fill="var(--hl-blush,#ff9aa2)" opacity="0.42"/>
+<ellipse cx="182" cy="150" rx="17" ry="9" fill="var(--hl-blush,#ff9aa2)" opacity="0.42"/>
+<path d="M 84 92 Q 98 84 114 90" stroke="var(--hl-outline,#20222f)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 176 92 Q 162 84 146 90" stroke="var(--hl-outline,#20222f)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 87 128 Q 100 116 113 128" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linecap="round" fill="none"/>
+<path d="M 147 128 Q 160 116 173 128" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linecap="round" fill="none"/>
+<ellipse cx="130" cy="164" rx="16" ry="13" fill="var(--hl-mouth,#9c4f47)" stroke="var(--hl-outline,#20222f)" stroke-width="4"/>
+<rect x="122" y="158" width="16" height="4" rx="2" fill="var(--hl-white,#ffffff)"/>
+<polygon points="44,53 46.6,61.4 55,64 46.6,66.6 44,75 41.4,66.6 33,64 41.4,61.4" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="216,53 218.6,61.4 227,64 218.6,66.6 216,75 213.4,66.6 205,64 213.4,61.4" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="62,31.5 63.6,36.4 68.5,38 63.6,39.6 62,44.5 60.4,39.6 55.5,38 60.4,36.4" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="198,31.5 199.6,36.4 204.5,38 199.6,39.6 198,44.5 196.4,39.6 191.5,38 196.4,36.4" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="212,210 228,182 238,190 222,214" fill="var(--hl-cloth,#ff7f6e)" stroke="var(--hl-outline,#20222f)" stroke-width="4.4" stroke-linejoin="round"/>
+<ellipse cx="226" cy="172" rx="13" ry="15" fill="var(--hl-skin,#ffe3ca)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<path d="M 234 158 Q 240 168 236 178" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<path d="M 240 146 L 246 152" stroke="var(--hl-hair-2,#8792bd)" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+<path d="M 232 140 L 236 146" stroke="var(--hl-hair-2,#8792bd)" stroke-width="3" stroke-linecap="round" fill="none"/>
+</svg>

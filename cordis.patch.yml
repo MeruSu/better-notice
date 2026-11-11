@@ -1,0 +1,8 @@
+# Bundle patch: one row for @local/dsh-hotlist.
+# The host half registers the /hotlist-sound prefix route so the client can load
+# bundled mp3 cues (the shared package-asset route only serves images). The client
+# half (dsh.client) registers one tab per hot session in the conversation view tab
+# row, plus the sidebar markers and the popout overlay.
+- insert:
+    - id: hotlist
+      name: '@local/dsh-hotlist'

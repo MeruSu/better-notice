@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" width="260" height="260" role="img" aria-labelledby="t"><title id="t">待审 · 期待举手</title>
+<ellipse cx="130" cy="104" rx="88" ry="82" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<rect x="114" y="178" width="32" height="26" rx="12" fill="var(--hl-skin-2,#f2c6a4)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<polygon points="24,247 24,231 36,213 58,205 90,202 130,205 170,202 202,205 224,213 236,231 236,247" fill="var(--hl-cloth,#ff7f6e)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<polygon points="104,203 130,228 156,203" fill="var(--hl-shirt,#fdf8ee)" stroke="var(--hl-outline,#20222f)" stroke-width="4.2" stroke-linejoin="round"/>
+<path d="M 96 204 Q 130 220 164 204" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.6" stroke-linecap="round" fill="none"/>
+<path d="M 60 207 Q 50 226 58 244" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 200 207 Q 210 226 202 244" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 130 231 L 130 246" stroke="var(--hl-cloth-2,#e05a4d)" stroke-width="3.2" stroke-linecap="round" fill="none"/>
+<ellipse cx="130" cy="114" rx="80" ry="74" fill="var(--hl-skin,#ffe3ca)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<polygon points="56,86 60,58 74,44 96,38 130,36 164,38 186,44 200,58 204,86 196,100 184,88 172,104 158,90 146,106 134,92 130,104 126,92 114,106 102,90 88,104 76,88 64,100" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<path d="M 84 62 Q 108 50 126 56" stroke="var(--hl-hair-2,#8792bd)" stroke-width="4.2" stroke-linecap="round" fill="none"/>
+<path d="M 176 62 Q 152 50 134 56" stroke="var(--hl-hair-2,#8792bd)" stroke-width="4.2" stroke-linecap="round" fill="none"/>
+<polygon points="52,92 40,150 58,174 68,112" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<polygon points="208,92 220,150 202,174 192,112" fill="var(--hl-hair,#5b6690)" stroke="var(--hl-outline,#20222f)" stroke-width="5" stroke-linejoin="round"/>
+<ellipse cx="78" cy="150" rx="17" ry="9" fill="var(--hl-blush,#ff9aa2)" opacity="0.42"/>
+<ellipse cx="182" cy="150" rx="17" ry="9" fill="var(--hl-blush,#ff9aa2)" opacity="0.42"/>
+<path d="M 84 92 Q 98 84 114 90" stroke="var(--hl-outline,#20222f)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<path d="M 176 92 Q 162 84 146 90" stroke="var(--hl-outline,#20222f)" stroke-width="3.4" stroke-linecap="round" fill="none"/>
+<ellipse cx="100" cy="126" rx="14.6" ry="17.9" fill="var(--hl-eye,#262a3d)" stroke="var(--hl-outline,#20222f)" stroke-width="2.6"/>
+<polygon points="83.4,124 88.4,109.1 100,105.1 113.6,110.1 115.6,125 100,114.1" fill="var(--hl-eye,#262a3d)"/>
+<ellipse cx="95.3" cy="118.5" rx="5" ry="6.1" fill="var(--hl-white,#ffffff)"/>
+<ellipse cx="105.5" cy="133.9" rx="2.5" ry="3.6" fill="var(--hl-white,#ffffff)" opacity="0.9"/>
+<path d="M 89.5 139.3 Q 100 142.8 110.5 139.3" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<ellipse cx="160" cy="126" rx="14.6" ry="17.9" fill="var(--hl-eye,#262a3d)" stroke="var(--hl-outline,#20222f)" stroke-width="2.6"/>
+<polygon points="143.4,124 148.4,109.1 160,105.1 173.6,110.1 175.6,125 160,114.1" fill="var(--hl-eye,#262a3d)"/>
+<ellipse cx="155.3" cy="118.5" rx="5" ry="6.1" fill="var(--hl-white,#ffffff)"/>
+<ellipse cx="165.5" cy="133.9" rx="2.5" ry="3.6" fill="var(--hl-white,#ffffff)" opacity="0.9"/>
+<path d="M 149.5 139.3 Q 160 142.8 170.5 139.3" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<ellipse cx="130" cy="164" rx="14" ry="12" fill="var(--hl-mouth,#9c4f47)" stroke="var(--hl-outline,#20222f)" stroke-width="4"/>
+<rect x="122" y="158" width="16" height="4" rx="2" fill="var(--hl-white,#ffffff)"/>
+<polygon points="44,50 46.9,59.1 56,62 46.9,64.9 44,74 41.1,64.9 32,62 41.1,59.1" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="216,50 218.9,59.1 228,62 218.9,64.9 216,74 213.1,64.9 204,62 213.1,59.1" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="58,99 59.7,104.3 65,106 59.7,107.7 58,113 56.3,107.7 51,106 56.3,104.3" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<polygon points="202,99 203.7,104.3 209,106 203.7,107.7 202,113 200.3,107.7 195,106 200.3,104.3" fill="var(--hl-accent,#ffd45c)" stroke="var(--hl-outline,#20222f)" stroke-width="3.6" stroke-linejoin="round"/>
+<ellipse cx="70" cy="176" rx="15" ry="18" fill="var(--hl-skin,#ffe3ca)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<path d="M 62 164 Q 60 176 63 188" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<path d="M 71 162 Q 71 178 72 190" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<path d="M 79 164 Q 80 176 78 188" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<ellipse cx="190" cy="176" rx="15" ry="18" fill="var(--hl-skin,#ffe3ca)" stroke="var(--hl-outline,#20222f)" stroke-width="5"/>
+<path d="M 182 164 Q 180 176 183 188" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<path d="M 191 162 Q 191 178 192 190" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+<path d="M 199 164 Q 200 176 198 188" stroke="var(--hl-skin-2,#f2c6a4)" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+</svg>
