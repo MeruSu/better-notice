@@ -55,8 +55,8 @@ DSH 默认只有一个会话列表。会话一多，你分不清哪个在等你�
 
 ```bash
 # 从克隆下来的目录安装（DSH 0.2.x，Web profile）
-git clone https://github.com/JiaoMeru/session-tab-bar.git
-dsh plugin --profile <你的 profile 名> add ./session-tab-bar
+git clone https://github.com/JiaoMeru/better-notice.git
+dsh plugin --profile <你的 profile 名> add ./better-notice
 ```
 
 装完重启一次宿主（`dsh --profile <名>` 或重启桌面端），然后在 设置 → 热表 里配置。
