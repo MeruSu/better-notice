@@ -499,21 +499,20 @@ test('heal view preferences', () => {
   assert.equal(storage.getItem('unrelated.key'), 'keep me');
 });
 
-// 2. The v5 settings shape: seven categories, global collect/overlay/pins; a v3-shaped patch still works.
+// 2. The v5 settings shape: seven categories, global collect/overlay/pinned; a v3-shaped patch still works.
 test('settings read/write', () => {
   assert.equal(DEFAULTS.version, 4);
   assert.deepEqual(DEFAULTS.positions, { tab: true, topbar: false, sidebar: true });
   assert.deepEqual(Object.keys(DEFAULTS.categories).sort(), [
-    'completed', 'error', 'favorite', 'idle', 'pending', 'pinned', 'running',
+    'completed', 'error', 'idle', 'pending', 'pinned', 'running',
   ]);
-  assert.equal(DEFAULTS.categories.favorite.enabled, false);
-  assert.equal(DEFAULTS.categories.favorite.reserved, true);
   assert.equal(DEFAULTS.categories.pending.glyph.value, '🔐');
   assert.equal(DEFAULTS.categories.pending.glyphSecondary.value, '❓');
   assert.equal(DEFAULTS.categories.idle.enabled, true);
   assert.equal(DEFAULTS.categories.idle.surfaces.tab, true);
   assert.equal(DEFAULTS.categories.idle.surfaces.sidebar, true);
   assert.equal(DEFAULTS.collect.completedTtlMs, TTL);
+  assert.equal(DEFAULTS.pinned.maxSeats, 3);
   assert.deepEqual(DEFAULTS.overlay, { side: 'auto', sizeMin: 260, sizeMax: 520, fallbackImage: '' });
   assert.deepEqual(DEFAULTS.sound, { volume: 60 });
   assert.equal('states' in DEFAULTS, false);
@@ -521,11 +520,11 @@ test('settings read/write', () => {
   assert.equal('placement' in DEFAULTS, false);
   assert.equal('enabled' in DEFAULTS.overlay, false);
 
-  const written = api.writeSettings({ maxSeats: 40, pins: { 'session-a': 3, 'session-b': 0 } });
+  const written = api.writeSettings({ maxSeats: 40, pinned: { maxSeats: 99 } });
   assert.equal(written.maxSeats, 12);
-  assert.deepEqual(written.pins, { 'session-a': 3, 'session-b': 1 });
+  assert.equal(written.pinned.maxSeats, 12);
   api.writeSettings({ maxSeats: 6 });
-  api.writeSettings({ pins: {} });
+  api.writeSettings({ pinned: { maxSeats: 3 } });
 
   /** The v3 page still speaks eight states and one overlay flag; those patches land on categories. */
   const legacy = api.writeSettings({ showIdle: true, completedTtlMs: 300000 });
@@ -641,8 +640,7 @@ test('bad data falls back', () => {
     positions: { tab: 'yes' },
     overlay: { side: 'up', scale: 99, fallbackImage: 'data:image/svg+xml;base64,PHN2Zz4=' },
     collect: { completedTtlMs: -5 },
-    pinLevel: 4,
-    pins: { a: 0, b: 7, c: 'x', d: 400 },
+    pinned: { maxSeats: 400 },
     categories: {
       pending: { order: 500, glyph: { kind: 'animated', value: 'x.gif' }, glyphSecondary: { value: '🎉' } },
       nope: { enabled: true },
@@ -658,7 +656,7 @@ test('bad data falls back', () => {
   assert.equal(settings.overlay.sizeMax, 900);
   assert.equal(settings.overlay.fallbackImage, '');
   assert.equal(settings.collect.completedTtlMs, 60000);
-  assert.deepEqual(settings.pins, { a: 1, b: 7, d: 99 });
+  assert.equal(settings.pinned.maxSeats, 12);
   assert.equal(settings.categories.pending.order, 99);
   assert.equal(settings.categories.pending.glyph.kind, 'emoji');
   /** `kind` follows the pool now, and a non-image `value` is plain glyph text. */
@@ -668,17 +666,18 @@ test('bad data falls back', () => {
   assert.equal(settings.categories.error.glyph.value, '');
   assert.equal(settings.categories.pending.glyphSecondary.value, '🎉');
   assert.equal('nope' in settings.categories, false);
-  assert.equal(settings.categories.favorite.enabled, false);
-  assert.equal(settings.categories.favorite.glyph.value, '⭐');
+  /** v4.6.1 retired the favorite category: a stored copy is dropped, not kept as a future key. */
+  assert.equal('favorite' in settings.categories, false);
+  assert.equal(String(storage.getItem('dsh.betterNotice.preserved.v1') ?? '').includes('categories.favorite'), false);
   storage.removeItem('dsh.hotlist.settings.v1');
   api.resetSettings();
 });
 
-// 6. Seven categories, one session each; `favorite` never produces a row and `idle` obeys its window.
+// 6. Six categories, one session each; `idle` obeys its window.
 test('seven categories', () => {
   const settings = api.defaultSettings();
   settings.categories.idle.enabled = true;
-  settings.pins['session-pinned'] = 1;
+  settings.pinned.maxSeats = 3;
   const ids = ['session-pinned', 'session-approval', 'session-error', 'session-finished', 'session-running', 'session-idle'];
   const byId = {
     'session-pinned': session({ id: 'session-pinned', updatedAt: NOW - 60 * 60_000 }),
@@ -702,6 +701,7 @@ test('seven categories', () => {
     completedAt,
     now: NOW,
     workspaceIds: null,
+    pinnedSessionIds: ['session-pinned'],
   });
   const found = Object.fromEntries(rows.map((row) => [row.sessionId, `${row.category}:${row.token}`]));
   assert.equal(found['session-pinned'], 'pinned:pinned');
@@ -710,7 +710,6 @@ test('seven categories', () => {
   assert.equal(found['session-finished'], 'completed:completed');
   assert.equal(found['session-running'], 'running:running');
   assert.equal(found['session-idle'], 'idle:idle');
-  assert.equal(rows.some((row) => row.category === 'favorite'), false);
 
   /** Idle is a window, not a flag: five minutes in, yes; one second later, no. */
   const inside = api.classify(settings, {
@@ -765,10 +764,11 @@ test('pending merge and subagents', () => {
   assert.equal(rows.filter((row) => row.category === 'pending').length, 3);
 });
 
-// 8. Pinned sits first, ordered by pinLevel, and keeps its own order block.
+// 8. Pinned rows follow the store list (most recent first) and sit in their own order block.
 test('pinned first', () => {
   const settings = api.defaultSettings();
-  settings.pins = { s3: 2, s1: 1 };
+  /** The workspace store, most recently pinned first: `pinLevel` is index + 1. */
+  const pinnedSessionIds = ['s1', 's3'];
   const list = {
     ids: ['s1', 's2', 's3'],
     byId: { s1: session({ id: 's1' }), s2: session({ id: 's2', running: true }), s3: session({ id: 's3' }) },
@@ -782,8 +782,9 @@ test('pinned first', () => {
     now: NOW,
     workspaceIds: null,
     limit: 5,
+    pinnedSessionIds,
   }, settings);
-  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s1', 1], ['s3', 2], ['s2', 4001]]);
+  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s1', 1501], ['s3', 1502], ['s2', 3001]]);
   assert.deepEqual(plan.map((seat) => seat.token), ['pinned', 'pinned', 'running']);
 });
 
@@ -917,6 +918,10 @@ test('sidebar priority', () => {
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { pendingInteraction: { kind: 'plan-review' } } }), 'question');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true } }), 'running');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined, pinned: true }), 'pinned');
+  /** Only `idle` ranks below a pin: a run or a finish still owns the row. */
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true }, pinned: true }), 'running');
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: { completionUnread: true }, pinned: true }), 'completed');
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined, pinned: true, error: { message: 'x', at: NOW } }), 'error');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { completionUnread: true } }), 'completed');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined }), 'idle');
   const old = session({ id: 'y', updatedAt: NOW - 5 * 60_000 - 1 });
@@ -964,7 +969,8 @@ test('settings sanitizing', () => {
   assert.equal(sanitized.overlay.sizeMin, 260);
   assert.equal(sanitized.overlay.sizeMax, 520);
   assert.equal(sanitized.overlay.side, 'right');
-  assert.equal(api.sanitizeSettings({ pinLevels: {} }).categories.pinned.order, 0);
+  /** `pinned` is an ordinary class now: order 15, not a forced 0. */
+  assert.equal(api.sanitizeSettings({ pinLevels: {} }).categories.pinned.order, 15);
   const noOverlayEnabled = api.sanitizeSettings({ overlay: { enabled: true } });
   assert.equal('enabled' in noOverlayEnabled.overlay, false);
 });
@@ -1010,7 +1016,7 @@ await testAsync('adapter plan', async () => {
   api.apply(harness.ctx, {});
   await tick();
   const seats = () => orders(harness.entries);
-  assert.deepEqual(seats(), [['s2', 4001], ['s1', 5001]]);
+  assert.deepEqual(seats(), [['s2', 3001], ['s1', 5001]]);
   const registrations = harness.registrations.length;
 
   /** A settings write through the public surface recomputes seats immediately. */
@@ -1019,7 +1025,7 @@ await testAsync('adapter plan', async () => {
   assert.deepEqual(seats(), [['s1', 5001]]);
   win.__HOTLIST_SETTINGS__.set({ categories: { running: { surfaces: { tab: true } } } });
   await tick();
-  assert.deepEqual(seats(), [['s2', 4001], ['s1', 5001]]);
+  assert.deepEqual(seats(), [['s2', 3001], ['s1', 5001]]);
 
   /** Clicking a seat opens that session and falls back to `chat` on both sides. */
   const entry = harness.entries.get('hotlist-seat-s1');
@@ -1206,12 +1212,12 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.5.0');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.6.1');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
   for (const key of [
-    'maxSeats', 'collect.completedTtlMs', 'sound.volume', 'recentWindow',
+    'maxSeats', 'pinned.maxSeats', 'collect.completedTtlMs', 'sound.volume', 'recentWindow',
     'positions.tab', 'positions.topbar',
     'takeOverStatusDot',
   ]) {
@@ -1221,32 +1227,27 @@ test('settings page', () => {
   for (const key of ['hideNativeDot', 'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.keys', 'reset', 'within', 'overlay.size']) {
     assert.equal(rows.includes(key), false, `removed row ${key} is still rendered`);
   }
-  for (const category of ['pinned', 'error', 'pending', 'completed', 'running', 'idle', 'favorite']) {
+  for (const category of ['pinned', 'error', 'pending', 'completed', 'running', 'idle']) {
     assert.equal(rows.includes(`categories.${category}`), true, `missing card ${category}`);
   }
+  assert.equal(rows.includes('categories.favorite'), false, 'the retired favorite card is gone');
 
   const cards = collect(page, (props) => typeof props['data-category'] === 'string')
     .map((node) => node.props['data-category']);
-  assert.deepEqual(cards, ['pinned', 'error', 'pending', 'completed', 'running', 'idle', 'favorite']);
+  assert.deepEqual(cards, ['error', 'pending', 'pinned', 'completed', 'running', 'idle']);
   assert.equal(collect(page, (props) => props['data-hotlist-card-body'] !== undefined).length, 0);
 
   const chips = collect(page, (props) => props.className === 'hl-chip');
-  assert.equal(chips.length, 35);
+  assert.equal(chips.length, 30);
   for (const chip of chips) {
     assert.equal(typeof chip.props['aria-label'], 'string');
     assert.equal(['true', 'false'].includes(chip.props['data-on']), true);
   }
   /** `topbar` is announced but not implemented: its chip is always off and disabled. */
   const topbar = chips.filter((chip) => chip.props['data-disabled'] === 'true');
-  assert.equal(topbar.length, 7);
+  assert.equal(topbar.length, 6);
   assert.equal(topbar.every((chip) => chip.props['data-on'] === 'false'), true);
 
-  const favorite = collect(page, (props) => props['data-category'] === 'favorite')[0];
-  assert.equal(textOf(favorite).includes('settings.card.reserved'), true);
-  /** `favorite` is disabled, so every chip on it must read as off even where the field says true. */
-  const favoriteChips = collect(favorite, (props) => props.className === 'hl-chip');
-  assert.equal(favoriteChips.length, 5);
-  assert.equal(favoriteChips.every((chip) => chip.props['data-on'] === 'false'), true);
   /** Position chips point at the global block instead of pretending to be clickable. */
   for (const chip of chips.filter((node) => ['Tab', '栏', '顶'].includes(node.props['aria-label']))) {
     assert.equal(chip.props.title, 'settings.chip.positionHint');
@@ -1264,30 +1265,11 @@ test('settings page card order', () => {
   const { harness, page } = renderPage();
   const cards = collect(page, (props) => typeof props['data-category'] === 'string')
     .map((node) => node.props['data-category']);
-  /** `pinned` keeps order 0 (forced), so it stays first. */
-  assert.deepEqual(cards.slice(0, 2), ['pinned', 'error']);
-  assert.equal(cards[cards.length - 1], 'favorite');
+  /** `error` now asks for 5, so it leads the tie-break group; `pinned` sits at 15, after both. */
+  assert.deepEqual(cards.slice(0, 3), ['error', 'pending', 'pinned']);
+  assert.equal(cards[cards.length - 1], 'idle');
   harness.cleanup();
   api.overrideSettings(null);
-});
-
-// 22. `favorite` is reserved: opening it shows a read-only note and every control is disabled.
-test('settings page favorite locked', () => {
-  const cardStorage = new MemoryStorage({ 'dsh.hotlist.open': 'favorite' });
-  globalThis.sessionStorage = cardStorage;
-  const { harness, page } = renderPage();
-  const bodies = collect(page, (props) => props['data-hotlist-card-body'] === 'favorite');
-  assert.equal(bodies.length, 1);
-  assert.equal(textOf(bodies[0]).includes('settings.glyphReserved'), true);
-  const controls = collect(bodies[0], (props) => ['input', 'select', 'button'].includes(props.type ?? ''));
-  assert.ok(controls.length > 0);
-  assert.equal(controls.every((node) => node.props.disabled === true), true);
-  /** A reserved write is dropped before it can reach storage: only the defaults come back. */
-  const sanitized = api.sanitizeSettings({ categories: { favorite: { enabled: true, glyph: { value: '⭐' } } } });
-  assert.equal(sanitized.categories.favorite.enabled, false);
-  assert.equal(sanitized.categories.favorite.glyph.value, '⭐');
-  harness.cleanup();
-  delete globalThis.sessionStorage;
 });
 
 // 23. v4.4 dropped the overflow notice: the plan still counts, nothing on the page shows it.
@@ -1619,7 +1601,7 @@ test('glyph source resolution', () => {
   assert.equal(api.resolveStateGlyph(settings, 'approval').value, '🔐', 'an empty emoji falls back to the built-in');
 });
 
-// 39. Sidebar motion is a scheduled burst: one roll per class per tick, two spans at most, none under reduce.
+// 39. Sidebar motion is a scheduled burst: one roll per class per tick, four spans at most, none under reduce.
 test('sidebar motion bursts', () => {
   const realRandom = Math.random;
   let rolls = 0;
@@ -1653,7 +1635,7 @@ test('sidebar motion bursts', () => {
     adapter.start();
     adapter.tick();
     assert.equal(rolls, 3, 'one roll per class, never one per row');
-    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 2, 'concurrency caps the burst at two');
+    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length, 3, 'one burst per class, three classes');
 
     /** Reduce stops every running burst and never rolls again. */
     settings.display.reduceMotion = 'on';
@@ -1677,7 +1659,7 @@ test('sidebar motion bursts', () => {
     value = 0.02;
     adapter.tick();
     assert.equal(rolls, 9);
-    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length <= 2, true, 'a winner still respects the cap');
+    assert.equal(document.querySelectorAll('[data-hotlist-burst]').length <= 4, true, 'a winner still respects the cap');
   } finally {
     adapter.stop();
     Math.random = realRandom;
@@ -1701,12 +1683,12 @@ test('settings page multiple open cards', () => {
   }
 
   /** A single bare id from an older build opens that one card. */
-  globalThis.sessionStorage = new MemoryStorage({ 'dsh.hotlist.open': 'favorite' });
+  globalThis.sessionStorage = new MemoryStorage({ 'dsh.hotlist.open': 'idle' });
   try {
     const { harness, page } = renderPage();
     const opened = collect(page, (props) => typeof props['data-hotlist-card-body'] === 'string')
       .map((node) => node.props['data-hotlist-card-body']);
-    assert.deepEqual(opened, ['favorite']);
+    assert.deepEqual(opened, ['idle']);
     harness.cleanup();
   } finally {
     delete globalThis.sessionStorage;
@@ -1716,7 +1698,7 @@ test('settings page multiple open cards', () => {
 // 41. Row density: presets share rows, hint spans the full width, and the removed rows are gone.
 test('settings page densified rows', () => {
   globalThis.sessionStorage = new MemoryStorage({
-    'dsh.hotlist.open': JSON.stringify(['pinned', 'error', 'pending', 'completed', 'running', 'idle', 'favorite']),
+    'dsh.hotlist.open': JSON.stringify(['pinned', 'error', 'pending', 'completed', 'running', 'idle']),
   });
   const { harness, page } = renderPage();
   try {
@@ -1735,11 +1717,11 @@ test('settings page densified rows', () => {
     assert.equal(rows.includes('overlay.size'), false, 'v4.5 dropped the size row; the numbers stay in the schema');
     assert.equal(rows.includes('sound.volume'), true);
     assert.equal(rows.some((row) => row.includes('positions.sidebar')), false);
-    assert.equal(rows.some((row) => row.startsWith('categories.favorite')), true);
+    assert.equal(rows.some((row) => row.startsWith('categories.favorite')), false);
 
     /** The entrance control is fixed for this build: it renders as text with the reason, never as a picker. */
     const fixed = collect(page, (props) => props.title === 'settings.popout.entranceFixed');
-    assert.equal(fixed.length, 7, 'every card explains why its entrance control is read-only');
+    assert.equal(fixed.length, 6, 'every card explains why its entrance control is read-only');
     assert.equal(fixed.every((node) => node.type === 'span'), true);
   } finally {
     harness.cleanup();
@@ -2383,6 +2365,151 @@ test('settings page writes land immediately', async () => {
     api.writeSettings({ positions: { tab: true }, maxSeats: 6, collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: 5 } });
   } finally {
     harness.cleanup();
+  }
+});
+
+// 59. The hard ceiling keeps the priority head: 37 rows, and the tail loses out, never the head.
+test('plan hard ceiling keeps the priority head', () => {
+  const settings = api.defaultSettings();
+  const ids = [];
+  const byId = {};
+  for (let index = 0; index < 60; index += 1) {
+    const id = `idle-${index}`;
+    ids.push(id);
+    byId[id] = session({ id, updatedAt: NOW - 60_000 });
+  }
+  const crowded = api.buildSeatPlan({
+    surface: 'tab', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(),
+    now: NOW, workspaceIds: null, limit: 40,
+  }, settings);
+  assert.equal(crowded.length, 37, 'the hard ceiling is 37, whatever the limit says');
+  assert.equal(crowded.overflow, 20, 'overflow counts every row the ceiling and the limit dropped');
+
+  /** One urgent row joins 37 idle ones: it takes the head and the last idle falls off the tail. */
+  const withError = { ids: ['err', ...ids.slice(0, 37)], byId: { err: session({ id: 'err', updatedAt: NOW - 120_000 }) } };
+  for (const [index, id] of ids.slice(0, 37).entries()) {
+    withError.byId[id] = session({ id, updatedAt: NOW - 60_000 - index * 1000 });
+  }
+  const plan = api.buildSeatPlan({
+    surface: 'tab', list: withError, statuses: new Map(), errors: new Map([['err', { message: 'boom', at: NOW }]]),
+    completedAt: new Map(), now: NOW, workspaceIds: null, limit: 40,
+  }, settings);
+  assert.equal(plan.length, 37);
+  assert.equal(plan[0].category, 'error', 'the urgent row keeps the head');
+  assert.equal(plan.some((seat) => seat.sessionId === 'idle-36'), false, 'the oldest idle row is the one that goes');
+  assert.equal(plan.some((seat) => seat.sessionId === 'idle-0'), true);
+});
+
+// 60. v4.6 defaults only fill gaps: a stored choice survives a default change.
+test('defaults never overwrite stored values', () => {
+  const settings = api.defaultSettings();
+  for (const category of Object.keys(settings.categories)) {
+    assert.equal(settings.categories[category].glyph.motionTarget, 'row', 'titles move with the glyph by default');
+  }
+  assert.deepEqual(api.tokenMotion(settings, 'error'), { motion: 'bounce', motionTarget: 'row' });
+
+  const stored = {
+    ...settings,
+    categories: {
+      ...settings.categories,
+      error: {
+        ...settings.categories.error,
+        glyph: { ...settings.categories.error.glyph, motionTarget: 'glyph', frequency: 0.35 },
+      },
+    },
+  };
+  const sanitized = api.sanitizeSettings(stored);
+  assert.equal(sanitized.categories.error.glyph.motionTarget, 'glyph', 'a stored target beats the new default');
+  assert.equal(sanitized.categories.error.glyph.frequency.toFixed(2), '0.35', 'and so does the stored frequency');
+});
+
+// 61. Non-destructive updates: what this build cannot represent is kept, not deleted, and writes keep a backup ring.
+test('user settings are never overwritten', () => {
+  const key = 'dsh.hotlist.settings.v1';
+  const preservedKey = 'dsh.betterNotice.preserved.v1';
+  const backupKey = 'dsh.betterNotice.backup.v1';
+  storage.setItem(key, JSON.stringify({ ...api.defaultSettings(), maxSeats: 40, experimental: { flag: true } }));
+  storage.removeItem(preservedKey);
+  storage.removeItem(backupKey);
+
+  const settings = api.readSettings();
+  assert.equal(settings.maxSeats, 12, 'the live value is clamped to what this build supports');
+  const preserved = JSON.parse(storage.getItem(preservedKey));
+  assert.deepEqual(preserved.unknown.experimental, { flag: true }, 'a key from a newer build stays on disk');
+  assert.deepEqual(preserved.outOfRange.maxSeats, { raw: 40, clamped: 12 }, 'the raw number is kept next to its clamp');
+
+  const surface = api.createHotlistApi({
+    getSettings: api.readSettings,
+    writeSettings: api.writeSettings,
+    resetSettings: api.resetSettings,
+    onSettingsChange: api.onSettingsChange,
+    preview: () => false,
+  });
+  assert.deepEqual(surface.settings.backups(), []);
+  api.writeSettings({ maxSeats: 5 });
+  const backups = surface.settings.backups();
+  assert.equal(backups.length, 1, 'the blob replaced by a write is kept');
+  assert.equal(typeof backups[0].at, 'number');
+  assert.equal(backups[0].version, 4);
+
+  api.resetSettings();
+  storage.removeItem(preservedKey);
+  storage.removeItem(backupKey);
+});
+
+// 62. An order that only ever equalled an old default is not a choice: it follows the new default.
+test('legacy default order is adopted, real choices are kept', () => {
+  const settings = api.sanitizeSettings({
+    categories: {
+      pinned: { order: 1 },
+      pending: { order: 20 },
+      completed: { order: 30 },
+      running: { order: 40 },
+    },
+  });
+  assert.equal(settings.categories.pinned.order, 15, 'the old pinned default (1) moves to 15');
+  assert.equal(settings.categories.pending.order, 10, 'the old pending default (20) moves to 10');
+  assert.equal(settings.categories.completed.order, 20, 'the old completed default (30) moves to 20');
+  assert.equal(settings.categories.running.order, 30, 'the old running default (40) moves to 30');
+
+  /** A number the user actually typed is a choice, even when it sits next to an old default. */
+  const chosen = api.sanitizeSettings({
+    categories: { pending: { order: 42 }, running: { order: 7 }, idle: { order: 60 } },
+  });
+  assert.equal(chosen.categories.pending.order, 42);
+  assert.equal(chosen.categories.running.order, 7);
+  assert.equal(chosen.categories.idle.order, 60, 'idle never had a competing default, so 60 is user input');
+
+  /** The same rule covers a whole stored blob, which is how an old install actually arrives. */
+  const stored = api.sanitizeSettings({ version: 4, categories: { pinned: { order: 0 }, error: { order: 10 } } });
+  assert.equal(stored.categories.pinned.order, 15);
+  assert.equal(stored.categories.error.order, 10);
+});
+
+// 63. The page offers 1-36 minutes; the store still accepts the whole 0-120 range an API caller may want.
+test('recent window UI bounds are narrower than the API', () => {
+  const rendered = renderPage();
+  try {
+    const row = collect(rendered.page, (props) => props['data-hotlist-row'] === 'recentWindow')[0];
+    let control = null;
+    walk(row, (node) => {
+      if (control === null && node.props?.type === 'number') control = node;
+    });
+    assert.ok(control !== null, 'the recent window row has a number input');
+    assert.equal(control.props.min, 1, 'the page starts at one minute: zero is not a human choice');
+    assert.equal(control.props.max, 36, 'the page stops at 36 minutes');
+  } finally {
+    rendered.harness.cleanup();
+  }
+
+  /** An AI writing through the API is not held to the slider's bounds. */
+  try {
+    api.writeSettings({ collect: { recentWindowMinutes: 90 } });
+    assert.equal(api.readSettings().collect.recentWindowMinutes, 90, '90 minutes survives the store');
+    const stored = JSON.parse(storage.getItem('dsh.hotlist.settings.v1'));
+    assert.equal(stored.collect.recentWindowMinutes, 90, 'and it is what lands on disk');
+  } finally {
+    api.writeSettings({ collect: { recentWindowMinutes: 5 } });
   }
 });
 

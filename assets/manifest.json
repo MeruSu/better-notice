@@ -1,223 +1,98 @@
 {
-  "note": "Built from the user's own avatar archive; no generated art.",
-  "source_dir": "C:\\Meru\\图片\\头像\\归档",
+  "note": "Three categories ship raster art (error, pending, completed) — exactly the states that pop a picture by default. pinned / running / idle have no raster art: their popouts fall back to the packaged SVG and then to the emoji glyph. These are the author's placeholder character art; replace them with your own square transparent PNGs (see README > Artwork).",
   "tiers": {
     "1560": "3x on HiDPI (popout 780 CSS px * 2)",
     "780": "3x popout / 2x on HiDPI",
     "320": "1.5x-2x popout",
-    "64": "settings thumb only; sidebar uses emoji (see hotlist-art/SPEC.md 0.2)"
+    "64": "settings thumb only; the sidebar uses emoji"
   },
   "categories": {
-    "pinned": {
-      "source": "meru2-0-opinion.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "手指点出 / 有主见",
-      "files": {
-        "1560": {
-          "file": "pinned-1560.webp",
-          "bytes": 122094,
-          "px": 1357
-        },
-        "780": {
-          "file": "pinned-780.webp",
-          "bytes": 66598,
-          "px": 780
-        },
-        "320": {
-          "file": "pinned-320.webp",
-          "bytes": 21790,
-          "px": 320
-        },
-        "64": {
-          "file": "pinned-64.webp",
-          "bytes": 3374,
-          "px": 64
-        }
-      }
-    },
     "error": {
-      "source": "meru2-0-fight.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "皱眉握拳 / 出错",
+      "source": "meru2-0-opinion.png",
+      "why": "Meru, red, leaning out — the warning pose. Used for `error` (and `pending`).",
       "files": {
         "1560": {
           "file": "error-1560.webp",
-          "bytes": 166036,
-          "px": 1403
+          "bytes": 131530,
+          "px": 1560
         },
         "780": {
           "file": "error-780.webp",
-          "bytes": 78858,
+          "bytes": 60462,
           "px": 780
         },
         "320": {
           "file": "error-320.webp",
-          "bytes": 22244,
+          "bytes": 21790,
           "px": 320
         },
         "64": {
           "file": "error-64.webp",
-          "bytes": 3496,
+          "bytes": 3112,
           "px": 64
         }
       }
     },
     "pending": {
-      "source": "meru2-0-awkward.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "挠头尬笑 / 等你回话",
+      "source": "meru2-0-id.png",
+      "why": "Meru, red, holding up an ID — the 'you need to act' pose. Used for `pending`.",
       "files": {
         "1560": {
           "file": "pending-1560.webp",
-          "bytes": 117320,
-          "px": 1357
+          "bytes": 154108,
+          "px": 1560
         },
         "780": {
           "file": "pending-780.webp",
-          "bytes": 66382,
+          "bytes": 68372,
           "px": 780
         },
         "320": {
           "file": "pending-320.webp",
-          "bytes": 21592,
+          "bytes": 21300,
           "px": 320
         },
         "64": {
           "file": "pending-64.webp",
-          "bytes": 3360,
+          "bytes": 3054,
           "px": 64
         }
       }
     },
     "completed": {
-      "source": "meru2-0-happy.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "举手欢呼 / 干完了",
+      "source": "lan2-0-sleepy.png",
+      "why": "Lan, blue — the calm/done pose. Used for `completed`.",
       "files": {
         "1560": {
           "file": "completed-1560.webp",
-          "bytes": 117144,
-          "px": 1381
+          "bytes": 128080,
+          "px": 1560
         },
         "780": {
           "file": "completed-780.webp",
-          "bytes": 66670,
+          "bytes": 62966,
           "px": 780
         },
         "320": {
           "file": "completed-320.webp",
-          "bytes": 21892,
+          "bytes": 23552,
           "px": 320
         },
         "64": {
           "file": "completed-64.webp",
-          "bytes": 3418,
-          "px": 64
-        }
-      }
-    },
-    "running": {
-      "source": "meru2-0-work.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "敲键盘 / 干活中",
-      "files": {
-        "1560": {
-          "file": "running-1560.webp",
-          "bytes": 147444,
-          "px": 1376
-        },
-        "780": {
-          "file": "running-780.webp",
-          "bytes": 77620,
-          "px": 780
-        },
-        "320": {
-          "file": "running-320.webp",
-          "bytes": 23886,
-          "px": 320
-        },
-        "64": {
-          "file": "running-64.webp",
-          "bytes": 3246,
-          "px": 64
-        }
-      }
-    },
-    "idle": {
-      "source": "meru2-0-sleep.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "趴着睡 / 闲置",
-      "files": {
-        "1560": {
-          "file": "idle-1560.webp",
-          "bytes": 110856,
-          "px": 1357
-        },
-        "780": {
-          "file": "idle-780.webp",
-          "bytes": 63398,
-          "px": 780
-        },
-        "320": {
-          "file": "idle-320.webp",
-          "bytes": 20600,
-          "px": 320
-        },
-        "64": {
-          "file": "idle-64.webp",
-          "bytes": 3334,
-          "px": 64
-        }
-      }
-    },
-    "favorite": {
-      "source": "meru2-0-music.png",
-      "source_px": [
-        1440,
-        1440
-      ],
-      "why": "戴耳机听歌 / 收藏",
-      "files": {
-        "1560": {
-          "file": "favorite-1560.webp",
-          "bytes": 141434,
-          "px": 1346
-        },
-        "780": {
-          "file": "favorite-780.webp",
-          "bytes": 72782,
-          "px": 780
-        },
-        "320": {
-          "file": "favorite-320.webp",
-          "bytes": 22414,
-          "px": 320
-        },
-        "64": {
-          "file": "favorite-64.webp",
-          "bytes": 3332,
+          "bytes": 3136,
           "px": 64
         }
       }
     }
   },
-  "total_bytes": 1592614
+  "total_webp_bytes": 681462,
+  "svg_fallbacks": [
+    "completed.svg",
+    "error.svg",
+    "idle.svg",
+    "pending.svg",
+    "pinned.svg",
+    "running.svg"
+  ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "@merusu/dsh-better-notice",
-  "version": "4.5.0",
+  "version": "4.6.1",
   "private": false,
   "description": "Better Notice — unified visual and audible session notices for DeepSeek Harness: hot-session tab seats, sidebar state glyphs, per-state sounds and popout artwork",
   "type": "module",

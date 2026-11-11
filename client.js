@@ -51,15 +51,15 @@
  * + an observer re-check, never removing the node; `hideNativeDot` hides the
  * host status slot through the row attribute `data-hotlist-hide-native`.
  *
- * Settings model is v4 (`SETTINGS_VERSION`): seven `categories` — pinned, error,
- * pending, completed, running, idle, favorite (reserved) — 25 fields each, plus
- *   maxSeats ('auto' | 1–12), collect.completedTtlMs,
+ * Settings model is v4 (`SETTINGS_VERSION`): six `categories` — pinned, error,
+ * pending, completed, running, idle — 24 fields each, plus
+ *   maxSeats ('auto' | 1–12), collect.{completedTtlMs, recentWindowMinutes},
  *   positions.{tab,topbar,sidebar} (all three false means hidden, never
  *       "fall back to the tab row"),
  *   takeOverStatusDot / hideNativeDot,
  *   display.{reduceMotion},
  *   shortcuts.{jumpEnabled,overlayEnabled,overlayKey} (overlay key resets on reload),
- *   overlay.{side,sizeMin,sizeMax,fallbackImage}, sound.{volume}, pins{<sessionId>: level}.
+ *   overlay.{side,sizeMin,sizeMax,fallbackImage}, sound.{volume}, pinned.{maxSeats}.
  * Field names are the settings-page contract. `docs/ARCHITECTURE.md` §10 has the
  * migration chain (v3.1 → v4; any other version is read through the v3 table).
  * Storage key `dsh.hotlist.settings.v1`; `window.__HOTLIST_SETTINGS__` exposes
@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.5.0';
+    const VERSION = '4.6.1';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -103,6 +103,11 @@ window.__ModuleLoader__.load({
     const RECENT_SEAT_MS = 60 * 1000;
 
     const SETTINGS_KEY = 'dsh.hotlist.settings.v1';
+    /** Data a future build wrote: kept verbatim so an update never deletes what we do not understand. */
+    const PRESERVED_KEY = 'dsh.betterNotice.preserved.v1';
+    /** Rolling copies of the last few stored blobs; `window.__HOTLIST__.settings.restore(i)` reads them. */
+    const BACKUP_KEY = 'dsh.betterNotice.backup.v1';
+    const BACKUP_LIMIT = 5;
     const LEGACY_SETTINGS_KEY = 'dsh.session-switcher.settings';
     const SETTINGS_VERSION = 4;
     /** Settings section: `settings.section` nav entry for this plugin. */
@@ -111,17 +116,30 @@ window.__ModuleLoader__.load({
     const SECTION_ORDER = 30;
 
     /**
-     * v4 model: seven categories, fixed ids. `favorite` is reserved (never
-     * produced); `pending` merges approval + question/plan-review into one
-     * category with two glyphs; `subagents` folds into `running`.
+     * v4 model: six categories, fixed ids. `pending` merges approval + question/plan-review into
+     * one category with two glyphs; `subagents` folds into `running`.
      */
-    const CATEGORY_IDS = ['pinned', 'error', 'pending', 'completed', 'running', 'idle', 'favorite'];
-    const CATEGORY_ORDER = { pinned: 0, error: 10, pending: 20, completed: 30, running: 40, idle: 50, favorite: 60 };
-    const CATEGORY_RESERVED = ['favorite'];
+    const CATEGORY_IDS = ['pinned', 'error', 'pending', 'completed', 'running', 'idle'];
+    const CATEGORY_ORDER = { error: 10, pending: 10, pinned: 15, completed: 20, running: 30, idle: 50 };
+    /** Tie-break for equal `order` values: `error` before `pending`, then down the list. */
+    const CATEGORY_RANK = { error: 0, pending: 1, pinned: 2, completed: 3, running: 4, idle: 5 };
+    /**
+     * `order` values that earlier versions wrote as their own default. A stored value equal to one of
+     * these was never a user choice, so the current default may replace it; anything else is left alone.
+     * `error` (10) had the same default in both generations, so it needs no entry.
+     */
+    const LEGACY_DEFAULTS = {
+      'categories.pinned.order': [0, 1],
+      'categories.pending.order': [20],
+      'categories.completed.order': [30],
+      'categories.running.order': [40],
+    };
+    /** Ids an older build stored but this one no longer has: dropped outright, never kept as "unknown". */
+    const RETIRED_PATHS = ['categories.favorite'];
     const SORT_BY = ['time', 'manual'];
     /** Default glyph per category (`glyphSecondary` starts on `pending` only). */
-    const CATEGORY_GLYPHS = { pinned: '📌', error: '⛔', pending: '🔐', completed: '✅', running: '⏳', idle: '💤', favorite: '⭐' };
-    const CATEGORY_MOTION = { pinned: 'none', error: 'bounce', pending: 'blink', completed: 'none', running: 'spin', idle: 'none', favorite: 'none' };
+    const CATEGORY_GLYPHS = { pinned: '📌', error: '⛔', pending: '🔐', completed: '✅', running: '⏳', idle: '💤' };
+    const CATEGORY_MOTION = { pinned: 'none', error: 'bounce', pending: 'blink', completed: 'none', running: 'spin', idle: 'none' };
     /** `[tab, sidebar, topbar]` per category: every category reaches the tab and sidebar rows, none the top bar. */
     const CATEGORY_SURFACES = {
       pinned: { tab: true, sidebar: true, topbar: false },
@@ -131,7 +149,6 @@ window.__ModuleLoader__.load({
       running: { tab: true, sidebar: true, topbar: false },
       /** Idle keeps its tab seat: the user asked for a third tier inside the tab row. */
       idle: { tab: true, sidebar: true, topbar: false },
-      favorite: { tab: true, sidebar: true, topbar: false },
     };
     const MOTION_NAMES = ['none', 'spin', 'pulse', 'bounce', 'blink'];
     const MOTION_TARGETS = ['glyph', 'row'];
@@ -154,14 +171,25 @@ window.__ModuleLoader__.load({
     const GLYPH_IMAGE_RE = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
     const GLYPH_MAX_BYTES = 16 * 1024;
     const MAX_SEATS = { min: 1, max: 12, fallback: 6 };
+    /** How many pinned sessions the top of the tab row may hold (`0` = show none). */
+    const PINNED_SEATS = { min: 0, max: 12, fallback: 3 };
+    // Hard ceiling 37: the plan is sorted by priority, so the tail is exactly what a crowded workspace
+    // should lose. High-priority rows push the low ones out, never the other way round.
+    const PLAN_MAX_ROWS = 37;
     /** Urgent categories (pinned/pending/error) may exceed `maxSeats`, but never by more than this. */
     const ALWAYS_OVERFLOW = 4;
     const TTL_MINUTES = { min: 1, max: 1440 };
     /** One global window: how recently a session moved to enter the idle tier. */
     const RECENT_WINDOW_MINUTES = { min: 0, max: 120, fallback: 5 };
-    const PIN_LEVELS = { min: 1, max: 99, maxEntries: 50 };
+    /**
+     * What the settings page offers for that window. Storage and the API stay on
+     * `RECENT_WINDOW_MINUTES` (0–120), so a caller may still ask for a wider window; the row only
+     * shows the range a person actually wants, and 0 is not one of them.
+     */
+    const RECENT_WINDOW_UI = { min: 1, max: 36 };
     /** One-slot animation bursts: never more than this many glyphs animating at once. */
-    const MOTION_CONCURRENCY = 2;
+    // four titles moving at once is the readability ceiling; frequency decides how often.
+    const MOTION_CONCURRENCY = 4;
     const OVERLAY_SIDES = ['auto', 'left', 'right'];
     /** Popout artwork is sized in CSS px; the two bounds clamp a single global min/max pair. */
     const OVERLAY_SIZE = { min: 120, max: 900, fallbackMin: 260, fallbackMax: 520 };
@@ -201,13 +229,14 @@ window.__ModuleLoader__.load({
     };
 
     /** One glyph entry: what to draw, how big, how it moves, and how often it may animate. */
+    // Defaults only fill gaps: a stored value always wins, so bumping a default never rewrites a user's choice.
     function defaultGlyph(category) {
       return {
         kind: 'emoji',
         value: CATEGORY_GLYPHS[category] ?? '',
         source: 'emoji',
         motion: CATEGORY_MOTION[category] ?? 'none',
-        motionTarget: 'glyph',
+        motionTarget: 'row',
         frequency: MOTION_FREQUENCY.fallback,
         uploads: [],
       };
@@ -217,11 +246,9 @@ window.__ModuleLoader__.load({
     function defaultCategory(category) {
       const popout = category === 'error' || category === 'pending' || category === 'completed';
       return {
-        enabled: category !== 'favorite',
-        reserved: CATEGORY_RESERVED.includes(category),
+        enabled: true,
         order: CATEGORY_ORDER[category],
         sortBy: category === 'pinned' ? 'manual' : 'time',
-        pinLevel: null,
         surfaces: { ...CATEGORY_SURFACES[category] },
         glyph: defaultGlyph(category),
         glyphSecondary: category === 'pending'
@@ -260,7 +287,7 @@ window.__ModuleLoader__.load({
         overlay: { side: 'auto', sizeMin: OVERLAY_SIZE.fallbackMin, sizeMax: OVERLAY_SIZE.fallbackMax, fallbackImage: '' },
         collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: RECENT_WINDOW_MINUTES.fallback },
         sound: { volume: 60 },
-        pins: {},
+        pinned: { maxSeats: PINNED_SEATS.fallback },
         categories: defaultCategories(),
       };
     }
@@ -290,10 +317,12 @@ window.__ModuleLoader__.load({
       'settings.maxSeats': '座位上限',
       'settings.maxSeatsHint': '对话区 tab 行最多显示几个会话（1–12）。',
       'settings.maxSeatsAuto': '自动',
+      'settings.pinnedMaxSeats': '置顶最多显示',
+      'settings.pinnedMaxSeatsHint': '最上面显示几个已置顶的会话（0–12）；0 = 不显示。',
       'settings.ttl': '刚完成保持时长（分钟）',
       'settings.ttlHint': '会话跑完后仍留在列表里的时间。',
-      'settings.recentWindow': '最近对话展示时间',
-      'settings.recentWindowHint': '最后活动在这个时间内的会话，会进第 3 级（闲置）并出现在对话区 tab 行；0 = 不显示。',
+      'settings.recentWindow': '最近对话展示时间（分钟）',
+      'settings.recentWindowHint': '1–36 分钟。最后活动在这个时间内的会话会进第 3 级（闲置）并出现在对话区 tab 行。API 可写 0–120。',
       'settings.motion': '动效',
       'settings.motion.none': '不动',
       'settings.motion.spin': '旋转',
@@ -305,7 +334,6 @@ window.__ModuleLoader__.load({
       'settings.motionTarget.row': '图标+标题',
       'settings.frequency': '播放频率',
       'settings.frequencyHint': '0% 不播；100% 每个节拍都播，越往左越稀。',
-      'settings.glyphReserved': '预留：子代理活动并入 ⏳',
       'settings.glyphFollowHint': '跟随',
       'settings.position.tab': '对话区 tab 行',
       'settings.position.tabHint': '当前实现。',
@@ -326,7 +354,6 @@ window.__ModuleLoader__.load({
       'settings.category.completed': '已完成',
       'settings.category.running': '进行中',
       'settings.category.idle': '闲置',
-      'settings.category.favorite': '收藏',
       'settings.chip.tab': '对话 tab 行',
       'settings.chip.sidebar': '侧栏',
       'settings.chip.topbar': '顶栏',
@@ -339,8 +366,6 @@ window.__ModuleLoader__.load({
       'settings.chipShort.sound': '音',
       'settings.chip.positionHint': '位置在页面上方全局区设置。',
       'settings.card.orderTag': '· 顺序 {order}',
-      'settings.card.pinnedOrder': '第 0 位（固定）',
-      'settings.card.reserved': '预留',
       'settings.card.disabled': '停用',
       'settings.glyphSecondary': '提问样式',
       'settings.glyphPlaceholder': '输入字符',
@@ -391,12 +416,7 @@ window.__ModuleLoader__.load({
       'settings.sound.preview': '试听',
       'settings.sound.previewHint': '点一下立刻播一条；浏览器可能拦截自动播放。',
       'settings.order': '顺序',
-      'settings.orderHint': '1–99，数字越小越靠前；置顶恒在第 0 位。',
-      'settings.pins.title': '置顶会话',
-      'settings.pins.empty': '还没有置顶的会话。',
-      'settings.pins.up': '上移',
-      'settings.pins.down': '下移',
-      'settings.pins.remove': '取消置顶',
+      'settings.orderHint': '1–99，数字越小越靠前。',
       'settings.takeOverStatusDotOff': '已停用：dsh-sessions-manager 的状态点将恢复显示。',
       'shortcuts.cyclePrev': '热表：上一个会话',
       'shortcuts.cycleNext': '热表：下一个会话',
@@ -421,10 +441,12 @@ window.__ModuleLoader__.load({
       'settings.maxSeats': 'Maximum seats',
       'settings.maxSeatsHint': 'How many sessions the tab row may show (1–12).',
       'settings.maxSeatsAuto': 'Automatic',
+      'settings.pinnedMaxSeats': 'Pinned shown',
+      'settings.pinnedMaxSeatsHint': 'How many pinned sessions get the top of the row (0–12); 0 = none.',
       'settings.ttl': 'Keep finished seats for (minutes)',
       'settings.ttlHint': 'How long a finished session stays in the list.',
-      'settings.recentWindow': 'Recent conversation window',
-      'settings.recentWindowHint': 'Sessions active within this window enter the third tier (idle) and show in the conversation tab row; 0 = hidden.',
+      'settings.recentWindow': 'Recent conversation window (minutes)',
+      'settings.recentWindowHint': '1–36 minutes. Sessions active within this window enter the third tier (idle) and show in the conversation tab row. The API accepts 0–120.',
       'settings.motion': 'Motion',
       'settings.motion.none': 'Still',
       'settings.motion.spin': 'Spin',
@@ -436,7 +458,6 @@ window.__ModuleLoader__.load({
       'settings.motionTarget.row': 'Glyph + title',
       'settings.frequency': 'Playback frequency',
       'settings.frequencyHint': '0% never plays; 100% fires every beat. Further left is rarer.',
-      'settings.glyphReserved': 'Reserved: subagent activity folds into ⏳',
       'settings.glyphFollowHint': 'Follows',
       'settings.position.tab': 'Conversation tab row',
       'settings.position.tabHint': 'The current implementation.',
@@ -457,7 +478,6 @@ window.__ModuleLoader__.load({
       'settings.category.completed': 'Completed',
       'settings.category.running': 'Running',
       'settings.category.idle': 'Idle',
-      'settings.category.favorite': 'Favorites',
       'settings.chip.tab': 'Conversation tabs',
       'settings.chip.sidebar': 'Sidebar',
       'settings.chip.topbar': 'Top bar',
@@ -470,8 +490,6 @@ window.__ModuleLoader__.load({
       'settings.chipShort.sound': 'Snd',
       'settings.chip.positionHint': 'Positions are set in the global block above.',
       'settings.card.orderTag': '· order {order}',
-      'settings.card.pinnedOrder': 'always first',
-      'settings.card.reserved': 'reserved',
       'settings.card.disabled': 'off',
       'settings.glyphSecondary': 'Question style',
       'settings.glyphPlaceholder': 'Type a character',
@@ -522,12 +540,7 @@ window.__ModuleLoader__.load({
       'settings.sound.preview': 'Preview',
       'settings.sound.previewHint': 'Clicking plays one now; the browser may still block autoplay.',
       'settings.order': 'Order',
-      'settings.orderHint': '1–99, lower comes first; pinned always sits at 0.',
-      'settings.pins.title': 'Pinned sessions',
-      'settings.pins.empty': 'Nothing is pinned yet.',
-      'settings.pins.up': 'Move up',
-      'settings.pins.down': 'Move down',
-      'settings.pins.remove': 'Unpin',
+      'settings.orderHint': '1–99, lower comes first.',
       'settings.takeOverStatusDotOff': 'Disabled: status dots from dsh-sessions-manager show again.',
       'shortcuts.cyclePrev': 'Hot List: previous session',
       'shortcuts.cycleNext': 'Hot List: next session',
@@ -682,10 +695,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return next;
     }
 
-    /**
-     * One category -> a legal one. `favorite` is reserved: whatever storage
-     * holds for it is dropped. Every field falls back on its own.
-     */
+    /** One category -> a legal one. Every field falls back on its own. */
     function sanitizeCategory(raw, category, fallback) {
       const next = { ...fallback };
       next.surfaces = { ...fallback.surfaces };
@@ -693,13 +703,15 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       next.glyphSecondary = fallback.glyphSecondary === null ? null : { ...fallback.glyphSecondary };
       next.popout = { ...fallback.popout };
       next.sound = { ...fallback.sound };
-      if (fallback.reserved === true) return next;
       if (!isPlainObject(raw)) return next;
 
       if (typeof raw.enabled === 'boolean') next.enabled = raw.enabled;
-      next.order = category === 'pinned' ? 0 : typeof raw.order === 'number' && Number.isFinite(raw.order)
-        ? clamp(Math.round(raw.order), 1, 99)
-        : next.order;
+      if (typeof raw.order === 'number' && Number.isFinite(raw.order)) {
+        const rounded = Math.round(raw.order);
+        /** An old default is not a choice: adopt the current default instead of freezing the old one. */
+        const legacyOrder = LEGACY_DEFAULTS[`categories.${category}.order`] ?? [];
+        next.order = legacyOrder.includes(rounded) ? CATEGORY_ORDER[category] : clamp(rounded, 1, 99);
+      }
       if (SORT_BY.includes(raw.sortBy)) next.sortBy = raw.sortBy;
       if (isPlainObject(raw.surfaces)) {
         for (const key of ['tab', 'sidebar', 'topbar']) {
@@ -746,6 +758,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      * keys are dropped and nothing throws. `positions` may be all false: that
      * means "hide the hot list", never "fall back to the tab row".
      */
+    // House rule: a stored value always wins; defaults only fill gaps. We never delete data we do not
+    // understand — unknown keys move to PRESERVED_KEY, out-of-range values keep their raw copy, and
+    // every write leaves a rolling backup.
     function sanitizeSettings(raw) {
       const next = defaultSettings();
       if (!isPlainObject(raw)) return next;
@@ -811,15 +826,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       } else if (legacyWithin !== null) {
         next.collect.recentWindowMinutes = legacyWithin;
       }
-      if (isPlainObject(raw.pins)) {
-        /** Pins are per session: `pins[sessionId] = pinLevel` (1 = first). */
-        let used = 0;
-        for (const [sessionId, level] of Object.entries(raw.pins)) {
-          if (used >= PIN_LEVELS.maxEntries) break;
-          if (typeof level !== 'number' || !Number.isFinite(level)) continue;
-          next.pins[sessionId] = clamp(Math.round(level), PIN_LEVELS.min, PIN_LEVELS.max);
-          used += 1;
-        }
+      /** v4.6 dropped the hand-written pin list: pins live in the workspace store, this only caps the row. */
+      if (isPlainObject(raw.pinned) && typeof raw.pinned.maxSeats === 'number' && Number.isFinite(raw.pinned.maxSeats)) {
+        next.pinned.maxSeats = clamp(Math.round(raw.pinned.maxSeats), PINNED_SEATS.min, PINNED_SEATS.max);
       }
 
       const rawCategories = isPlainObject(raw.categories) ? raw.categories : {};
@@ -867,9 +876,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       const overlay = isPlainObject(raw.overlay) ? raw.overlay : {};
       if (typeof overlay.enabled === 'boolean') {
-        for (const category of CATEGORY_IDS) {
-          if (category !== 'favorite') next.categories[category].popout.enabled = overlay.enabled;
-        }
+        for (const category of CATEGORY_IDS) next.categories[category].popout.enabled = overlay.enabled;
       }
       if (OVERLAY_SIDES.includes(overlay.side)) next.overlay.side = overlay.side;
       const legacyZoom = overlay['scale'];
@@ -891,7 +898,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       /** The alpha build stamped `version: 5` on an otherwise-v4 record: keep the tables it wrote. */
       if (isPlainObject(stored.categories)) migrated.categories = { ...migrated.categories, ...stored.categories };
       if (isPlainObject(stored.collect)) migrated.collect = { ...migrated.collect, ...stored.collect };
-      if (isPlainObject(stored.pins)) migrated.pins = { ...migrated.pins, ...stored.pins };
+      if (isPlainObject(stored.pinned)) migrated.pinned = { ...migrated.pinned, ...stored.pinned };
       return { settings: sanitizeSettings(migrated), migrated: true };
     }
 
@@ -1032,6 +1039,207 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       }
     }
 
+    /** Every path this build can write; anything else came from a version we do not know yet. */
+    function knownLeaves() {
+      const leaves = new Set([
+        'version', 'maxSeats', 'takeOverStatusDot', 'hideNativeDot', 'pins',
+        'positions.tab', 'positions.topbar', 'positions.sidebar',
+        'display.reduceMotion', 'display.motionIntervalMs',
+        'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.overlayKey',
+        'overlay.side', 'overlay.fallbackImage', 'overlay.sizeMin', 'overlay.sizeMax',
+        'collect.completedTtlMs', 'collect.recentWindowMinutes',
+        'sound.volume', 'pinned.maxSeats',
+      ]);
+      for (const category of CATEGORY_IDS) {
+        const base = `categories.${category}`;
+        for (const key of ['enabled', 'order', 'sortBy', 'within']) leaves.add(`${base}.${key}`);
+        for (const side of ['glyph', 'glyphSecondary']) {
+          for (const key of ['kind', 'value', 'emoji', 'image', 'source', 'motion', 'motionTarget', 'frequency', 'motionIntervalMs', 'size', 'uploads']) {
+            leaves.add(`${base}.${side}.${key}`);
+          }
+        }
+        for (const key of ['enabled', 'builtin', 'images', 'image', 'displayMs', 'entrance', 'ambient', 'exit', 'side']) leaves.add(`${base}.popout.${key}`);
+        for (const key of ['enabled', 'builtin', 'uploads', 'volume', 'kind']) leaves.add(`${base}.sound.${key}`);
+      }
+      return leaves;
+    }
+
+    function knownContainers() {
+      const containers = new Set(['positions', 'display', 'shortcuts', 'overlay', 'collect', 'sound', 'pinned', 'categories']);
+      for (const category of CATEGORY_IDS) {
+        containers.add(`categories.${category}`);
+        for (const side of ['glyph', 'glyphSecondary', 'popout', 'sound']) containers.add(`categories.${category}.${side}`);
+      }
+      return containers;
+    }
+
+    /** Paths a user value can exceed; the same list drives both the record and the revival. */
+    function rangeOf(path) {
+      if (path === 'maxSeats') return [MAX_SEATS.min, MAX_SEATS.max];
+      if (path === 'collect.completedTtlMs') return [TTL_MINUTES.min * 60000, TTL_MINUTES.max * 60000];
+      if (path === 'collect.recentWindowMinutes') return [RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max];
+      if (path === 'pinned.maxSeats') return [PINNED_SEATS.min, PINNED_SEATS.max];
+      if (path === 'sound.volume') return [0, 100];
+      if (path === 'overlay.sizeMin' || path === 'overlay.sizeMax') return [OVERLAY_SIZE.min, OVERLAY_SIZE.max];
+      if (path.endsWith('.order')) return [1, 99];
+      if (path.endsWith('.glyph.frequency')) return [0, 1];
+      return null;
+    }
+
+    function getPath(settings, path) {
+      let node = settings;
+      for (const key of path.split('.')) {
+        if (node === null || typeof node !== 'object') return void 0;
+        node = node[key];
+      }
+      return node;
+    }
+
+    function setPath(settings, path, value) {
+      const keys = path.split('.');
+      const last = keys.pop();
+      let node = settings;
+      for (const key of keys) {
+        if (node[key] === null || typeof node[key] !== 'object') return settings;
+        node = node[key];
+      }
+      node[last] = value;
+      return settings;
+    }
+
+    /** Everything under `raw` this build has no schema path for. */
+    function collectUnknown(raw) {
+      const out = {};
+      if (isPlainObject(raw) === false) return out;
+      const leaves = knownLeaves();
+      const containers = knownContainers();
+      const walk = (value, prefix) => {
+        for (const [key, child] of Object.entries(value)) {
+          if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue;
+          const path = prefix === '' ? key : `${prefix}.${key}`;
+          /** A retired id is not a future field: drop it instead of keeping it as "unknown" forever. */
+          if (RETIRED_PATHS.includes(path)) continue;
+          if (containers.has(path)) {
+            if (isPlainObject(child)) walk(child, path);
+            continue;
+          }
+          if (leaves.has(path)) continue;
+          out[path] = child;
+        }
+      };
+      walk(raw, '');
+      return out;
+    }
+
+    /** Numbers the schema refused: the raw copy is kept so a wider bound can bring it back. */
+    function outOfRangeOf(raw) {
+      const out = {};
+      if (isPlainObject(raw) === false) return out;
+      const visit = (path, value) => {
+        const range = rangeOf(path);
+        if (range === null || typeof value !== 'number' || Number.isFinite(value) === false) return;
+        if (value >= range[0] && value <= range[1]) return;
+        out[path] = { raw: value, clamped: clamp(value, range[0], range[1]) };
+      };
+      visit('maxSeats', raw.maxSeats);
+      if (isPlainObject(raw.collect)) {
+        visit('collect.completedTtlMs', raw.collect.completedTtlMs);
+        visit('collect.recentWindowMinutes', raw.collect.recentWindowMinutes);
+      }
+      if (isPlainObject(raw.pinned)) visit('pinned.maxSeats', raw.pinned.maxSeats);
+      if (isPlainObject(raw.sound)) visit('sound.volume', raw.sound.volume);
+      if (isPlainObject(raw.overlay)) {
+        visit('overlay.sizeMin', raw.overlay.sizeMin);
+        visit('overlay.sizeMax', raw.overlay.sizeMax);
+      }
+      if (isPlainObject(raw.categories)) {
+        for (const category of Object.keys(raw.categories)) {
+          const entry = raw.categories[category];
+          if (isPlainObject(entry) === false) continue;
+          visit(`categories.${category}.order`, entry.order);
+          if (isPlainObject(entry.glyph)) visit(`categories.${category}.glyph.frequency`, entry.glyph.frequency);
+        }
+      }
+      return out;
+    }
+
+    function readPreserved() {
+      const stored = readStored(PRESERVED_KEY);
+      const unknown = isPlainObject(stored) && isPlainObject(stored.unknown) ? stored.unknown : {};
+      const outOfRange = isPlainObject(stored) && isPlainObject(stored.outOfRange) ? stored.outOfRange : {};
+      return { unknown, outOfRange };
+    }
+
+    function writePreserved(entries) {
+      try {
+        localStorage.setItem(PRESERVED_KEY, JSON.stringify({ version: SETTINGS_VERSION, ...entries }));
+      } catch {
+        /* a full quota costs the preserved copy, never the live settings */
+      }
+    }
+
+    /** Remember what this build cannot represent, before it is lost on write. */
+    function notePreserved(previous) {
+      const unknown = collectUnknown(previous);
+      const outOfRange = outOfRangeOf(previous);
+      if (Object.keys(unknown).length === 0 && Object.keys(outOfRange).length === 0) return;
+      const current = readPreserved();
+      writePreserved({
+        unknown: { ...current.unknown, ...unknown },
+        outOfRange: { ...current.outOfRange, ...outOfRange },
+      });
+    }
+
+    /** A path we now understand, where the user has no stored choice: take the preserved value back. */
+    function reviveUnknown(settings, unknown) {
+      if (isPlainObject(unknown) === false) return settings;
+      const leaves = knownLeaves();
+      const defaults = defaultSettings();
+      const paths = Object.keys(unknown).filter((path) => leaves.has(path) && getPath(settings, path) === getPath(defaults, path));
+      if (paths.length === 0) return settings;
+      const next = JSON.parse(JSON.stringify(settings));
+      for (const path of paths) setPath(next, path, unknown[path]);
+      return next;
+    }
+
+    /**
+     * A value the current bounds rejected is never destroyed: the raw number stays in
+     * `PRESERVED_KEY.outOfRange` and comes back as soon as the bound is wide enough,
+     * provided the user has not replaced it in the meantime.
+     */
+    function reviveOutOfRange(settings, entries, override) {
+      if (isPlainObject(entries) === false) return settings;
+      const next = JSON.parse(JSON.stringify(settings));
+      for (const [path, entry] of Object.entries(entries)) {
+        if (isPlainObject(entry) === false) continue;
+        const range = isPlainObject(override) && Array.isArray(override[path]) ? override[path] : rangeOf(path);
+        if (range === null) continue;
+        const raw = entry.raw;
+        if (typeof raw !== 'number' || Number.isFinite(raw) === false) continue;
+        if (raw < range[0] || raw > range[1]) continue;
+        if (getPath(next, path) !== entry.clamped) continue;
+        setPath(next, path, raw);
+      }
+      return next;
+    }
+
+    function revivePreserved(settings) {
+      const preserved = readPreserved();
+      return reviveOutOfRange(reviveUnknown(settings, preserved.unknown), preserved.outOfRange);
+    }
+
+    function readBackups() {
+      const stored = readStored(BACKUP_KEY);
+      if (Array.isArray(stored) === false) return [];
+      return stored.filter((item) => isPlainObject(item) && isPlainObject(item.settings)).slice(0, BACKUP_LIMIT);
+    }
+
+    function pushBackup(previous) {
+      if (isPlainObject(previous) === false) return;
+      const ring = [{ at: Date.now(), settings: previous }, ...readBackups()].slice(0, BACKUP_LIMIT);
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(ring));
+    }
+
     /** Settings overlay for tests/previews; `null` clears it. */
     let injectedSettings = null;
     let settingsCache = null;
@@ -1039,12 +1247,15 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
     function persist(settings) {
       lastWriteError = null;
+      const previous = readStored(SETTINGS_KEY);
       try {
+        pushBackup(previous);
         localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
       } catch (error) {
         lastWriteError = error instanceof Error && error.name === 'QuotaExceededError' ? 'quota' : 'storage';
       }
-        }
+      if (lastWriteError === null) notePreserved(previous);
+    }
 
     /**
      * Read once, then serve from memory: the settings page writes several
@@ -1067,8 +1278,10 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         try { localStorage.removeItem(LEGACY_SETTINGS_KEY); } catch { /* best-effort migration */ }
       } else {
         settingsCache = migrated.settings;
+        notePreserved(stored);
         if (migrated.migrated === true) persist(settingsCache);
       }
+      settingsCache = revivePreserved(settingsCache);
       return injectedSettings === null ? settingsCache : sanitizeSettings(mergePatch(settingsCache, upgradePatch(injectedSettings)));
     }
 
@@ -1132,7 +1345,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           if (typeof value.enabled === 'boolean') {
             const categories = { ...(next.categories ?? {}) };
             for (const category of CATEGORY_IDS) {
-              if (category === 'favorite') continue;
               categories[category] = { ...(categories[category] ?? {}), popout: { ...(categories[category]?.popout ?? {}), enabled: value.enabled } };
             }
             next.categories = categories;
@@ -1214,14 +1426,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return text;
     }
 
-    /** Categories that can produce rows, in draw order (`favorite` is reserved). */
+    /** Categories that can produce rows, in draw order. */
     function orderedCategories(settings) {
       return CATEGORY_IDS
-        .filter((category) => settings.categories[category].reserved !== true)
+        .slice()
         .sort((left, right) => {
           const a = settings.categories[left].order;
           const b = settings.categories[right].order;
-          return a !== b ? a - b : CATEGORY_ORDER[left] - CATEGORY_ORDER[right];
+          return a !== b ? a - b : CATEGORY_RANK[left] - CATEGORY_RANK[right];
         });
     }
 
@@ -1259,11 +1471,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      *
      * `pending` merges approval and question/plan-review: approval drives the
      * primary glyph, question the secondary one. `subagents` folds into
-     * `running`. `pinned` comes from `settings.pins`. `idle` only appears on a
+     * `running`. `pinned` comes from the workspace store's `pinnedSessionIds`. `idle` only appears on a
      * surface that asks for it, inside its category's `within` window.
      */
     function classify(settings, input) {
       const surface = input.surface ?? 'tab';
+      /** The workspace store's pin list, most recent first; empty until its first read lands. */
+      const pinnedSessionIds = Array.isArray(input.pinnedSessionIds) ? input.pinnedSessionIds : [];
       const rows = [];
       const usable = new Set(orderedCategories(settings).filter((category) => !categoryAllOff(settings, category)));
       /** Idle is only worth a row when its surface is on and its window is open. */
@@ -1278,37 +1492,38 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const title = typeof session.displayTitle === 'string' ? session.displayTitle : '';
         const base = { sessionId: id, title, updatedAt, errorMessage: void 0 };
 
-        /** A pin is a user decision: it outranks every status and has no time window. */
-        const pinLevel = settings.pins[id];
-        if (typeof pinLevel === 'number' && usable.has('pinned') && categoryVisible(settings, 'pinned', surface)) {
-          rows.push({ ...base, category: 'pinned', token: 'pinned', pinLevel });
-          continue;
-        }
         const status = input.statuses.get(id);
         const kind = status?.pendingInteraction?.kind;
+        const failure = input.errors.get(id);
+        const finishedAt = input.completedAt.get(id);
+        const running = status?.running === undefined ? session.running === true : status.running === true;
+        const children = running === true ? 0 : runningChildren(input.list, input.statuses, id);
+        const pinIndex = pinnedSessionIds.indexOf(id);
+        const within = settings.collect.recentWindowMinutes;
+
+        /** One session, one category: a live failure outranks everything, a pin only outranks `idle`. */
+        if (failure !== void 0 && usable.has('error') && categoryVisible(settings, 'error', surface)) {
+          rows.push({ ...base, category: 'error', token: 'error', pinLevel: null, errorMessage: failure.message });
+          continue;
+        }
         if ((kind === 'approval' || kind === 'question' || kind === 'plan-review')
           && usable.has('pending') && categoryVisible(settings, 'pending', surface)) {
           rows.push({ ...base, category: 'pending', token: kind === 'approval' ? 'approval' : 'question', pinLevel: null });
           continue;
         }
-        const failure = input.errors.get(id);
-        if (failure !== void 0 && usable.has('error') && categoryVisible(settings, 'error', surface)) {
-          rows.push({ ...base, category: 'error', token: 'error', pinLevel: null, errorMessage: failure.message });
-          continue;
-        }
-        const finishedAt = input.completedAt.get(id);
         if (finishedAt !== void 0 && input.now - finishedAt < settings.collect.completedTtlMs
           && usable.has('completed') && categoryVisible(settings, 'completed', surface)) {
           rows.push({ ...base, category: 'completed', token: 'completed', pinLevel: null });
           continue;
         }
-        const running = status?.running === undefined ? session.running === true : status.running === true;
-        const children = running === true ? 0 : runningChildren(input.list, input.statuses, id);
         if ((running === true || children > 0) && usable.has('running') && categoryVisible(settings, 'running', surface)) {
           rows.push({ ...base, category: 'running', token: 'running', pinLevel: null });
           continue;
         }
-        const within = settings.collect.recentWindowMinutes;
+        if (pinIndex >= 0 && usable.has('pinned') && categoryVisible(settings, 'pinned', surface)) {
+          rows.push({ ...base, category: 'pinned', token: 'pinned', pinLevel: pinIndex + 1 });
+          continue;
+        }
         if (within > 0 && input.now - updatedAt <= within * 60000
           && usable.has('idle') && categoryVisible(settings, 'idle', surface)) {
           rows.push({ ...base, category: 'idle', token: 'idle', pinLevel: null });
@@ -1344,27 +1559,34 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      * `completed`, `running` and `idle` fill up to `limit` (physical row width
      * ∩ `maxSeats`). `order` is the category's own `order` × 100 plus the
      * position, so it never changes while a seat keeps its category.
+     * `pinned` rows are additionally capped by `pinned.maxSeats` (`0` = none).
      */
     function buildSeatPlan(input, settings) {
       const limit = typeof input.limit === 'number' ? input.limit : MAX_SEATS.fallback;
       const rows = classify(settings, input).filter((row) => row.sessionId !== input.currentId);
       const sorted = sortSeats(settings, rows);
       const always = new Set(['pinned', 'pending', 'error']);
+      const pinnedCap = clamp(Math.round(settings.pinned.maxSeats), PINNED_SEATS.min, PINNED_SEATS.max);
       const urgentCap = limit + ALWAYS_OVERFLOW;
       let urgent = 0;
+      let pins = 0;
       const kept = [];
       for (const row of sorted) {
+        if (row.category === 'pinned' && pins >= pinnedCap) continue;
         if (always.has(row.category)) {
           if (urgent >= urgentCap) continue;
           urgent += 1;
+          if (row.category === 'pinned') pins += 1;
           kept.push(row);
           continue;
         }
         if (kept.length - urgent >= limit) continue;
         kept.push(row);
       }
+      const overflow = sorted.length - kept.length;
+      const capped = kept.slice(0, PLAN_MAX_ROWS);
       const perCategory = new Map();
-      const plan = kept.map((row) => {
+      const plan = capped.map((row) => {
         const index = perCategory.get(row.category) ?? 0;
         perCategory.set(row.category, index + 1);
         return {
@@ -1377,7 +1599,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           pinLevel: row.pinLevel,
         };
       });
-      plan.overflow = sorted.length - kept.length;
+      plan.overflow = overflow;
       return plan;
     }
 
@@ -1618,17 +1840,18 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (session === void 0) return null;
       const visible = (category) => settings.categories[category].enabled === true
         && settings.categories[category].surfaces.sidebar === true;
-      if (pinned === true && visible('pinned')) return 'pinned';
+      /** Same chain as `classify`: a failure, a waiting question, a finish, a run, a pin, then idle. */
+      if (error !== void 0 && now - error.at <= SIDEBAR_ERROR_TTL_MS && visible('error')) return 'error';
       const kind = status?.pendingInteraction?.kind;
       if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && visible('pending')) {
         return kind === 'approval' ? 'approval' : 'question';
       }
-      if (error !== void 0 && now - error.at <= SIDEBAR_ERROR_TTL_MS && visible('error')) return 'error';
-      const running = status?.running === undefined ? session.running === true : status.running === true;
-      if ((running === true || (children ?? 0) > 0) && visible('running')) return 'running';
       const finished = status?.completionUnread === true
         || (completedAt !== undefined && now - completedAt < settings.collect.completedTtlMs);
       if (finished && visible('completed')) return 'completed';
+      const running = status?.running === undefined ? session.running === true : status.running === true;
+      if ((running === true || (children ?? 0) > 0) && visible('running')) return 'running';
+      if (pinned === true && visible('pinned')) return 'pinned';
       const within = settings.collect.recentWindowMinutes;
       const updatedAt = typeof session.updatedAt === 'number' ? session.updatedAt : 0;
       if (within > 0 && now - updatedAt <= within * 60000 && visible('idle')) return 'idle';
@@ -2165,10 +2388,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '.hl-switch input:checked + .hl-switchTrack{background:var(--dsw-alias-brand-primary)}',
       '.hl-switch input:checked + .hl-switchTrack::after{transform:translateX(16px);background:#fff}',
       '.hl-switch[data-disabled=true]{opacity:.45;cursor:not-allowed}',
-      '.hl-pinList{display:flex;flex-direction:column;gap:2px;padding:2px 0}',
-      '.hl-pinItem{display:flex;align-items:center;gap:6px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary)}',
-      '.hl-pinIndex{flex:none;font-family:var(--ds-font-family-code, monospace);color:var(--dsw-alias-label-tertiary)}',
-      '.hl-pinTitle{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.hl-warn{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-state-error-primary)}',
       '.hl-foot{display:flex;align-items:center;gap:12px}',
       '.hl-hidden{display:none}',
@@ -2177,8 +2396,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '@media (prefers-reduced-motion:reduce){.hl-page .hl-preview,.hl-page .hl-cardGlyph{animation:none!important}}',
     ].join('');
 
-    /** Session titles for the pin list; `apply` wires it to `sessions.list`. */
-    let sessionTitleOf = (sessionId) => sessionId;
     /** The settings page preview: bound by `apply` to the live player, a no-op before that. */
     let soundPreview = () => false;
 
@@ -2188,7 +2405,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         if (typeof sessionStorage === 'undefined') return [];
         const stored = sessionStorage.getItem(PAGE_OPEN_KEY);
         if (stored === null) return [];
-        /** Builds before 4.1 wrote the bare id (`favorite`), which is not JSON. */
+        /** Builds before 4.1 wrote the bare category id, which is not JSON. */
         let parsed;
         try {
           parsed = JSON.parse(stored);
@@ -2497,12 +2714,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       };
 
       /** Upload / hidden file input / clear, the one shape all three asset groups share. */
-      const assetTools = (category, kind, pool, locked) => [
+      const assetTools = (category, kind, pool) => [
         h('button', {
           key: 'upload',
           type: 'button',
           className: 'hl-link',
-          disabled: locked === true,
           onClick: (event) => {
             const input = event.currentTarget.parentElement.querySelector(`[data-hotlist-upload="${kind}-${category}"]`);
             if (input !== null && input !== undefined) input.click();
@@ -2523,7 +2739,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           key: 'clear',
           type: 'button',
           className: 'hl-link',
-          disabled: locked === true,
           onClick: () => dropAssets(category, kind),
         }, t('settings.asset.clear')) : null,
       ];
@@ -2532,144 +2747,92 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         ? t(kind === 'sound' ? 'settings.asset.emptySound' : 'settings.asset.emptyImage')
         : t('settings.asset.count', { count: pool.length }));
 
-      const iconRows = (category, locked) => {
+      const iconRows = (category) => {
         const entry = settings.categories[category];
         const glyph = entry.glyph;
         const rows = [
           multi([
-            cell(t('settings.glyphSource'), select(GLYPH_SOURCES, glyph.source, (value) => patchGlyph(category, false, { source: value }), (value) => t(`settings.glyphSource.${value}`), locked === true)),
-            cell(t('settings.asset.upload'), h('div', { key: 'tools', className: 'hl-fieldControl' }, assetTools(category, 'glyph', glyph.uploads, locked === true)), assetHint(glyph.uploads, 'glyph')),
+            cell(t('settings.glyphSource'), select(GLYPH_SOURCES, glyph.source, (value) => patchGlyph(category, false, { source: value }), (value) => t(`settings.glyphSource.${value}`))),
+            cell(t('settings.asset.upload'), h('div', { key: 'tools', className: 'hl-fieldControl' }, assetTools(category, 'glyph', glyph.uploads)), assetHint(glyph.uploads, 'glyph')),
           ], 2),
           field(t('settings.glyphValue'), [
             glyphNode(category, false, glyph, 20),
-            emojiInput(glyphText(category, false, glyph), (value) => patchGlyph(category, false, { value }), locked === true || glyph.source !== 'emoji'),
+            emojiInput(glyphText(category, false, glyph), (value) => patchGlyph(category, false, { value }), glyph.source !== 'emoji'),
           ], t('settings.glyphTextLimit')),
         ];
         if (category === 'pending') {
           rows.push(field(t('settings.glyphSecondary'), [
             glyphNode(category, true, entry.glyphSecondary, 16),
-            emojiInput(glyphText(category, true, entry.glyphSecondary), (value) => patchGlyph(category, true, { kind: 'emoji', value }), locked === true || entry.glyphSecondary.kind === 'img'),
+            emojiInput(glyphText(category, true, entry.glyphSecondary), (value) => patchGlyph(category, true, { kind: 'emoji', value }), entry.glyphSecondary.kind === 'img'),
           ], t('settings.glyphFollowHint')));
         }
-        return group(t('settings.group.icon'), rows, locked === true);
+        return group(t('settings.group.icon'), rows);
       };
 
-      const motionRows = (category, locked) => {
+      const motionRows = (category) => {
         const glyph = settings.categories[category].glyph;
         return group(t('settings.group.motion'), [
           multi([
-            cell(t('settings.motion'), select(MOTION_NAMES, glyph.motion, (value) => patchGlyph(category, false, { motion: value }), (value) => t(`settings.motion.${value}`), locked === true)),
-            cell(t('settings.motionTarget'), segmented(MOTION_TARGETS, glyph.motionTarget, (value) => patchGlyph(category, false, { motionTarget: value }), (value) => t(`settings.motionTarget.${value}`), locked === true)),
+            cell(t('settings.motion'), select(MOTION_NAMES, glyph.motion, (value) => patchGlyph(category, false, { motion: value }), (value) => t(`settings.motion.${value}`))),
+            cell(t('settings.motionTarget'), segmented(MOTION_TARGETS, glyph.motionTarget, (value) => patchGlyph(category, false, { motionTarget: value }), (value) => t(`settings.motionTarget.${value}`))),
           ], 2),
           field(t('settings.frequency'), [
-            rangeInput(glyph.frequency, (value) => patchGlyph(category, false, { frequency: value }), locked === true),
+            rangeInput(glyph.frequency, (value) => patchGlyph(category, false, { frequency: value })),
             h('span', { key: 'value', className: 'hl-rowHint' }, `${Math.round(glyph.frequency * 100)}%`),
           ], t('settings.frequencyHint')),
-        ], locked === true);
+        ]);
       };
 
-      const popoutRows = (category, locked) => {
+      const popoutRows = (category) => {
         const popout = settings.categories[category].popout;
         const off = popout.enabled !== true;
         return group(t('settings.group.popout'), [
           multi([
-            cell(t('settings.popout.enabled'), toggleNode(popout.enabled, () => patchPopout(category, { enabled: popout.enabled !== true }), locked === true)),
-            cell(t('settings.popout.image'), h('div', { key: 'image', className: 'hl-fieldControl' }, assetTools(category, 'popout', popout.images, locked === true)), assetHint(popout.images, 'popout')),
+            cell(t('settings.popout.enabled'), toggleNode(popout.enabled, () => patchPopout(category, { enabled: popout.enabled !== true }))),
+            cell(t('settings.popout.image'), h('div', { key: 'image', className: 'hl-fieldControl' }, assetTools(category, 'popout', popout.images)), assetHint(popout.images, 'popout')),
           ], 2),
           multi([
             cell(t('settings.popout.entrance'), h('span', {
               className: 'hl-rowHint',
               title: t('settings.popout.entranceFixed'),
             }, t('settings.popout.entranceFixed'))),
-            cell(t('settings.popout.ambient'), select(POPOUT_AMBIENTS, popout.ambient, (value) => patchPopout(category, { ambient: value }), (value) => t(`settings.popout.ambient.${value}`), locked === true)),
-            cell(t('settings.popout.exit'), select(POPOUT_EXITS, popout.exit, (value) => patchPopout(category, { exit: value }), (value) => t(`settings.popout.exit.${value}`), locked === true)),
+            cell(t('settings.popout.ambient'), select(POPOUT_AMBIENTS, popout.ambient, (value) => patchPopout(category, { ambient: value }), (value) => t(`settings.popout.ambient.${value}`))),
+            cell(t('settings.popout.exit'), select(POPOUT_EXITS, popout.exit, (value) => patchPopout(category, { exit: value }), (value) => t(`settings.popout.exit.${value}`))),
           ], 3),
           multi([
-            cell(t('settings.popout.side'), select(OVERLAY_SIDES, popout.side, (value) => patchPopout(category, { side: value }), (value) => t(`settings.popout.side.${value}`), locked === true)),
-            cell(t('settings.popout.displayMs'), numberInput(Math.round(popout.displayMs / 500) / 2, POPOUT_DISPLAY_MS.min / 1000, POPOUT_DISPLAY_MS.max / 1000, 0.5, (value) => patchPopout(category, { displayMs: value * 1000 }), locked === true)),
+            cell(t('settings.popout.side'), select(OVERLAY_SIDES, popout.side, (value) => patchPopout(category, { side: value }), (value) => t(`settings.popout.side.${value}`))),
+            cell(t('settings.popout.displayMs'), numberInput(Math.round(popout.displayMs / 500) / 2, POPOUT_DISPLAY_MS.min / 1000, POPOUT_DISPLAY_MS.max / 1000, 0.5, (value) => patchPopout(category, { displayMs: value * 1000 }))),
           ], 2),
-        ], locked === true || off);
+        ], off);
       };
 
-      const soundRows = (category, locked) => {
+      const soundRows = (category) => {
         const sound = settings.categories[category].sound;
         const source = sound.builtin === true ? 'builtin' : 'upload';
         return group(t('settings.group.sound'), [
           multi([
-            cell(t('settings.sound.enabled'), toggleNode(sound.enabled, () => patchSound(category, { enabled: sound.enabled !== true }), locked === true)),
-            cell(t('settings.sound.source'), select(SOUND_SOURCES, source, (value) => patchSound(category, { builtin: value === 'builtin' }), (value) => t(`settings.sound.source.${value}`), locked === true)),
+            cell(t('settings.sound.enabled'), toggleNode(sound.enabled, () => patchSound(category, { enabled: sound.enabled !== true }))),
+            cell(t('settings.sound.source'), select(SOUND_SOURCES, source, (value) => patchSound(category, { builtin: value === 'builtin' }), (value) => t(`settings.sound.source.${value}`))),
             cell(t('settings.sound.preview'), h('button', {
               key: 'preview',
               type: 'button',
               className: 'hl-step',
-              disabled: locked === true,
               title: t('settings.sound.previewHint'),
               onClick: () => soundPreview(category),
             }, '▶')),
           ], 3),
           source === 'upload'
-            ? field(t('settings.asset.sound'), assetTools(category, 'sound', sound.uploads, locked === true), assetHint(sound.uploads, 'sound'))
+            ? field(t('settings.asset.sound'), assetTools(category, 'sound', sound.uploads), assetHint(sound.uploads, 'sound'))
             : null,
-        ], locked === true);
+        ]);
       };
 
-      const orderRows = (category, locked) => {
+      const orderRows = (category) => {
         const entry = settings.categories[category];
         return group(t('settings.group.order'), [
-          field(t('settings.order'), entry.order === 0 && category === 'pinned'
-            ? h('span', { className: 'hl-rowHint' }, t('settings.card.pinnedOrder'))
-            : numberInput(entry.order, 1, 99, 1, (value) => patchCategory(category, { order: value }), locked === true), t('settings.orderHint')),
-        ], locked === true);
+          field(t('settings.order'), numberInput(entry.order, 1, 99, 1, (value) => patchCategory(category, { order: value })), t('settings.orderHint')),
+        ]);
       };
-
-      const pins = Object.entries(settings.pins)
-        .map(([sessionId, level]) => ({ sessionId, level }))
-        .sort((left, right) => left.level - right.level || left.sessionId.localeCompare(right.sessionId));
-      const setPins = (next) => patch({ pins: next });
-      const movePin = (index, delta) => {
-        const target = index + delta;
-        if (target < 0 || target >= pins.length) return;
-        const next = { ...settings.pins };
-        next[pins[index].sessionId] = pins[target].level;
-        next[pins[target].sessionId] = pins[index].level;
-        setPins(next);
-      };
-      const removePin = (sessionId) => {
-        const next = { ...settings.pins };
-        delete next[sessionId];
-        setPins(next);
-      };
-      const pinBlock = () => group(t('settings.pins.title'), [
-        h('div', { key: 'list', className: 'hl-pinList' }, pins.length === 0
-          ? [h('span', { key: 'empty', className: 'hl-rowHint' }, t('settings.pins.empty'))]
-          : pins.map((pin, index) => h('div', { key: pin.sessionId, className: 'hl-pinItem' }, [
-            h('span', { key: 'index', className: 'hl-pinIndex' }, `#${pin.level}`),
-            h('span', { key: 'title', className: 'hl-pinTitle' }, sessionTitleOf(pin.sessionId)),
-            h('button', {
-              key: 'up',
-              type: 'button',
-              className: 'hl-link',
-              disabled: index === 0,
-              title: t('settings.pins.up'),
-              onClick: () => movePin(index, -1),
-            }, '↑'),
-            h('button', {
-              key: 'down',
-              type: 'button',
-              className: 'hl-link',
-              disabled: index === pins.length - 1,
-              title: t('settings.pins.down'),
-              onClick: () => movePin(index, 1),
-            }, '↓'),
-            h('button', {
-              key: 'remove',
-              type: 'button',
-              className: 'hl-link',
-              title: t('settings.pins.remove'),
-              onClick: () => removePin(pin.sessionId),
-            }, '✕'),
-          ]))),
-      ]);
 
       const chip = (key, label, on, disabled, hint) => h('span', {
         key,
@@ -2682,7 +2845,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       const card = (category) => {
         const entry = settings.categories[category];
-        const locked = category === 'favorite';
         const enabled = entry.enabled === true;
         const open = openCards.includes(category);
         const allOff = categoryAllOff(settings, category) === true;
@@ -2696,10 +2858,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           glyphNode(category, false, entry.glyph, 20),
           h('span', { key: 'name', className: 'hl-cardName' }, [
             h('span', { key: 'label' }, t(`settings.category.${category}`)),
-            h('span', { key: 'order', className: 'hl-cardTag' }, category === 'pinned'
-              ? t('settings.card.pinnedOrder')
-              : t('settings.card.orderTag', { order: entry.order })),
-            locked ? h('span', { key: 'reserved', className: 'hl-cardTag' }, t('settings.card.reserved')) : null,
+            h('span', { key: 'order', className: 'hl-cardTag' }, t('settings.card.orderTag', { order: entry.order })),
             allOff ? h('span', { key: 'off', className: 'hl-cardTag' }, t('settings.card.disabled')) : null,
           ]),
           h('span', { key: 'chips', className: 'hl-chips' }, [
@@ -2712,13 +2871,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           h('span', { key: 'caret', className: 'hl-caret', 'aria-hidden': 'true' }, '▸'),
         ]);
         const body = open === false ? null : h('div', { key: 'body', className: 'hl-cardBody', 'data-hotlist-card-body': category }, [
-          locked ? h('p', { key: 'reserved', className: 'hl-rowHint' }, t('settings.glyphReserved')) : null,
-          iconRows(category, locked),
-          motionRows(category, locked),
-          popoutRows(category, locked),
-          soundRows(category, locked),
-          orderRows(category, locked),
-          category === 'pinned' ? pinBlock() : null,
+          iconRows(category),
+          motionRows(category),
+          popoutRows(category),
+          soundRows(category),
+          orderRows(category),
         ]);
         return h('section', {
           key: category,
@@ -2778,6 +2935,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             }, t('settings.maxSeatsAuto')),
           ]),
         ]),
+        h('div', { key: 'pinnedSeats', className: 'hl-row', 'data-hotlist-row': 'pinned.maxSeats' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.pinnedMaxSeats')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.pinnedMaxSeatsHint')),
+          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.pinned.maxSeats, PINNED_SEATS.min, PINNED_SEATS.max, 1, (value) => patch({ pinned: { ...settings.pinned, maxSeats: value } }))),
+        ]),
         h('div', { key: 'ttl', className: 'hl-row', 'data-hotlist-row': 'collect.completedTtlMs' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.ttl')),
@@ -2797,7 +2961,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.recentWindow')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.recentWindowHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.collect.recentWindowMinutes, RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max, 1, (value) => patch({ collect: { ...settings.collect, recentWindowMinutes: value } }))),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.collect.recentWindowMinutes, RECENT_WINDOW_UI.min, RECENT_WINDOW_UI.max, 1, (value) => patch({ collect: { ...settings.collect, recentWindowMinutes: value } }))),
         ]),
         switchRow('positions.tab', t('settings.position.tab'), t('settings.position.tabHint'), settings.positions.tab, () => toggled('positions.tab', settings.positions.tab !== true)),
         switchRow('positions.topbar', t('settings.position.topbar'), t('settings.position.soon'), settings.positions.topbar, () => {}, true),
@@ -2845,11 +3009,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     const TIERS = Object.freeze([64, 320, 780, 1560]);
     /** Scale factor → CSS px. */
     const SCALES = Object.freeze({ 1: 260, 1.5: 390, 2: 520, 3: 780 });
-    const KIT_CATEGORIES = Object.freeze(['pending', 'error', 'completed', 'running', 'idle', 'pinned', 'favorite']);
+    const KIT_CATEGORIES = Object.freeze(['pending', 'error', 'completed', 'running', 'idle', 'pinned']);
     const KIT_IDLES = Object.freeze(['breath', 'float', 'none']);
     const KIT_EXITS = Object.freeze(['drop', 'particles', 'fade', 'slide-out']);
     const KIT_EMOJI = Object.freeze({
-      pending: '❓', error: '⛔', completed: '✅', running: '⏳', idle: '💤', pinned: '📌', favorite: '⭐',
+      pending: '❓', error: '⛔', completed: '✅', running: '⏳', idle: '💤', pinned: '📌',
     });
     const KIT_TIMING = Object.freeze({
       enterMs: 550,
@@ -3652,6 +3816,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           set: (patch) => options.writeSettings(isPlainObject(patch) ? patch : {}),
           reset: () => options.resetSettings(),
           subscribe: (fn) => options.onSettingsChange(fn),
+          /** Rolling copies of earlier writes, newest first: `{at, version}` only. */
+          backups: () => readBackups().map((item) => ({ at: item.at, version: item.settings.version })),
+          /** Put one of those copies back, e.g. after an unexpected reset. */
+          restore: (index) => {
+            const entry = readBackups()[typeof index === 'number' ? index : -1];
+            if (entry === void 0) return { ok: false };
+            settingsCache = sanitizeSettings(entry.settings);
+            persist(settingsCache);
+            notify();
+            return { ok: true, at: entry.at };
+          },
         },
         assets: {
           add: (category, kind, asset) => {
@@ -3722,13 +3897,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       /** Cross-window writes (another window of the same profile) land here. */
       ctx.effect(() => watchStorage(), 'hotlist: settings storage');
-      /** The pin list in the settings page shows session titles, not raw ids. */
-      ctx.effect(() => {
-        sessionTitleOf = (sessionId) => ctx.get('sessions').list.getSnapshot().byId[sessionId]?.displayTitle ?? sessionId;
-        return () => {
-          sessionTitleOf = (sessionId) => sessionId;
-        };
-      }, 'hotlist: pin titles');
       /** Switch the main view; the hotkeys and the seats share this one call. */
       const openSession = (sessionId) => ctx.get('uiWorkspace').openSession(sessionId);
       /** sessionId -> {message, at}: run failures kept until that session reaches the main view. */
@@ -4073,6 +4241,12 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       }
 
       /** Session list snapshot minus archived ids, plus the current session, its workspace and live failures. */
+      /** The workspace store's pins, ignored until its first read lands (`phase`). */
+      const pinnedIdsOf = () => {
+        const groups = ctx.get('uiWorkspace')?.workspaces.list.getSnapshot();
+        return groups?.phase === 'ready' && Array.isArray(groups.pinnedSessionIds) ? groups.pinnedSessionIds : [];
+      };
+
       function readSnapshot() {
         const now = Date.now();
         for (const [sessionId, failure] of errors) {
@@ -4101,6 +4275,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           list: { ...list, ids },
           statuses,
           currentId,
+          pinnedSessionIds: pinnedIdsOf(),
           workspaceIds: group?.sessionIds ?? null,
         };
       }
@@ -4148,6 +4323,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         errors,
         completedAt,
         currentId: snapshot.currentId,
+        pinnedSessionIds: snapshot.pinnedSessionIds,
         workspaceIds: snapshot.workspaceIds,
         now,
         limit,
@@ -4252,7 +4428,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
               status: statuses.get(sessionId),
               error: errors.get(sessionId),
               completedAt: completedAt.get(sessionId),
-              pinned: readSettings().pins[sessionId] !== void 0,
+              pinned: pinnedIdsOf().includes(sessionId),
               children: runningChildren(list, statuses, sessionId),
             };
           },

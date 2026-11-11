@@ -13,12 +13,15 @@
     "error": "attention.wav",
     "completed": "complete.wav"
   },
-  "source": "C:\\Meru\\tool\\meru-tts\\sound",
+  "source": "generated with tools/meru-tts (see tools/meru-tts/README.md)",
   "format": "PCM WAV, mono, 24000 Hz, 16-bit",
   "entries": [
     {
       "file": "attention.wav",
-      "usedBy": ["pending", "error"],
+      "usedBy": [
+        "pending",
+        "error"
+      ],
       "bytes": 53804,
       "seconds": 1.12,
       "sampleRate": 24000,
@@ -27,7 +30,9 @@
     },
     {
       "file": "complete.wav",
-      "usedBy": ["completed"],
+      "usedBy": [
+        "completed"
+      ],
       "bytes": 53804,
       "seconds": 1.12,
       "sampleRate": 24000,

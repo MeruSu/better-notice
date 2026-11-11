@@ -9,7 +9,7 @@
 | --- | --- | --- |
 | 对话区 tab 行 | `conversation.view`（每会话一个座位） | 热会话的 tab，图标 + 标题 |
 | 侧栏会话行 | 宿主 DOM（`[role="treeitem"][data-row-key^="…"]`） | 行内标题前的状态图标 |
-| 设置页 | `settings.section`（id `hotlist`） | 7 张类别卡 + 全局区 |
+| 设置页 | `settings.section`（id `hotlist`） | 6 张类别卡 + 全局区 |
 
 判定链是纯函数：`classify()` → `sortSeats()` → `buildSeatPlan()`。tab 与侧栏因此永远不会对同一会话给出两种状态。
 
@@ -42,21 +42,30 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 
 ```js
 window.__HOTLIST__ = {
-  version,                                  // 插件版本字符串
-  settings: { get, set, reset, subscribe }, // 与 1.1 同名同义
+  version,                                                    // 插件版本字符串
+  settings: {
+    get,                                                      // 取当前设置（快照，改它无效）
+    set(patch),                                               // 两级浅合并写入
+    reset(),                                                  // 回到默认值
+    subscribe(fn),                                            // 订阅变更，返回退订函数
+    backups(),                                                // 历史落盘副本 [{at, version}]，最新在前
+    restore(index),                                           // 把某份副本写回去，返回 {ok, at?}
+  },
   assets: {
-    add(category, kind, item),   // 追加一份素材，item = { name, dataUrl }
-    list(category, kind),        // 返回当前池（数组，元素 { name, dataUrl }）
-    clear(category, kind),       // 清空该池，返回删除份数
+    add(category, kind, item),   // 追加一份素材，item = { name, dataUrl } → { ok, bytes?, reason? }
+    list(category, kind),        // 当前池的摘要，元素 { name, bytes }（不含 dataUrl）
+    clear(category, kind),       // 清空该池，返回 boolean
     preview(category),           // 立刻播一条该类别池里的音效（试听），返回是否播放
   },
 };
 ```
 
-`kind` 取值：`'glyph'`（图标图）、`'popout'`（弹出图）、`'sound'`（音效）。
-`category` 取值：`'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle' | 'favorite'`。
+`settings` 上**没有** `defaults`（别照旧文档写：取默认值用 `sanitizeSettings({})` 或者 `get()` 之后看字段）。
 
-`assets.add` 返回 `true`（已收）或 `false`（拒收，原因见 §4.2 与 `console.debug('[hotlist] asset rejected'…)`）。
+`kind` 取值：`'glyph'`（图标图）、`'popout'`（弹出图）、`'sound'`（音效）。
+`category` 取值：`'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle'`（v4.6.1 起 6 类）。
+
+`assets.add` 返回 `{ ok: true, bytes }` 或 `{ ok: false, reason }`，`reason` ∈ `'invalid'`（参数不对）/ `'full'`（该池已满）/ `'refused'`（素材不合格，见 §4.2）/ `'budget'`（总量超了，写入时被裁回来）。
 
 ---
 
@@ -64,7 +73,7 @@ window.__HOTLIST__ = {
 
 存储键 `dsh.hotlist.settings.v1`（v2.x 旧键 `dsh.session-switcher.settings` 会自动迁移并删除）。
 
-下面所有字段在 v4.5.0 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池，v4.4.0 把动效间隔换成播放频率、把收录窗口搬到全局，v4.5.0 删掉弹出图尺寸的 UI（`overlay.sizeMin/sizeMax` 仍是 API 字段）并把内置音效固定成两个 wav（读旧记录时缺字段一律回落默认，不会报错）。
+下面所有字段在 v4.6.1 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池，v4.4.0 把动效间隔换成播放频率、把收录窗口搬到全局，v4.5.0 删掉弹出图尺寸的 UI（`overlay.sizeMin/sizeMax` 仍是 API 字段）并把内置音效固定成两个 wav，v4.6.0 置顶改读宿主原生并删掉 `settings.pins`，v4.6.1 删掉第 7 类 `favorite` 并把「最近对话展示时间」的 UI 收窄到 1–36 分钟（读旧记录时缺字段一律回落默认，不会报错）。
 
 ```js
 {
@@ -76,22 +85,22 @@ window.__HOTLIST__ = {
   display: { reduceMotion: 'auto' },   // 'auto' | 'on' | 'off'（API 可写，设置页没有行）
   shortcuts: { jumpEnabled: true, overlayEnabled: false, overlayKey: 'Alt+Shift+S' }, // overlayEnabled 生效；jumpEnabled 恒灰
   overlay: { side: 'auto', sizeMin: 260, sizeMax: 520, fallbackImage: '' },
-  collect: { completedTtlMs: 420000 },  // 「刚完成」保持时长，1–1440 分钟（步进 1 分钟）
+  collect: { completedTtlMs: 420000, recentWindowMinutes: 5 },  // 前者「刚完成」保持时长 1–1440 分钟；后者「最近对话展示时间」单位分钟，存储范围 0–120、设置页 UI 只给 1–36
   sound: { volume: 60 },        // 全局音量 0–100
-  pins: { '<sessionId>': 1 },   // 1–99，越小越靠前；仅 pinned 卡
+  pins: { '<sessionId>': 1 },   // 【v4.6.0 起废弃】置顶改读宿主原生 pinnedSessionIds，此字段不再参与判定，旧盘上读时丢弃
+  pinned: { maxSeats: 3 },      // v4.6.0 新增：置顶最多占几个座位，0–12，0 = 不显示置顶
   categories: { <cat>: { …见下… } },
 }
 ```
 
-每个类别（7 个，一个不少）：
+每个类别（6 个，一个不少）：
 
 ```js
 {
-  enabled: true,                // favorite 恒 false（预留）
-  reserved: false,              // favorite 恒 true：只占位，任何改动被忽略
-  order: 0,                     // pinned 恒 0；其余 1–99，决定展示顺序（不影响判定）
-  sortBy: 'time',               // 'time' | 'manual'（pinned 用 manual）
-  pinLevel: null,               // pinned 卡的手工位次 1–99（最多 50 条）
+  enabled: true,
+  order: 0,                     // 决定展示顺序（1–99），不影响判定；pinned 默认 15，也是可编辑的
+  sortBy: 'time',               // 'time' | 'manual'（pinned 用 manual，按宿主置顶次序）
+  pinLevel: null,               // 只读：宿主 pinnedSessionIds 里的下标 + 1（由宿主置顶次序决定，不可手改）
   surfaces: { tab: true, sidebar: true, topbar: false },
   glyph: {
     source: 'emoji',            // 'emoji' | 'upload' | 'popout'
@@ -130,12 +139,16 @@ window.__HOTLIST__ = {
 - 旧全局 `display.motionIntervalMs` → 分发到每个类别的 `glyph.frequency`，公式 `f = 1 − (ms − 2000) / 58000`（2000 → 1、8000 → 0.9、60000 → 0）；旧值 `0` 表示「从不播」，直接迁成 `frequency = 0`。
 - 旧每类 `glyph.motionIntervalMs` → 同上换算成该类的 `glyph.frequency`，之后 `motionIntervalMs` 不再写入。
 - 旧 `categories.idle.within` → 全局 `collect.recentWindowMinutes`（显式写了 `recentWindowMinutes` 时以它为准，两者都夹到 0–120）；旧字段读一次即忽略。
+- 旧 `categories.favorite`（v4.6.0 及更早的第 7 类，恒不产出）在 **v4.6.1 起丢弃**：类别表只剩 6 个键，盘上多出来的 `favorite` 读时扔掉，写回也不再带。
 - 旧 `glyph.size` 读时忽略（v4.4 起没有尺寸控件，图标固定按 CSS 尺寸画）。
 - 旧 v3 `overlay.scale`（倍数）在 v4.1 起**丢弃**，尺寸改由 `sizeMin/sizeMax` 决定。
+- 旧 `pins`（手工置顶级 map）在 **v4.6.0 起废弃**：置顶改读宿主原生 `pinnedSessionIds`，`pins` 不再参与 `classify` / `sidebarStateOf`，盘上有也读时丢弃。老用户的置顶会话如果还想置顶，用宿主侧栏的自带菜单重新置顶一次。
 
 ---
 
-全局区里那个窗口现在是 `collect.recentWindowMinutes`（默认 5，0–120 分钟）：最后活动在这个时间内的普通会话进 `idle`，也就进 tab 的第三级；0 表示完全不显示第三级。
+全局区里那个窗口现在是 `collect.recentWindowMinutes`（默认 5）：最后活动在这个时间内的普通会话进 `idle`，也就进 tab 的第三级；0 表示完全不显示第三级。
+
+**单位是分钟。范围有两层，别混**：存储层（`sanitizeSettings` 的夹取）是 `0`–`120`，`0` 合法且表示不显示；**设置页那一行只给 `1`–`36`**（默认 5），超出 36 的值不会被夹掉，只是没有界面能输——用 `window.__HOTLIST_SETTINGS__.set({ collect: { recentWindowMinutes: 90 } })` 写进去照样生效并保留。改代码时别把 UI 的上限当成数据上限。
 
 ## 3. 随机规则（为什么图标不会闪）
 
@@ -161,8 +174,8 @@ index = fnv1a(seed) % pool.length
 
 ### 4.1 内置素材（不要改）
 
-- `assets/<cat>-<tier>.webp`：7 类 × 4 档（64 / 320 / 780 / 1560），弹出图与图标（`source: 'popout'`）共用。
-- `assets/<cat>.svg`：同 7 类的矢量兜底（webp 加载失败时用）。
+- `assets/<cat>-<tier>.webp`：6 类 × 4 档（64 / 320 / 780 / 1560），弹出图与图标（`source: 'popout'`）共用。
+- `assets/<cat>.svg`：同 6 类的矢量兜底（webp 加载失败时用）。
 - `assets/sounds/attention.wav` 与 `assets/sounds/complete.wav`：两个内置 wav，一对一映射（`pending` / `error` → `attention.wav`，`completed` → `complete.wav`），没有随机池；`assets/sounds/manifest.json` 记 `count: 2` 与 `mapping`。
 - 音效播放地址：`/hotlist-sound/<file>`（host 半边注册的前缀路由，同源、不鉴权、`audio/mpeg`、穿越请求 404）。
 
@@ -273,8 +286,45 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 2. **localStorage 满了**：`lastError()` 会返回写入错误，设置页底部也会出现一行提示；清掉一个池（`assets.clear`）再试。总预算 2 MB 就是为这个设的。
 3. **改了 `client.js` 不生效**：插件的 client 半边在页面加载时注册，改文件后必须重新加载页面（host bundle 每请求读盘，但已注册的模块不会热替换）。
 
+### 7.1 写错了怎么退回去（保留层与备份）
+
+设置落盘时做了两道保险，**所以你写坏一次不至于把用户的配置清空**：
+
+- **未知字段不丢**：`sanitizeSettings` 只认已知路径，但它不会把不认识的字段扔掉——`collectUnknown()` 把它们搬进另一把键（`PRESERVED_KEY`）存着，下次读盘由 `reviveUnknown()` 搬回原位。所以第三方在设置里塞了自己的字段，本插件升级后它还在。
+- **超范围的原始值不丢**：盘上是 `maxSeats: 99` 这种，读的时候按 `1`–`12` 夹取使用，但原值记在保留层里；哪天上限放宽了，`reviveOutOfRange()` 会把 `99` 还回去。
+- **每次落盘前存一份滚动备份**：最近 5 份（`BACKUP_KEY`，`BACKUP_LIMIT = 5`），只记 `{at, settings}`。查有哪些副本用 `window.__HOTLIST__.settings.backups()`（返回 `[{at, version}]`，最新在前），要退回某一份用 `settings.restore(0)`（0 = 最近一份，`-1` 或不传 = 最旧一份）。
+- **唯一例外**是 `RETIRED_PATHS` 里的路径（例如 v4.6.1 退役的 `categories.favorite`）：这些是插件主动删除的字段，读时丢弃、不进保留层，否则它们会永远跟着用户。
+- 想确认这套还在生效：单测 `user settings are never overwritten`、`defaults never overwrite stored values`、`legacy default order is adopted, real choices are kept` 三组红了就是破了。
+
 ## 8. 想加功能而不是配置
 
-- 纯判定（分类、排序、上限）在 `classify/sortSeats/buildSeatPlan`，改这里要同步跑单测（`node test/classify.test.mjs`，58 组）。
+- 纯判定（分类、排序、上限）在 `classify/sortSeats/buildSeatPlan`，改这里要同步跑单测（`node test/classify.test.mjs`）。
 - 新渲染面才需要碰宿主槽位；现有三面之外加第四个面，先看 `docs/ARCHITECTURE.md` 的「扩展点」一节。
-- 改动后必须跑：`node --check client.js`、`node test/classify.test.mjs`、`node C:\Meru\Seek\cangku\tmp\261111_gate_pre_restart.mjs`（静态闸门，拦未声明常量与已删字段）。三样齐才算完。
+- 改动后必须跑：`node --check client.js`、`node --check index.js`、`node --check test/classify.test.mjs`、`node test/classify.test.mjs`。四样全绿才算完。
+
+---
+
+## 9. 这一版的类别判定优先级（4.6.1）
+
+**一个会话只属于一个类别。** `classify()` 从上往下走，第一条命中的就定了，后面的条件不再看。
+
+| 序 | 类别 | 判定条件（大意） |
+| --- | --- | --- |
+| 1 | `error` | agent 级报错（`api-session/error`，或已打开会话的 `promptError` / `lastAgentError`） |
+| 2 | `pending` | `pendingInteraction.kind` 有值（`approval` / `question` / `plan-review` 三种并成这一类） |
+| 3 | `completed` | 本插件看到它 `running true → 非 running`，且在 `collect.completedTtlMs` 内 |
+| 4 | `running` | 正在干活（含「子代理在跑、父会话空闲」） |
+| 5 | `pinned` | 在**宿主原生**置顶列表里 |
+| 6 | `idle` | 空闲，且最后活动在 `collect.recentWindowMinutes` 内 |
+
+也就是说：**报错 > 待处理 > 已完成 > 进行中 > 置顶 > 闲置**。置顶排在倒数第二——它表达的是「你想先看」，不是「它在动」；一个置顶会话报错了，它进 `error`，不进 `pinned`。
+
+**置顶来自宿主，不是本插件的设置。** 数据源是 `ctx.get('uiWorkspace').workspaces.list.getSnapshot().pinnedSessionIds`（数组，最近置顶的在前），置顶/取消置顶在宿主侧栏行的原生菜单里。插件这边**只读**，只提供全局「置顶最多显示」（`pinned.maxSeats`，`0`–`12`，`0` = 不显示置顶）来控制它占几个座位。`pinLevel` 直接取数组下标 + 1，所以置顶的先后由宿主的置顶次序决定，插件不提供「上移/下移」。
+
+**展示顺序与判定优先级是两件事。** 展示顺序看每类的 `order`，默认 `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50`。`error` 与 `pending` 默认同分，**同分时按上面的判定优先级兜底**（也就是 `CATEGORY_ORDER` 常量里 `error` 必须排在 `pending` 前），所以最终看到的是 报错 → 待处理 → 置顶 → 已完成 → 进行中 → 闲置。
+
+**6 类，不是 7 类（v4.6.1 起）。** `CATEGORY_IDS = ['pinned', 'error', 'pending', 'completed', 'running', 'idle']`。v4.6.0 及更早还有第 7 个 `favorite`（收藏，`reserved: true`、恒不产出）；它在 v4.6.1 里被整个删掉——类型、常量、设置页那张卡、i18n 键一起没了，旧盘里的 `categories.favorite` 读时丢弃。想加回一个「收藏」类不是改配置，是加类别（见 §8）。
+
+**老安装的旧默认顺序会被自动升级，逐类判断（v4.6.1 起）。** 判据是「这一类的 `order` 值是否等于某个历史默认值」（`LEGACY_DEFAULTS`）——等于就视为「用户没选过」，换成新版默认。历史值 → 新值：`pinned` 的 `0`（含最早那版的 `1`）→ **15**、`pending` 的 `20` → **10**、`completed` 的 `30` → **20**、`running` 的 `40` → **30**；`error` 一直是 `10`、`idle` 一直是 `50`，不受影响。用户改过的值一个都不会动。这条在 `sanitizeSettings` 里跑，不是一次性脚本，所以每次读盘都会按同一规则判。
+
+改优先级 = 改语义，别只改 `order` 就以为改了判定；两处都要动时，`test/classify.test.mjs` 的 `category order` 与 `sidebar priority` 两组是验收线。
