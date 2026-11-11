@@ -1,5 +1,28 @@
 # Changelog
 
+## 4.6.5
+
+**修掉 4.6.4 砸死的控件：被预设覆盖的字段，只要用户自己选过，就不再被覆盖。** 4.6.4 没有发布，
+所以这版对外的变化是「4.6.3 → 4.6.5」；下面两段一起构成这次升级。
+
+- **新增持久字段 `choices`**（`{ "<path>": true }`）：只有**用户自己写过**的字段才在里面。埋点是唯一写入口
+  `writeSettings(patch)`，用**传进来的 patch** 判断（不是合并后的整体）——预设规则在 sanitize 阶段改写值，
+  被它改写的不算用户选择。
+- **闸门改成 `旧预设 && !choices[path]`**：没动过的字段仍然跟随新默认（4.6.4 的「出厂预设覆盖」保留），
+  动过的字段永不覆盖。于是设置页里 `none` / `blink` / 「仅图标」/ 频率 100% / 关音效**都能真正落地了**——
+  在 4.6.4 上这些都会回弹成默认值（选了等于没选）。
+- **`resetSettings()` 一并清空 `choices`**：恢复默认就是重新认可出厂预设。`backups()` / `restore(i)` 把 `choices`
+  和整份设置一起存取。`choices` 是已知字段，不进保留副本；`SETTINGS_VERSION` 仍为 4，无迁移。
+- 设置页的 patch 现在只带**改动的那个字段**（`mergePatch` 往下多合一层，`{glyph: {motion}}` 不会再把上传池冲掉）。
+- `VERSION` / `package.json.version` → `4.6.5`。
+
+## 4.6.4
+
+- Factory presets now replace older factory presets: a stored value that only ever equalled an
+  earlier default (`💤`, `blink`, `none`, frequency `1`, sound off) follows the current default,
+  so an existing install finally sees the ice cube and the new motion table. No user choice is ever
+  overwritten — a value that is not one of our old defaults is kept byte for byte.
+
 版本号跟 `client.js` 里的 `const VERSION` 一致，也与 `package.json` 的 `version` 一致（后者同时是 npm 分发版本号）。设置数据另有一套 schema 版本（`SETTINGS_VERSION`），两者不同：前者是发布版本，后者只在**数据结构**变化时才动。
 
 ## 4.6.3
@@ -36,7 +59,7 @@
 **设置页减法 + 内置音效换成两个 wav。首个公开版本。**
 
 - **删掉设置页「浮层尺寸」那一栏**（`overlay.sizeMin` / `sizeMax`）。字段与「取中值再按视口收窄」的算法都保留，只是不再有 UI；想改用 API。
-- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:186`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
+- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:237`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
 - 包名从本地命名空间 `@local/dsh-hotlist` 改为 **`@merusu/dsh-better-notice`**，`package.json` 的 `version` 与 `VERSION` 对齐到 `4.5.0`（此前是 `1.0.0`）。
 - 仓库随附 `tools/meru-tts/`：生成这两条提示音用的 TTS 小工具（不参与插件运行）。
 
@@ -58,7 +81,7 @@
 
 - 症状：加载后只剩一条 `Failed to load plugins` 横幅，`web boot: 20 entries did not activate`，`ui-workspace` / `ui-open-in-app` / `ui-sidebar-terminal` 直接 `failed`，其余 UI 全 `pending (waiting for service: uiWorkspace)`；console 里 24 条重复的 `locale subscriber crashed: TypeError: command.label is not a function`。
 - 根因：宿主要求快捷键命令的 `label` 是 **thunk**——`dsh-client-shortcuts/lib/client.js:1190` 与 `:1249` 都是 `label: command.label()`，直接调用。我们传的是 `t(...)` 的返回值（字符串），于是在 `refreshLabels()` 里抛错，把 `uiWorkspace` 一起拖下水。
-- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4407-4413`）。
+- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4615-4617`）。
 - 为什么没被拦住：单测里 `shortcuts` 是桩，桩不调用 `label()`，所以「传字符串」在单测里永远看不见。补了一组 **`shortcut labels are thunks`** 断言：`typeof spec.label === 'function'`、调用返回非空字符串。教训写进 `docs/TESTING.md`：凡宿主会调用我们传入的回调，桩必须真的调一次。
 
 ## 4.3.0

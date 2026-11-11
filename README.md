@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 ```
 
 - Package: `@merusu/dsh-better-notice` (module id is the same string)
-- Version: `4.6.3` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `4.6.5` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -121,7 +121,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice) (current `4.6.3`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/merusu-dsh-better-notice-4.6.3.tgz` gives the same result and the same restart.
+- **Published on npm:** [@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice) (current `4.6.5`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/merusu-dsh-better-notice-4.6.3.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -146,7 +146,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.3'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.5'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -444,7 +444,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.3'
+api.version                                        // '4.6.5'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -507,18 +507,18 @@ ctx.get('uiWorkspace').workspaces.list             ← workspace grouping + pinn
 ctx.remote.$on('api-session/error', …)             ← agent-level errors
                  │
                  ▼
-        classify()       category + token          client.js:1483
-        sortSeats()      ordering within a category client.js:1547
-        buildSeatPlan()  apply limits, assign order client.js:1570
+        classify()       category + token          client.js:1590
+        sortSeats()      ordering within a category client.js:1654
+        buildSeatPlan()  apply limits, assign order client.js:1677
                  │
      ┌───────────┴────────────┬──────────────────┐
      ▼                        ▼                  ▼
 mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
 tab seats (conversation.view)   sidebar DOM      settings page (settings.section)
-client.js:4189                client.js:1867    client.js:2561
+client.js:4291                client.js:1974    client.js:2668
 ```
 
-The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:4610` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
+The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:4712` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
 
 ### Touch points: change one thing, change these
 
@@ -554,10 +554,10 @@ Sidebar titles can carry a CSS animation; **tab seats cannot** — the tab label
 
 - Field: `settings.categories.<id>.glyph.motionTarget`
 - Values: `'glyph'` = icon only; `'row'` = icon + title, started and stopped together.
-- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:235`).
+- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:258`).
 
 ```js
-// Option A: change the default for every category (source edit, defaultGlyph() at client.js:235)
+// Option A: change the default for every category (source edit, defaultGlyph() at client.js:258)
 function defaultGlyph(category) {
   return {
     kind: 'emoji',
@@ -572,7 +572,7 @@ function defaultGlyph(category) {
 ```
 
 ```js
-// Option B: per category (source edit, override inside defaultCategory() at client.js:248)
+// Option B: per category (source edit, override inside defaultCategory() at client.js:271)
 // e.g. only "pending" animates its title, everything else animates the icon only:
 glyph: { ...defaultGlyph(category), motionTarget: category === 'pending' ? 'row' : 'glyph' },
 ```
@@ -586,15 +586,16 @@ window.__HOTLIST_SETTINGS__.set({
 
 **Option C has a trap you must know:** `set` merges only two levels, and `glyph` / `popout` / `sound` are replaced as whole blocks — the line above resets `pending.glyph`'s `value`, `motion` and `frequency`. Do `get()`, edit the whole object, `set()`.
 
-Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:1751`, looping) and `TEXT_BURST` (`:1752`, one-shot), a duration in `MOTION_MS` (`:1736`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`:1758`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`:192`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
+Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:1858`, looping) and `TEXT_BURST` (`:1752`, one-shot), a duration in `MOTION_MS` (`:1736`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`:1758`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`:192`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
 
 ### Upgrades never overwrite user settings
 
-**Promise: upgrading the plugin never changes a setting the user already chose.** Changing defaults affects new installs only.
+**Promise: upgrading the plugin never changes a setting the user already chose.** A value that still equals one of our own earlier factory defaults is not a choice — it follows the current default (the `LEGACY_VALUES` bullet below). Everything else on disk wins. A field the user *did* pick is his even when the value coincides with a preset: `choices` (`client.js:719`) records those picks and the preset rule reads it before rewriting anything.
 
 How that is guaranteed:
 
 - **Defaults only fill gaps**; anything on disk wins. `sanitizeSettings()` starts from the defaults and then, field by field, keeps any valid stored value — so changing `CATEGORY_ORDER` or `defaultGlyph()` is invisible to existing users.
+- **Factory presets are ours, not the user's.** A stored value that only ever equalled a default an earlier release shipped — `💤` for the idle glyph, `blink` / `none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — follows the current default, so an existing install does eventually see the ice cube and the 4.6.3 motion table without the user re-doing anything. The table is `LEGACY_VALUES` (`client.js:152`); the same boundary already used for a category `order` that equals a historical default (`LEGACY_DEFAULTS`). As soon as the user edits that field the value is theirs and we never touch it again, and a value nobody ever shipped as a default is kept byte for byte. "Edited" is recorded explicitly: `choices` `{ "<path>": true }` (`client.js:702-737`) is written by `writeSettings()` from the incoming patch only, so a value the preset rule rewrote can never pass for a choice; `resetSettings()` clears the whole map because a reset is a fresh acceptance of the presets.
 - **Adding a field:** a fallback in `sanitize*` is enough, **do not bump `SETTINGS_VERSION`**. A version bump claims “a migration is required”, and a wrong migration silently wipes user data — no structural change, no version change.
 - **Real structural changes** (dropping a field, changing its meaning) must keep the chain “read old → convert → drop the old field” (today that lives in `sanitizeSettings()`; the v3.1 → v4 migration went through it) and bump `SETTINGS_VERSION` by the smallest step. The `migrate v3 to v4` test group is the acceptance test for that chain.
 
@@ -604,7 +605,7 @@ Three things you must never do:
 2. **Never** “tidy up” by deleting the localStorage key — category orders and uploaded asset pools live there.
 3. **Never** call `reset()` during `apply()` — one restart would zero the configuration.
 
-Self-check: run `node test/classify.test.mjs`. The group `current version keeps custom order` (`test/classify.test.mjs:605`) is exactly this guard: it writes a v4 record with a custom `order` into a fake `localStorage` and asserts the custom value survives. Its siblings are `user settings are never overwritten` (`:2427`) and `legacy default order is adopted, real choices are kept` (`:2461`). If these go red, your change eats user data — do not commit.
+Self-check: run `node test/classify.test.mjs`. The group `current version keeps custom order` (`test/classify.test.mjs:605`) is exactly this guard: it writes a v4 record with a custom `order` into a fake `localStorage` and asserts the custom value survives. Its siblings are `user settings are never overwritten` (`:2437`), `legacy default order is adopted, real choices are kept` (`:2471`), `factory presets are replaced, user choices are kept` (`:2556`, the other half of the rule: old factory presets *are* replaced) and `user picks survive the preset rule` (`:2642`, the marker half: anything the user actually picked stays picked). If these go red, your change eats user data — do not commit.
 
 ### Hard rules — the short list
 
@@ -614,14 +615,14 @@ The same ground as the pitfall list at the bottom of this file, in checklist for
 2. **Package name, module id and bundle entry are one string** (pitfall 2) — otherwise it loads without registering and looks fine.
 3. **`.wav` / `.mp3` cannot go through `require.asset()`** (pitfall 3) — audio needs its own host route in `index.js`.
 4. **Our static routes are unauthenticated** (pitfall 4) — public assets only.
-5. **Never overwrite user settings** (pitfalls 5 and 6) — fall back per field, keep the preserve layer, and only bump `SETTINGS_VERSION` with a migration in hand.
+5. **Never overwrite user settings** (pitfalls 5 and 6) — fall back per field, keep the preserve layer, replace only values that are still an old factory default, and only bump `SETTINGS_VERSION` with a migration in hand.
 
 ### Self-check commands
 
 ```powershell
 node --check client.js          # syntax. client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 63 groups
+node test/classify.test.mjs     # expect a final line: PASS — 65 groups
 ```
 
 Plus a **static gate before saving**, available on the maintainer's machine only (not shipped with the repo):
@@ -637,7 +638,7 @@ cd <the directory you cloned into>
 
 node --check client.js          # client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 63 groups
+node test/classify.test.mjs     # expect a final line: PASS — 65 groups
 ```
 
 The unit tests read the real `client.js` source, wrap it in a stub `window.__ModuleLoader__` and run it: the fake browser is hand-written (`window` / `document`, no jsdom, `React` is a stub too), the code under test is the real source. They also include a few static scans: undeclared constants, CSS selector legality, and “shortcut labels must be thunks”.
@@ -652,7 +653,7 @@ index.js               host side: registers the /hotlist-sound/ audio route
 cordis.patch.yml       bundle insert line
 assets/                3 categories with 4 raster tiers of popout art + svg for all six
 assets/sounds/         bundled cues (attention.wav / complete.wav)
-test/classify.test.mjs unit tests (63 groups)
+test/classify.test.mjs unit tests (65 groups)
 docs/                  architecture, testing, extending
 tools/meru-tts/        TTS helper (generates cues; not part of the running plugin)
 ```
@@ -661,7 +662,7 @@ tools/meru-tts/        TTS helper (generates cues; not part of the running plugi
 
 Eleven things that have already cost real debugging time — including a broken release. Each one says what happens if you ignore it.
 
-1. **Callbacks handed to the host must be thunks, not values.** The host calls `command.label()` itself inside `refreshLabels()` (`dsh-client-shortcuts/lib/client.js:1190`). Pass a string and you get `TypeError: command.label is not a function`, which takes `uiWorkspace` down with it: **the whole Web UI boots to `Failed to load plugins` with roughly twenty plugin entries stuck pending.** That is exactly how v4.3.0 shipped broken. The settings section's `label: () => t('settings.nav')` (`client.js:3885`) is a thunk for the same reason. The unit test cannot catch it because the stubbed `shortcuts` service never invokes `label()` — **if the host will call a callback you pass in, make the stub actually call it.**
+1. **Callbacks handed to the host must be thunks, not values.** The host calls `command.label()` itself inside `refreshLabels()` (`dsh-client-shortcuts/lib/client.js:1190`). Pass a string and you get `TypeError: command.label is not a function`, which takes `uiWorkspace` down with it: **the whole Web UI boots to `Failed to load plugins` with roughly twenty plugin entries stuck pending.** That is exactly how v4.3.0 shipped broken. The settings section's `label: () => t('settings.nav')` (`client.js:3987`) is a thunk for the same reason. The unit test cannot catch it because the stubbed `shortcuts` service never invokes `label()` — **if the host will call a callback you pass in, make the stub actually call it.**
    *If you ignore it:* the plugin does not just fail to work, it prevents the entire page from loading.
 
 2. **Package name, module id and bundle entry must all be the same string.** `package.json`'s `name` = the `id` in `window.__ModuleLoader__.load({ id })` = the entry recorded in the profile's `dsh.profile.bundles`.
@@ -673,7 +674,7 @@ Eleven things that have already cost real debugging time — including a broken 
 4. **The static routes this plugin registers are unauthenticated.** `/hotlist-sound/*` and `/plugins/**/assets/*` do not check a token — anyone who can reach the port can fetch them.
    *If you ignore it:* you publish a path that leaks whatever you put behind it. Public assets only, never user data.
 
-5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:770`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:107`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1141`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:109`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
+5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:867`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:107`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1239`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:109`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
    *If you ignore it:* a user loses their whole configuration and cannot tell when it happened. Recovery is only `window.__HOTLIST__.settings.backups()` / `.restore(i)`.
 
 6. **Only bump `SETTINGS_VERSION` when the data structure really changed — and then write the migration in the same commit.** Cosmetic defaults and new optional fields need a fallback in `sanitize*`, not a version bump.
@@ -682,10 +683,10 @@ Eleven things that have already cost real debugging time — including a broken 
 7. **A `client.js` change needs a page refresh; everything else needs a GUI restart.** `index.js`, `package.json` and `cordis.patch.yml` are read at host start-up (the `/hotlist-sound` route is created there). Loaded client modules are not hot-replaced either.
    *If you ignore it:* you debug stale code and conclude the change did nothing.
 
-8. **Three hard caps are hard-coded, not settings.** `PLAN_MAX_ROWS = 37` (`client.js:180`) trims from the tail so the priority head always survives; `MOTION_CONCURRENCY = 4` (`client.js:194`) limits simultaneous animation; `PINNED_SEATS = {min: 0, max: 12}` (`client.js:177`).
+8. **Three hard caps are hard-coded, not settings.** `PLAN_MAX_ROWS = 37` (`client.js:203`) trims from the tail so the priority head always survives; `MOTION_CONCURRENCY = 4` (`client.js:217`) limits simultaneous animation; `PINNED_SEATS = {min: 0, max: 12}` (`client.js:200`).
    *If you ignore it:* you "fix" a truncated plan by raising `maxSeats`, which cannot exceed the row cap.
 
-9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:1483-1538`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:1844-1865`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
+9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:1590-1645`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:1951-1972`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
    *If you ignore it:* you edit one and the same session shows two different states on two surfaces — that was a real bug before 4.6.0.
 
 10. **`dsh plugin add` on an already-installed plugin does not rewrite the bundle entry, and a running GUI holds the files open.** Remove first, then add; and close that profile's GUI before installing over it, otherwise the copy fails with `EPERM`.

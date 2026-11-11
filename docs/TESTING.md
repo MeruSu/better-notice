@@ -9,7 +9,7 @@ cd <你的克隆目录>            # 含 client.js / index.js / test/ 的那一�
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs       # 期望最后一行: PASS — 63 groups，exit 0
+node test/classify.test.mjs       # 期望最后一行: PASS — 65 groups，exit 0
 ```
 
 `node --check` 是必须的：`client.js` 是包在 `window.__ModuleLoader__.load({factory})` 里的单文件脚本，语法错只在真机 boot 时才炸。
@@ -26,7 +26,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 
 `test/classify.test.mjs` 不用 import：它 stub 一个 `window.__ModuleLoader__.load` 抓住 factory，再 `new Function(source)()` 执行**真实的 client.js 源文件**，拿回模块的导出（`classify`、`sortSeats`、`buildSeatPlan`、`sanitizeSettings`、`migrateSettings`、`createSidebarAdapter`…）。所以测的是真代码，假的是浏览器环境：`document` / `localStorage` / `React` / cordis `ctx`。
 
-### 1.2 63 组各测什么
+### 1.2 65 组各测什么
 
 | 组 | 位置 | 覆盖 |
 | --- | --- | --- |
@@ -53,7 +53,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | adapter sidebar pinned and children | `test:1106` | 侧栏看到与 tab 一样的信息：置顶会话出 📌、有子会话在跑时父会话出 ⏳ |
 | takeover gate | `test:1134` | `takeOverStatusDot:true` 时 `[data-hotlist-style="takeover"]` 恰好 1 个且 dsm 点 `display:none`；改成 `false` 后 style 块被移除、点的 inline `display` 还原成 `''` |
 | styles stay valid | `test:1165` | 所有注入的样式文本不含 `[[`（二次包裹的选择器），`stop()` 后 `[data-hotlist-style]` 一个不剩 |
-| settings page | `test:1201` | section 注册 `[['hotlist',30]]`、label「热表」、页根 `data-hotlist-settings="v4.6.3"`；全局区行键齐（`maxSeats`/`pinned.maxSeats`/`collect.completedTtlMs`/`sound.volume`/`recentWindow`/`positions.tab`/`positions.topbar`/`takeOverStatusDot`）；**6 张卡**按 order 排 `error,pending,pinned,completed,running,idle`；折叠态 **30 个 chip**（6×5，其中 6 个是 topbar 位：`data-disabled="true"` + `data-on="false"`，位置 chip 的 `title` 是 `settings.chip.positionHint`）；`hideNativeDot`/`shortcuts.*`/`reset`/`within`/`overlay.size` 五类行**不存在**；`categories.favorite` **不存在**；`window.__HOTLIST__.assets.add(...,'nope',...)` 返回 `reason:'invalid'` |
+| settings page | `test:1201` | section 注册 `[['hotlist',30]]`、label「热表」、页根 `data-hotlist-settings="v4.6.5"`；全局区行键齐（`maxSeats`/`pinned.maxSeats`/`collect.completedTtlMs`/`sound.volume`/`recentWindow`/`positions.tab`/`positions.topbar`/`takeOverStatusDot`）；**6 张卡**按 order 排 `error,pending,pinned,completed,running,idle`；折叠态 **30 个 chip**（6×5，其中 6 个是 topbar 位：`data-disabled="true"` + `data-on="false"`，位置 chip 的 `title` 是 `settings.chip.positionHint`）；`hideNativeDot`/`shortcuts.*`/`reset`/`within`/`overlay.size` 五类行**不存在**；`categories.favorite` **不存在**；`window.__HOTLIST__.assets.add(...,'nope',...)` 返回 `reason:'invalid'` |
 | settings page card order | `test:1263` | 改 `categories.error.order = 5` 后卡片顺序是 `error,pending,pinned…`（error 与 pending 同为 10，按 `CATEGORY_ORDER` 兜底），末位 `idle` |
 | settings page overflow notice | `test:1276` | v4.4 删掉了提示条：`publishOverflow`/`currentOverflow`/`onOverflowChange` 都不再导出、页面无 `[data-hotlist-overflow]`、文案里没有 `settings.overflow`；但 `plan.overflow` 的数字仍在（`limit:1` + 3 行 → `overflow===2`） |
 | settings upload gate | `test:1297` | `glyphUploadReject`：`null`→`missing`、svg→`type`、**gif 放行**、webp 5 MB→`size`；超限 data URL 在 `sanitizeSettings` 里回落 `emoji` 且 `value:''`。上传是**两道闸**：源文件大小与产物（重编码后）大小 |
@@ -66,7 +66,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | popout cooldown | `test:1476` | 同会话同类别 10 s 冷却（9999 ms 拒、10001 ms 放行）；另一个会话是不同的键，不受冷却 |
 | popout first entry only | `test:1488` | 只在会话**首次进入**类别时弹：一直 `pending` 不重弹；当前会话不弹；换类别且冷却已过才弹；`error` 压过它替换掉的 `pending` |
 | overlay size sanitising | `test:1521` | `overlay.sizeMin/sizeMax`：越界夹到 120–900、`min>max` 自动交换（200/900）、缺省回落默认。**v4.5 只删了设置页那一行，schema 与算法照旧，这一组仍要跑** |
-| playback frequency sanitising | `test:1536` | `glyph.frequency`：`0`/`1` 直通、`0.42→0.4`（0.05 步进）、越界夹到 0–1；旧 `motionIntervalMs` 换算（`2000→1`、`8000→0.9`、`60000→0`，**`0` 仍是 0 而不是 1**）且换算后旧字段不写回；旧的全局 interval 分发到各含该字段的位置（`0.5`） |
+| playback frequency sanitising | `test:1536` | `glyph.frequency`：`0→0`、`0.42→0.4`（0.05 步进）、`0.65` 原样（不是预设就是选择）；**`1` 与越界的 `9` 都落回 `pending` 的当前默认 `0.9`**（`1` 是 v4.4 出厂预设）；旧 `motionIntervalMs` 换算（`2000→1`、`8000→0.9`、`60000→0`，**`0` 仍是 0 而不是 1**）且换算后旧字段不写回；旧的全局 interval 分发到各含该字段的位置（`0.5`） |
 | glyph source resolution | `test:1570` | `glyph.source` 三态：`upload` 用 data URL、`popout` 用该类别弹出图（`builtin:<cat>` 解析成打包素材）、`emoji` 用文本；空 emoji 回落类别内置图标 |
 | sidebar motion bursts | `test:1605` | 每类每 tick 恰好一次 `Math.random()`：3 个 100% 类 → 3 次掷骰、3 个 burst；`reduceMotion:on` 全停但仍不掷；`frequency:0` 跳过掷骰；5% + roll 0.9 不中、roll 0.02 中；并发上限内 |
 | settings page multiple open cards | `test:1672` | `sessionStorage['dsh.hotlist.open']` 存 JSON 数组：多张卡同开、未知 id 被过滤、旧版本写的裸字符串按单元素数组读 |
@@ -84,15 +84,16 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | shortcut edges | `test:2130` | 空 plan 不消费任何键；单座环绕自身；多座 `a→b→c→a` 回绕；缺 shift 或缺 alt 不消费、无关 code 忽略；没有 `shortcuts` 服务时热键注册数为 0 而座位照常注册 |
 | shortcut labels are thunks | `test:2193` | 三条 `registerFixed` 命令的 `label` 是**惰性 thunk**（`typeof label === 'function'`、调用返回非空字符串），id 与 `bindings[0].code` 是 `hotlist.cycle.prev/next/overlay.once` ↔ `BracketLeft`/`BracketRight`/`KeyS` |
 | recent window migration and clamping | `test:2218` | 全局 `collect.recentWindowMinutes`：旧每类 `within:30` 迁到顶层且类字段不再存在、旧默认 `5` 走 5、显式值优先、`500` 夹到 120、`-4` 夹到 0；0 时 idle 一行都不产出 |
-| preview loop lifecycle | `test:2244` | 预览按频率常驻循环：100% → `hl-pv-blink-20 1200ms linear infinite`、50% → `-10` 且周期翻倍到 2400 ms、0 或 `reduceMotion:on` → 没有 `animation` |
-| motion target row reaches the title | `test:2279` | `motionTarget:'row'` 真的动到标题：标题拿到 `hl-text-blink 1.2s ease-in-out 1` 与 `data-hotlist-text-motion`，行上同时有 1 个 `[data-hotlist-burst]`；样式表里 `@keyframes hl-text-bounce` 含 `translateY`（不再只动 opacity） |
-| settings page writes land immediately | `test:2317` | 页面控件写的是同一个 store：数字框/复选框 `onChange` 后 `readSettings()` 立刻反映（`recentWindow:30`、`maxSeats:1`、`positions.tab:false`），座位类改动两轮 `tick()` 内 tab 行跟着变（3 → 1 → 0） |
-| plan hard ceiling keeps the priority head | `test:2372` | 硬顶 37 行（`PLAN_MAX_ROWS`）：60 个 idle + `limit:40` → 恰好 37 行、`overflow===20`；加入 1 个 error 后 `plan[0].category==='error'`、被挤掉的是尾部 `idle-36`、头部 `idle-0` 还在 |
-| defaults never overwrite stored values | `test:2404` | 改默认值不等于改用户设置：所有类别默认 `glyph.motionTarget` 是 `'row'`；盘上存了 `'glyph'` + `frequency:0.35` 时 sanitize 保留 `'glyph'` 与 `0.35`（新默认只补缺） |
-| user settings are never overwritten | `test:2427` | 本版表示不了的也保留：`maxSeats:40` 活动值夹到 12，但**原始 40 与未知键 `experimental` 都留在保留键里**（`outOfRange.maxSeats={raw:40,clamped:12}`）；写入旧整块进 backup 环（1 条、`version:4`） |
-| legacy default order is adopted, real choices are kept | `test:2461` | 逐类判断「等于历史默认就算没选过」：`pinned 1→15`、`pending 20→10`、`completed 30→20`、`running 40→30`；用户真填的 `42`/`7`/`60` 一概不动（`idle` 从没有旧默认，60 就是用户输入）；整块老 blob 里 `pinned 0→15`、`error 10` 不变 |
-| recent window UI bounds are narrower than the API | `test:2490` | 两层范围：设置页数字框 `min===1`/`max===36`；而 `writeSettings({collect:{recentWindowMinutes:90}})` 之后 `readSettings()` 与盘上都是 **90**（存储层 0–120，API 不受 UI 上限约束） |
-| defaults for v4.6.3 | `test:2517` | 本版默认口径：`CATEGORY_GLYPHS.idle === '🧊'`（冰块，静止不动）；`CATEGORY_MOTION` = pinned/error/pending `bounce`、completed/running `spin`、idle `none`；`CATEGORY_FREQUENCY` = pinned 0.3、error 0.9、pending 0.9、completed 1、running 1、idle 0；六类 `motionTarget` 全 `row`；error/pending/pinned/completed 四类 `sound.enabled` 默认 true，running/idle false；`defaultSettings.sound.volume === 60` |
+| preview loop lifecycle | `test:2244` | 预览按频率常驻循环。这一组用 `completed`（`blink` 与频率 `1` 是 v4.4 出厂预设，v4.6.5 会替换它们，拿 `pending`+`blink` 测不出常驻）：100% → `hl-pv-spin-20 2400ms linear infinite`、50% → `hl-pv-spin-10 4800ms linear infinite`、0 或 `reduceMotion:on` → 没有 `animation` |
+| motion target row reaches the title | `test:2283` | `motionTarget:'row'` 真的动到标题：标题拿到 `hl-text-blink 1.2s ease-in-out 1` 与 `data-hotlist-text-motion`，行上同时有 1 个 `[data-hotlist-burst]`；样式表里 `@keyframes hl-text-bounce` 含 `translateY`（不再只动 opacity） |
+| settings page writes land immediately | `test:2321` | 页面控件写的是同一个 store：数字框/复选框 `onChange` 后 `readSettings()` 立刻反映（`recentWindow:30`、`maxSeats:1`、`positions.tab:false`），座位类改动两轮 `tick()` 内 tab 行跟着变（3 → 1 → 0） |
+| plan hard ceiling keeps the priority head | `test:2376` | 硬顶 37 行（`PLAN_MAX_ROWS`）：60 个 idle + `limit:40` → 恰好 37 行、`overflow===20`；加入 1 个 error 后 `plan[0].category==='error'`、被挤掉的是尾部 `idle-36`、头部 `idle-0` 还在 |
+| defaults never overwrite stored values | `test:2408` | 改默认值不等于改用户设置：所有类别默认 `glyph.motionTarget` 是 `'row'`；盘上存了 `pulse` + `frequency:0.35` 时 sanitize 原样保留（两者都不是任何一代预设；`'glyph'` 与 `1` 属于旧预设，归下一组管） |
+| user settings are never overwritten | `test:2437` | 本版表示不了的也保留：`maxSeats:40` 活动值夹到 12，但**原始 40 与未知键 `experimental` 都留在保留键里**（`outOfRange.maxSeats={raw:40,clamped:12}`）；写入旧整块进 backup 环（1 条、`version:4`） |
+| legacy default order is adopted, real choices are kept | `test:2471` | 逐类判断「等于历史默认就算没选过」：`pinned 1→15`、`pending 20→10`、`completed 30→20`、`running 40→30`；用户真填的 `42`/`7`/`60` 一概不动（`idle` 从没有旧默认，60 就是用户输入）；整块老 blob 里 `pinned 0→15`、`error 10` 不变 |
+| recent window UI bounds are narrower than the API | `test:2500` | 两层范围：设置页数字框 `min===1`/`max===36`；而 `writeSettings({collect:{recentWindowMinutes:90}})` 之后 `readSettings()` 与盘上都是 **90**（存储层 0–120，API 不受 UI 上限约束） |
+| factory presets are replaced, user choices are kept | `test:2556` | 另一半规则（出厂预设不是选择）：一份 v4.6.3 写出的存档里 `💤`→`🧊`、`blink`/`none`→`bounce`/`spin`、`motionTarget` 的 `glyph`→`row`、`frequency:1`→该类默认、音效 `false`→四个响类的默认 `true`；用户真改的值（`🌙`、`pulse`、`0.15`、`true`、order `7`）一个都不动；两个 glyph 槽各有自己的表（`none` 只在主槽是预设，在副槽是选择）；同一份输入再喂一遍结果逐字节相等 |
+| user picks survive the preset rule | `test:2642` | v4.6.5 的 `choices` 标记：`writeSettings({categories:{error:{sound:{enabled:false}}}})` 之后读回来仍是 `false`（旧版会回弹成 `true`），`choices` 里正好一条 `categories.error.sound.enabled`；`none` / `blink` / `glyph` / 频率 `1` / `💤` 这些与旧预设同值的选项都能落地；只标了 `motion` 时邻居 `motionTarget` 仍跟随 `row`；`backups()`/`restore(0)` 连标记一起回滚；`resetSettings()` 后 `choices` 为空且预设重新生效；二次 sanitize 逐字节相等；`sanitizeChoices` 丢弃 `false`、非法形状与超长键 |
 
 ### 1.3 改测试时踩过的坑（照抄结论）
 
@@ -132,8 +133,8 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 - 短读保护：切换后 ~70s 座位是否掉（真机历史 bug）。
 - dsm 状态点顶替与还原（需要另一个插件真的在画点）。
 - 动效观感：`motionTarget:'row'`、`reduceMotion`、每类的「播放频率」（0–100% 滑块）与常驻预览——只能人眼看；`row` 目标现在带 1–2px 位移，标题应该看得出在动。
-- 设置页外观：token 是否在深色主题下正确、559px 内是否横向滚动、上传真实文件时 canvas/webp 是否可用；折叠态一张卡 ≈44px、展开态「置顶」卡 ≤520px（v4.4 真机：44 / 514 / 466；v4.5 少了全局区一行与 i18n 两键，v4.6.3 又删掉了「收藏」整类，卡片只剩 6 张，整体只会更矮）。
-- 设置页结构与版本标记（验收脚本靠它们一击命中）：页根 `data-hotlist-settings` 期望值是 **`v4.6.3`**；卡片 **6 张**（`error` / `pending` / `pinned` / `completed` / `running` / `idle`，4.6.3 起「收藏」整类已删）；折叠态 chip 共 **30 个**（6 卡 × 5），其中 6 个是 topbar 位（`data-disabled="true"` + `data-on="false"`）；全局区 8 行 `[data-hotlist-row]` = `maxSeats` / `pinned.maxSeats` / `collect.completedTtlMs` / `sound.volume` / `recentWindow` / `positions.tab` / `positions.topbar` / `takeOverStatusDot`。
+- 设置页外观：token 是否在深色主题下正确、559px 内是否横向滚动、上传真实文件时 canvas/webp 是否可用；折叠态一张卡 ≈44px、展开态「置顶」卡 ≤520px（v4.4 真机：44 / 514 / 466；v4.5 少了全局区一行与 i18n 两键，v4.6.2 又删掉了「收藏」整类，卡片只剩 6 张，整体只会更矮）。
+- 设置页结构与版本标记（验收脚本靠它们一击命中）：页根 `data-hotlist-settings` 期望值是 **`v4.6.5`**；卡片 **6 张**（`error` / `pending` / `pinned` / `completed` / `running` / `idle`，4.6.2 起「收藏」整类已删）；折叠态 chip 共 **30 个**（6 卡 × 5），其中 6 个是 topbar 位（`data-disabled="true"` + `data-on="false"`）；全局区 8 行 `[data-hotlist-row]` = `maxSeats` / `pinned.maxSeats` / `collect.completedTtlMs` / `sound.volume` / `recentWindow` / `positions.tab` / `positions.topbar` / `takeOverStatusDot`。
 - 置顶走宿主原生：置顶来自宿主快照 `pinnedSessionIds`（侧栏行 hover 的「置顶会话」按钮），`settings.pins` 已在 **4.6.0 废弃**、读时丢弃，设置页也没有上移/下移/取消置顶；插件只提供全局「置顶最多显示」`pinned.maxSeats`（0–12，默认 3，0 = 不显示置顶）。真机上置顶/取消置顶后座位应在两轮 `tick()` 内跟着变。
 - 「最近对话展示时间」是**两层范围**，真机上要两只手都验：设置页数字框只给 **1–36** 分钟（`collect.recentWindowMinutes`，默认 5）；而走 API `window.__HOTLIST_SETTINGS__.set({ collect: { recentWindowMinutes: 90 } })` 是合法的，存储层夹取 0–120，重载后仍是 90（0 = 不显示 idle）。
 - 浮层：真的会在「别的会话进入 error/pending/completed」时弹出来、位置在正确一侧（auto 时看左侧会话栏宽度）、点到图上会切到那个会话、超时自己收回且收回后 DOM 里没有残留节点。
@@ -146,11 +147,11 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 
 1. `node --check client.js index.js test/classify.test.mjs`。
 2. `node cangku/tmp/261111_gate_pre_restart.mjs` → `STATIC VERDICT: clean`（查未声明常量、已删字段、新字段与模块形状；`node --check` 抓不到「引用一个没人声明的常量」这类崩溃）。
-3. `node test/classify.test.mjs` → `PASS — 63 groups`。
+3. `node test/classify.test.mjs` → `PASS — 65 groups`。
 4. 如果碰了排序：断言「同一批会话只变 `updatedAt` → registry 变更数不增加」（组 `adapter plan`），否则 tab 会每 30s 抖一次。
 5. 如果碰了注册/注销：断言座位 id 仍带 `hotlist-seat-` 前缀、`stop()` 后无残留节点/属性/样式（组 `adapter sidebar markers`、`surface gating`）。
 6. 如果碰了 CSS：断言所有样式文本不含 `[[`，且 takeover 规则只出现在 `data-hotlist-style="takeover"` 的 `<style>` 里（组 `takeover gate`、`styles stay valid`）。
-7. 如果碰了设置模型：`README.md` 的可配置项表要同步（与 `defaultSettings()` 一一对应），并跑 `settings sanitizing` + `migrate v3 to v4` + `recent window migration and clamping` + `recent window UI bounds are narrower than the API`（UI 1–36 与存储 0–120 是两个数）；`SETTINGS_VERSION` 变了就补一条迁移与一条「旧版本安全归一化」用例；另外三条是「不破坏用户设置」的守门组，改默认值或顺序时必跑：`defaults never overwrite stored values` / `user settings are never overwritten` / `legacy default order is adopted, real choices are kept`。
+7. 如果碰了设置模型：`README.md` 的可配置项表要同步（与 `defaultSettings()` 一一对应），并跑 `settings sanitizing` + `migrate v3 to v4` + `recent window migration and clamping` + `recent window UI bounds are narrower than the API`（UI 1–36 与存储 0–120 是两个数）；`SETTINGS_VERSION` 变了就补一条迁移与一条「旧版本安全归一化」用例；另外三条是「不破坏用户设置」的守门组，改默认值或顺序时必跑：`defaults never overwrite stored values` / `user settings are never overwritten` / `legacy default order is adopted, real choices are kept` / `factory presets are replaced, user choices are kept`（专治「改了出厂默认但老用户没动」：临时去掉 `LEGACY_VALUES` 的闸门，它必须变红）与 `user picks survive the preset rule`（专治「闸门把用户选的值也改了」：把 `isChoice` 短路成 `() => false`，它必须变红）。
 8. 如果碰了动效：跑 `sidebar motion bursts`（每类每 tick 一次随机、频率 0 不掷、并发上限、reduce 全停）与 `preview loop lifecycle`（0/0.5/1 三档的 `animation` 字符串）。
 9. 如果碰了持久化：跑 `completedAt persistence`（一次 sync 只写一次、成为主视图立刻删、重启剪枝；列表 `phase` 非 `ready` 时不得丢弃读回的条目）。
 10. `VERSION` 升了：`cangku/tmp/` 的验收脚本里的版本断言要同步，否则真机验收会 FAIL。

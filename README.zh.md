@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 ```
 
 - 包名：`@merusu/dsh-better-notice`（模块 id 与包名相同）
-- 版本：`4.6.3`（见 [CHANGELOG.md](CHANGELOG.md)）
+- 版本：`4.6.5`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
 
@@ -121,7 +121,7 @@ dsh plugin --profile <profile> add @merusu/dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **已发布到 npm：**[@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice)（当前 `4.6.3`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/merusu-dsh-better-notice-4.6.3.tgz`，效果一样，同样要重启。
+- **已发布到 npm：**[@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice)（当前 `4.6.5`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/merusu-dsh-better-notice-4.6.3.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -146,7 +146,7 @@ host 路由在进程启动时创建，只刷新页面不够。
 
 在 GUI 的浏览器控制台里依次确认：
 
-1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'4.6.3'`；
+1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'4.6.5'`；
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
 3. 打开设置，左导航有**「热表」**，页面里是一块全局区 + **6** 张可折叠的类别卡；
 4. 侧栏的会话行前面出现了状态图标；
@@ -444,7 +444,7 @@ s.lastError()      // 最近一次写盘错误（字符串或 null）
 
 // 设置 + 三个素材池
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.3'
+api.version                                        // '4.6.5'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -507,18 +507,18 @@ ctx.get('uiWorkspace').workspaces.list             ← 工作区分组 + pinnedS
 ctx.remote.$on('api-session/error', …)             ← agent 级报错
                  │
                  ▼
-        classify()      判类别与 token            client.js:1483
-        sortSeats()     同类别内排序               client.js:1547
-        buildSeatPlan() 套上限、给出座位 order      client.js:1570
+        classify()      判类别与 token            client.js:1590
+        sortSeats()     同类别内排序               client.js:1654
+        buildSeatPlan() 套上限、给出座位 order      client.js:1677
                  │
      ┌───────────┴────────────┬──────────────────┐
      ▼                        ▼                  ▼
 mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
 tab 座位（conversation.view）  侧栏 DOM 增强      设置页（settings.section）
-client.js:4189                client.js:1867    client.js:2561
+client.js:4291                client.js:1974    client.js:2668
 ```
 
-三个纯函数（`classify` / `sortSeats` / `buildSeatPlan`）不碰 DOM、可以喂假数据，是**改行为最安全的入口**。它们的返回值也是 `window.__HOTLIST__` 之外唯一的调试抓手——`client.js` 末尾的导出表（`client.js:4610` 起）把 `classify` / `sortSeats` / `buildSeatPlan` / `readSettings` / `defaultSettings` / `sanitizeSettings` / `sidebarStateOf` / `HotlistSettingsPage` 都交了出来，单测就是靠这张表跑真源码的。
+三个纯函数（`classify` / `sortSeats` / `buildSeatPlan`）不碰 DOM、可以喂假数据，是**改行为最安全的入口**。它们的返回值也是 `window.__HOTLIST__` 之外唯一的调试抓手——`client.js` 末尾的导出表（`client.js:4712` 起）把 `classify` / `sortSeats` / `buildSeatPlan` / `readSettings` / `defaultSettings` / `sanitizeSettings` / `sidebarStateOf` / `HotlistSettingsPage` 都交了出来，单测就是靠这张表跑真源码的。
 
 ### 改一处要碰哪几处
 
@@ -554,10 +554,10 @@ client.js:4189                client.js:1867    client.js:2561
 
 - 字段：`settings.categories.<类别>.glyph.motionTarget`
 - 取值：`'glyph'` = 只动图标；`'row'` = 图标 + 标题一起动。
-- **4.6.0 起默认统一成 `'row'`**（`defaultGlyph()`，`client.js:235`）。
+- **4.6.0 起默认统一成 `'row'`**（`defaultGlyph()`，`client.js:258`）。
 
 ```js
-// 改法一：改所有类别的默认值（源码，defaultGlyph() client.js:235）
+// 改法一：改所有类别的默认值（源码，defaultGlyph() client.js:258）
 function defaultGlyph(category) {
   return {
     kind: 'emoji',
@@ -572,7 +572,7 @@ function defaultGlyph(category) {
 ```
 
 ```js
-// 改法二：逐类决定（源码，defaultCategory() client.js:248 里覆盖）
+// 改法二：逐类决定（源码，defaultCategory() client.js:271 里覆盖）
 // 例如只让「待处理」连标题一起动：
 glyph: { ...defaultGlyph(category), motionTarget: category === 'pending' ? 'row' : 'glyph' },
 ```
@@ -586,15 +586,16 @@ window.__HOTLIST_SETTINGS__.set({
 
 **改法三有个坑**：`set` 只做两级浅合并，`glyph` / `popout` / `sound` 是**整块替换**，上面那行会把 `pending.glyph` 的 `value`、`motion`、`frequency` 全洗回默认。正确姿势是先 `get()`、改整个对象、再 `set()`。
 
-加一条新的文字动效：`TEXT_MOTION`（`client.js:1751`，常驻循环）与 `TEXT_BURST`（`:1752`，单次爆发）各加一条，`MOTION_MS`（`:1736`）加时长，`SIDEBAR_STYLE`（`:1758`）里加 `@keyframes hl-text-<名字>`。文字 keyframes **只动 `opacity` 与 1–2px 位移，不加 `scale`**（会发虚）；并发仍受 `MOTION_CONCURRENCY`（`:192`）约束，频率是每类独立的 `glyph.frequency`。
+加一条新的文字动效：`TEXT_MOTION`（`client.js:1858`，常驻循环）与 `TEXT_BURST`（`:1752`，单次爆发）各加一条，`MOTION_MS`（`:1736`）加时长，`SIDEBAR_STYLE`（`:1758`）里加 `@keyframes hl-text-<名字>`。文字 keyframes **只动 `opacity` 与 1–2px 位移，不加 `scale`**（会发虚）；并发仍受 `MOTION_CONCURRENCY`（`:192`）约束，频率是每类独立的 `glyph.frequency`。
 
 ### 升级不破坏用户设置
 
-**承诺：升级插件永远不改掉用户已经选过的设置。** 改默认值只影响第一次装的人。
+**承诺：升级插件永远不改掉用户已经选过的设置。** 仍然等于我们某一代出厂默认的值不算「选过」——它跟随当前默认（见下面那条 `LEGACY_VALUES`）；除此之外盘上的值一律优先。用户**真选过**的字段是他自己的，哪怕值恰好等于某个预设：`choices`（`client.js:152`）记下这些选择，预设规则动它之前先看这张表。
 
 怎么做到：
 
 - **默认值只用来补缺**，盘上已有的值永远优先。`sanitizeSettings()` 的写法是「先拿 default，再逐字段看盘上有没有合法值，有就用盘上的」——所以改 `CATEGORY_ORDER`、改 `defaultGlyph()` 对老用户是**完全无感**的。
+- **出厂预设是我们的，不是用户的**：盘上某个值只等于我们过去某一代发的默认值（闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——这样老安装不用用户重新设置也能看到冰块图标和 4.6.3 那套动效表。这张表是 `LEGACY_VALUES`（`client.js:152`），和类别 `order` 等于历史默认值时的判据（`LEGACY_DEFAULTS`）是同一条分界线。用户一旦动过那个字段，值就是用户的，我们再也不碰；不是任何一代默认值的值一字不动。「动过」是显式记下来的：`choices` `{ "<路径>": true }`（`client.js:702-737`），只由 `writeSettings()` 用**传进来的 patch** 写，所以被预设规则改写过、用户没选过的值混不进来；`resetSettings()` 会把整张表清空，因为恢复默认等于重新认可出厂预设。
 - **加字段**：在 `sanitize*` 里给个 fallback 就够了，**不要升 `SETTINGS_VERSION`**。升号意味着「必须有迁移」，而迁移写错会静默洗掉用户数据。
 - **真要改数据结构**（删字段、换含义）：必须保留「读旧值 → 转换 → 丢弃旧字段」这条链（现住在 `sanitizeSettings()` 里，v3.1 → v4 就是这么过的），并把 `SETTINGS_VERSION` 升最小的号。`migrate v3 to v4` 一组就是这条链的验收。
 
@@ -604,7 +605,7 @@ window.__HOTLIST_SETTINGS__.set({
 2. **不许**删 localStorage 键「顺手清一下」——用户的类别顺序、上传的素材池都在里面。
 3. **不许**在 `apply()` 启动时 `reset()`——一重启就把配置清零。
 
-自查：跑 `node test/classify.test.mjs`。`current version keeps custom order`（`test/classify.test.mjs:605`）守的就是这件事：它把一份带自定义 `order` 的 v4 记录塞进假 `localStorage`，再读回来断言自定义值仍在。同族的还有 `user settings are never overwritten`（`:2427`）与 `legacy default order is adopted, real choices are kept`（`:2461`）。这几组红了，说明改动会洗用户数据，别提交。
+自查：跑 `node test/classify.test.mjs`。`current version keeps custom order`（`test/classify.test.mjs:605`）守的就是这件事：它把一份带自定义 `order` 的 v4 记录塞进假 `localStorage`，再读回来断言自定义值仍在。同族的还有 `user settings are never overwritten`（`:2437`）、`legacy default order is adopted, real choices are kept`（`:2471`）、`factory presets are replaced, user choices are kept`（`:2556`，规则的另一半：老出厂预设**要**被替换）以及 `user picks survive the preset rule`（`:2642`，标记那一半：用户真选过的值一直有效）。这几组红了，说明改动会洗用户数据，别提交。
 
 ### 硬规矩（清单版）
 
@@ -614,14 +615,14 @@ window.__HOTLIST_SETTINGS__.set({
 2. **包名、模块 id、bundle 条目是同一个字符串**（对应坑 2）——否则 `loaded without registering`，页面还看不出来。
 3. **`.wav` / `.mp3` 走不了 `require.asset()`**（对应坑 3）——音频要 `index.js` 自己注册 host 路由。
 4. **我们注册的静态路由不鉴权**（对应坑 4）——只放公开素材。
-5. **永远不要覆盖用户设置**（对应坑 5、6）——逐字段回落、留住 preserve 层，抬 `SETTINGS_VERSION` 必须同时交迁移。
+5. **永远不要覆盖用户设置**（对应坑 5、6）——逐字段回落、留住 preserve 层，只替换「仍然等于老出厂预设」的值，抬 `SETTINGS_VERSION` 必须同时交迁移。
 
 ### 三条自检命令
 
 ```powershell
 node --check client.js          # 语法。client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 63 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 65 groups
 ```
 
 外加一道**保存前的静态闸门**（只在维护者机器上有，不随仓库分发）：
@@ -637,7 +638,7 @@ cd <你 clone 下来的那个目录>
 
 node --check client.js          # client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 63 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 65 groups
 ```
 
 单测把真实的 `client.js` 源文件读进来，塞进 `window.__ModuleLoader__` 的桩里执行：假的是浏览器（手写的极简 `window` / `document`，不引 jsdom，`React` 也是桩），跑的是真源码。里面还带几道静态扫描：引用未声明的常量、注入样式选择器合法性、快捷键 label 必须是 thunk。
@@ -652,7 +653,7 @@ index.js               宿主侧：注册 /hotlist-sound/ 音频路由
 cordis.patch.yml       bundle 插入行
 assets/                3 类各 4 档弹出图素材 + 六类各一份 svg
 assets/sounds/         内置音效（attention.wav / complete.wav）
-test/classify.test.mjs 单测（63 组）
+test/classify.test.mjs 单测（65 组）
 docs/                  架构、测试、扩展三份维护者文档
 tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运行）
 ```
@@ -661,7 +662,7 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 
 十一条已经真实踩过、并且让你多花调试时间的问题（其中一条还搞坏过一个版本）。每条都写清「不这么做会怎样」。
 
-1. **传给宿主的回调必须是 thunk，不能是值。** 宿主自己在 `refreshLabels()` 里直接调 `command.label()`（`dsh-client-shortcuts/lib/client.js:1190`）；传字符串就是 `TypeError: command.label is not a function`，它会把 `uiWorkspace` 一起带走——**整个 Web UI 起不来，只剩一条 `Failed to load plugins`，二十来个插件条目挂在 pending**。v4.3.0 就是这么坏掉的。设置页那条 `label: () => t('settings.nav')`（`client.js:3885`）同理，别改成直接传值。单测抓不到，因为 `shortcuts` 是桩、桩从不调 `label()`——**宿主会调的入参回调，桩里必须真的调一次。**
+1. **传给宿主的回调必须是 thunk，不能是值。** 宿主自己在 `refreshLabels()` 里直接调 `command.label()`（`dsh-client-shortcuts/lib/client.js:1190`）；传字符串就是 `TypeError: command.label is not a function`，它会把 `uiWorkspace` 一起带走——**整个 Web UI 起不来，只剩一条 `Failed to load plugins`，二十来个插件条目挂在 pending**。v4.3.0 就是这么坏掉的。设置页那条 `label: () => t('settings.nav')`（`client.js:3987`）同理，别改成直接传值。单测抓不到，因为 `shortcuts` 是桩、桩从不调 `label()`——**宿主会调的入参回调，桩里必须真的调一次。**
    *不这么做会怎样：* 不是插件不生效，是整个页面都加载不出来。
 
 2. **包名、模块 id、bundle 条目必须是同一个字符串。** `package.json` 的 `name` = `window.__ModuleLoader__.load({ id })` 里的 `id` = profile 里 `dsh.profile.bundles` 记的那一项。
@@ -673,7 +674,7 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 4. **我们注册的静态路由不鉴权。** `/hotlist-sound/*` 与 `/plugins/**/assets/*` 不校验 token，能连到端口的人都能取。
    *不这么做会怎样：* 你等于开了一条泄露路径。只放公开素材，永远别放用户数据。
 
-5. **用户设置永远不许覆盖。** `sanitizeSettings()`（`client.js:770`）是纯函数、**逐字段回落而不是整块回落**；未知键被收进 `PRESERVED_KEY`（`client.js:107`）下次读回；超范围原值记在 `outOfRangeOf`（`client.js:1141`）也会还回去；最近五次写入滚动存在备份环（`BACKUP_KEY`，`client.js:109`，`BACKUP_LIMIT = 5`）。迁移里**绝对不要**用 `defaultSettings()` 重建对象——那会静默洗掉用户的每一个自定义值。
+5. **用户设置永远不许覆盖。** `sanitizeSettings()`（`client.js:867`）是纯函数、**逐字段回落而不是整块回落**；未知键被收进 `PRESERVED_KEY`（`client.js:107`）下次读回；超范围原值记在 `outOfRangeOf`（`client.js:1239`）也会还回去；最近五次写入滚动存在备份环（`BACKUP_KEY`，`client.js:109`，`BACKUP_LIMIT = 5`）。迁移里**绝对不要**用 `defaultSettings()` 重建对象——那会静默洗掉用户的每一个自定义值。
    *不这么做会怎样：* 用户整套配置没了，而且不知道什么时候没的。唯一退路是 `window.__HOTLIST__.settings.backups()` / `.restore(i)`。
 
 6. **只有数据结构真的变了才动 `SETTINGS_VERSION`，并且迁移要同一个提交里写完。** 纯默认值调整、新增可选字段，只需要在 `sanitize*` 里给 fallback，不需要抬版本号。
@@ -682,10 +683,10 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 7. **改 `client.js` 只需要刷新页面；改别的都要重启 GUI。** `index.js`、`package.json`、`cordis.patch.yml` 都在宿主启动时读（`/hotlist-sound` 路由就是那时建的）。已加载的客户端模块也不会热替换。
    *不这么做会怎样：* 你在调试旧代码，然后得出「改了没效果」的结论。
 
-8. **三个硬上限是写死的，不是设置项。** `PLAN_MAX_ROWS = 37`（`client.js:180`）从尾部裁、保住优先级头部；`MOTION_CONCURRENCY = 4`（`client.js:194`）限制同屏动效数；`PINNED_SEATS = {min: 0, max: 12}`（`client.js:177`）。
+8. **三个硬上限是写死的，不是设置项。** `PLAN_MAX_ROWS = 37`（`client.js:203`）从尾部裁、保住优先级头部；`MOTION_CONCURRENCY = 4`（`client.js:217`）限制同屏动效数；`PINNED_SEATS = {min: 0, max: 12}`（`client.js:200`）。
    *不这么做会怎样：* 你想靠调大 `maxSeats` 解决「计划被截断」，但 `maxSeats` 本身也超不过行上限。
 
-9. **判定优先级只有一个真源，而且是两个函数。** `classify()`（`client.js:1483-1538`）决定 tab 座位与弹出，`sidebarStateOf()`（`client.js:1844-1865`）决定侧栏图标；两者共用 `error > pending > completed > running > pinned > idle` 这个顺序，但附加条件不同。
+9. **判定优先级只有一个真源，而且是两个函数。** `classify()`（`client.js:1590-1645`）决定 tab 座位与弹出，`sidebarStateOf()`（`client.js:1951-1972`）决定侧栏图标；两者共用 `error > pending > completed > running > pinned > idle` 这个顺序，但附加条件不同。
    *不这么做会怎样：* 你只改了一个，同一个会话在两个面上显示成两个状态——4.6.0 之前就是这个 bug。
 
 10. **`dsh plugin add` 对已装的插件不会重写 bundle 条目，而且运行中的 GUI 占着文件。** 先 `remove` 再 `add`；覆盖安装前先关掉那个 profile 的 GUI，否则复制会以 `EPERM` 失败。

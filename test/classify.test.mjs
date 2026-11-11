@@ -1212,7 +1212,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.6.3');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.6.5');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
@@ -1532,21 +1532,21 @@ test('overlay size sanitising', () => {
   assert.equal(missing.overlay.sizeMax, DEFAULTS.overlay.sizeMax);
 });
 
-// 37. Playback frequency: 0 never plays, 1 every beat, and a v4.3 interval migrates onto the same scale.
+// 37. Playback frequency: 0 never plays, the max is every beat, and a v4.3 interval migrates onto the same scale.
 test('playback frequency sanitising', () => {
-  const off = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 0 } } } });
-  assert.equal(off.categories.pending.glyph.frequency, 0);
+  const at = (value) => api.sanitizeSettings({ categories: { pending: { glyph: { frequency: value } } } }).categories.pending.glyph.frequency;
 
-  const full = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 1 } } } });
-  assert.equal(full.categories.pending.glyph.frequency, 1);
-
-  const snapped = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 0.42 } } } });
-  assert.equal(snapped.categories.pending.glyph.frequency, 0.4, 'the slider only has 5% steps');
-
-  const high = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: 9 } } } });
-  assert.equal(high.categories.pending.glyph.frequency, 1);
-  const low = api.sanitizeSettings({ categories: { pending: { glyph: { frequency: -3 } } } });
-  assert.equal(low.categories.pending.glyph.frequency, 0);
+  assert.equal(at(0), 0);
+  /**
+   * 1 was every class's v4.4 factory default, and `pending` defaults to 0.9 now, so a stored
+   * 1 follows the new default instead of pinning the old one.
+   */
+  assert.equal(at(1), 0.9, 'an old factory default gives way to the class default');
+  assert.equal(at(0.42), 0.4, 'the slider only has 5% steps');
+  /** The max clamps to 1 — itself an old default — so the class default is what survives. */
+  assert.equal(at(9), 0.9, 'out-of-range clamps to the max, which the preset rule then retires');
+  assert.equal(at(-3), 0);
+  assert.equal(at(0.65), 0.65, 'a value that was never a default is a choice and stays');
 
   /** v4.3 stored an average interval: 2s meant "every beat", 60s meant "almost never". */
   const everyBeat = api.sanitizeSettings({ categories: { pending: { glyph: { motionIntervalMs: 2000 } } } });
@@ -2244,25 +2244,29 @@ test('recent window migration and clamping', () => {
 test('preview loop lifecycle', () => {
   const glyphFor = (page, category) => collect(page, (props) => props.key === `glyph-${category}-primary`)
     .find((node) => node.props['data-hotlist-glyph'] !== undefined);
-  api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 1 } } } });
+  /**
+   * `spin` and a 1 default: `blink` and frequency 1 are v4.4 factory presets, so v4.6.4
+   * replaces them and the rendered animation would no longer be the one this group pins.
+   */
+  api.writeSettings({ categories: { completed: { glyph: { motion: 'spin', frequency: 1 } } } });
   try {
     const full = renderPage();
-    assert.equal(glyphFor(full.page, 'pending').props.style.animation, 'hl-pv-blink-20 1200ms linear infinite', '100% plays every loop at the base tempo');
+    assert.equal(glyphFor(full.page, 'completed').props.style.animation, 'hl-pv-spin-20 2400ms linear infinite', '100% plays every loop at the base tempo');
     full.harness.cleanup();
 
-    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 0.5 } } } });
+    api.writeSettings({ categories: { completed: { glyph: { motion: 'spin', frequency: 0.5 } } } });
     const half = renderPage();
-    assert.equal(glyphFor(half.page, 'pending').props.style.animation, 'hl-pv-blink-10 2400ms linear infinite', '50% halves the duty cycle and doubles the period');
+    assert.equal(glyphFor(half.page, 'completed').props.style.animation, 'hl-pv-spin-10 4800ms linear infinite', '50% halves the duty cycle and doubles the period');
     half.harness.cleanup();
 
     /** A class at 0% renders a still glyph: the animation is not merely slow, it is absent. */
-    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 0 } } } });
+    api.writeSettings({ categories: { completed: { glyph: { motion: 'spin', frequency: 0 } } } });
     const still = renderPage();
-    assert.equal(glyphFor(still.page, 'pending').props.style.animation, undefined);
+    assert.equal(glyphFor(still.page, 'completed').props.style.animation, undefined);
     still.harness.cleanup();
 
     /** Reduce motion overrides the slider entirely. */
-    api.writeSettings({ categories: { pending: { glyph: { motion: 'blink', frequency: 1 } } }, display: { reduceMotion: 'on' } });
+    api.writeSettings({ categories: { completed: { glyph: { motion: 'spin', frequency: 1 } } }, display: { reduceMotion: 'on' } });
     const reduced = renderPage();
     assert.equal(glyphFor(reduced.page, 'pending').props.style.animation, undefined, 'reduce wins over a 100% frequency');
     reduced.harness.cleanup();
@@ -2408,19 +2412,25 @@ test('defaults never overwrite stored values', () => {
   }
   assert.deepEqual(api.tokenMotion(settings, 'error'), { motion: 'bounce', motionTarget: 'row' });
 
+  /**
+   * Both stored values are choices this build never shipped as a default: `pulse` was
+   * never error's motion and `0.35` was never any class's frequency. (`motionTarget: 'glyph'`
+   * and a frequency of 1 would be v4.4 factory presets and are covered by the group below.)
+   */
   const stored = {
     ...settings,
     categories: {
       ...settings.categories,
       error: {
         ...settings.categories.error,
-        glyph: { ...settings.categories.error.glyph, motionTarget: 'glyph', frequency: 0.35 },
+        glyph: { ...settings.categories.error.glyph, motion: 'pulse', frequency: 0.35 },
       },
     },
   };
   const sanitized = api.sanitizeSettings(stored);
-  assert.equal(sanitized.categories.error.glyph.motionTarget, 'glyph', 'a stored target beats the new default');
+  assert.equal(sanitized.categories.error.glyph.motion, 'pulse', 'a stored motion beats the new default');
   assert.equal(sanitized.categories.error.glyph.frequency.toFixed(2), '0.35', 'and so does the stored frequency');
+  assert.equal(sanitized.categories.error.glyph.motionTarget, 'row', 'the untouched default still lands');
 });
 
 // 61. Non-destructive updates: what this build cannot represent is kept, not deleted, and writes keep a backup ring.
@@ -2536,6 +2546,203 @@ test('defaults for v4.6.3', () => {
   assert.equal(settings.categories.pending.glyphSecondary.motion, 'bounce', 'the question style moves like the rest of pending');
   assert.equal(api.CATEGORY_GLYPHS.idle, '🧊', 'idle shows an ice cube, not the three-codepoint sleep glyph');
   assert.equal(settings.sound.volume, 60, 'the global volume default did not move');
+});
+
+/**
+ * 65. The other half of the non-destructive rule: a stored value that only ever equalled one of
+ * our own factory presets was never a choice, so the current preset replaces it. Anything else —
+ * including a value that merely looks similar — is the user's and must survive byte for byte.
+ */
+test('factory presets are replaced, user choices are kept', () => {
+  /** Exactly what v4.6.3 wrote out: its own defaults, untouched by the user. */
+  const oldDefaults = {
+    version: 4,
+    maxSeats: 6,
+    categories: {
+      pinned: { glyph: { motion: 'bounce', motionTarget: 'row', frequency: 0.3 }, sound: { enabled: true } },
+      /** v4.4 shipped `blink` everywhere and a flat frequency of 1. */
+      error: { glyph: { motion: 'blink', motionTarget: 'glyph', frequency: 1 }, sound: { enabled: false } },
+      pending: {
+        glyph: { motion: 'blink', motionTarget: 'glyph', frequency: 1 },
+        glyphSecondary: { motion: 'blink', frequency: 1 },
+        sound: { enabled: false },
+      },
+      completed: { glyph: { motion: 'none', motionTarget: 'glyph', frequency: 1 }, sound: { enabled: false } },
+      running: { glyph: { motion: 'none', motionTarget: 'glyph', frequency: 1 }, sound: { enabled: false } },
+      /** `💤` is the generation this release exists to retire. */
+      idle: { glyph: { value: '💤', motion: 'none', motionTarget: 'glyph', frequency: 1 }, sound: { enabled: false } },
+      pinned_order: { order: 0 },
+    },
+  };
+  const migrated = api.sanitizeSettings(oldDefaults);
+  assert.equal(migrated.categories.idle.glyph.value, '🧊', 'the retired sleep glyph follows the new preset');
+  assert.equal(migrated.categories.idle.glyph.frequency, 0, 'idle stops rolling');
+  assert.equal(migrated.categories.error.glyph.motion, 'bounce', 'a stored `blink` was our default, not a choice');
+  assert.equal(migrated.categories.error.glyph.motionTarget, 'row', 'so was a stored `glyph`');
+  assert.equal(migrated.categories.error.glyph.frequency, 0.9, 'and so was a flat 1');
+  assert.equal(migrated.categories.pending.glyph.motion, 'bounce');
+  assert.equal(migrated.categories.pending.glyphSecondary.motion, 'bounce', 'the question style follows pending');
+  assert.equal(migrated.categories.completed.glyph.motion, 'spin');
+  assert.equal(migrated.categories.completed.glyph.frequency, 1, 'completed really does default to 1');
+  assert.equal(migrated.categories.running.glyph.motion, 'spin');
+  assert.equal(migrated.categories.error.sound.enabled, true, 'sound defaulted to on for the four loud classes');
+  assert.equal(migrated.categories.completed.sound.enabled, true);
+  assert.equal(migrated.categories.running.sound.enabled, false, 'running stays quiet: that is its current default too');
+  assert.equal(migrated.categories.pinned.glyph.frequency.toFixed(2), '0.30', 'pinned already matched the current default');
+  assert.deepEqual(
+    migrated.categories.idle.glyph.value !== oldDefaults.categories.idle.glyph.value
+    || migrated.categories.error.glyph.motion !== oldDefaults.categories.error.glyph.motion,
+    true,
+    'the whole point: the old presets did not survive',
+  );
+
+  /** The same file with a few real edits: nothing that differs from a preset may be touched. */
+  const choices = api.sanitizeSettings({
+    version: 4,
+    categories: {
+      idle: { glyph: { value: '🌙', motion: 'pulse', motionTarget: 'glyph', frequency: 0.15 } },
+      error: { glyph: { motion: 'blink', frequency: 1 }, sound: { enabled: true } },
+      pending: { glyphSecondary: { motion: 'spin', value: '❓' } },
+      pinned: { order: 7 },
+    },
+  });
+  assert.equal(choices.categories.idle.glyph.value, '🌙', 'a moon is not our preset');
+  assert.equal(choices.categories.idle.glyph.motion, 'pulse');
+  /** `glyph` is a retired preset for this field, so even in a hand-edited file it follows `row`. */
+  assert.equal(choices.categories.idle.glyph.motionTarget, 'row', 'a value equal to a preset cannot be told from one');
+  assert.equal(choices.categories.idle.glyph.frequency.toFixed(2), '0.15');
+  assert.equal(choices.categories.error.glyph.motion, 'bounce', 'motion was still our default, so it moves on');
+  assert.equal(choices.categories.error.glyph.frequency, 0.9, 'and so was the frequency');
+  assert.equal(choices.categories.error.sound.enabled, true, 'but this user had already turned the sound on');
+  assert.equal(choices.categories.pending.glyphSecondary.motion, 'spin', 'a real motion choice is kept');
+  assert.equal(choices.categories.pending.glyphSecondary.value, '❓', 'the question mark is pending\'s shipped glyph');
+  assert.equal(choices.categories.pinned.order, 7, 'a hand-set order is not a default');
+
+  /** The two glyph slots keep their own tables: `glyphSecondary` must not inherit `glyph`'s. */
+  const secondary = api.sanitizeSettings({
+    categories: { pending: { glyphSecondary: { motion: 'blink' }, glyph: { motion: 'none' } } },
+  });
+  assert.equal(secondary.categories.pending.glyphSecondary.motion, 'bounce', '`blink` was the shipped secondary motion');
+  assert.equal(secondary.categories.pending.glyph.motion, 'bounce', 'and `none` was the shipped primary motion');
+  /** `none` was never a preset for the secondary slot, so there it is a real choice. */
+  const quiet = api.sanitizeSettings({ categories: { pending: { glyphSecondary: { motion: 'none' } } } });
+  assert.equal(quiet.categories.pending.glyphSecondary.motion, 'none', 'the tables are per slot, not shared');
+  assert.equal(quiet.categories.pending.glyph.motion, 'bounce', 'and the primary slot still follows its own default');
+
+  /** Reading twice must not keep rewriting: the second pass is byte-identical. */
+  const once = api.sanitizeSettings(oldDefaults);
+  const twice = api.sanitizeSettings(once);
+  assert.deepEqual(twice, once, 'the preset rule is idempotent');
+});
+
+/**
+ * 66. The other side of the preset rule: a field the user picked himself is his, even when the value
+ * happens to equal a factory preset. `choices` records the picks, and the gate reads it first.
+ */
+test('user picks survive the preset rule', () => {
+  const key = 'dsh.hotlist.settings.v1';
+  const preservedKey = 'dsh.betterNotice.preserved.v1';
+  const backupKey = 'dsh.betterNotice.backup.v1';
+  storage.removeItem(key);
+  storage.removeItem(preservedKey);
+  storage.removeItem(backupKey);
+  api.resetSettings();
+  assert.deepEqual(api.readSettings().choices, {}, 'a fresh install has no markers');
+
+  /** (2) The worst case: switching a class sound off must stay off instead of bouncing back on. */
+  api.writeSettings({ categories: { error: { sound: { enabled: false } } } });
+  assert.deepEqual(api.readSettings().choices, { 'categories.error.sound.enabled': true }, 'the marker records the pick');
+  assert.equal(api.readSettings().categories.error.sound.enabled, false, 'the user switched this class off');
+  assert.equal(
+    api.sanitizeSettings(JSON.parse(storage.getItem(key))).categories.error.sound.enabled,
+    false,
+    'and a later read of the stored blob leaves it off',
+  );
+
+  /** (3) Every control the wide gate used to make dead now lands. */
+  api.writeSettings({
+    categories: {
+      completed: { glyph: { motion: 'none' } },
+      pending: { glyph: { motion: 'blink' }, glyphSecondary: { motion: 'none' } },
+      running: { glyph: { motionTarget: 'glyph' } },
+      pinned: { glyph: { frequency: 1 } },
+      idle: { glyph: { value: '💤' } },
+    },
+  });
+  const picked = api.readSettings();
+  assert.equal(picked.categories.completed.glyph.motion, 'none', 'a class can be told not to move');
+  assert.equal(picked.categories.pending.glyph.motion, 'blink', 'a retired motion is still a pick');
+  assert.equal(picked.categories.pending.glyphSecondary.motion, 'none', 'the question style keeps its own pick');
+  assert.equal(picked.categories.running.glyph.motionTarget, 'glyph', 'icon-only is reachable');
+  assert.equal(picked.categories.pinned.glyph.frequency, 1, 'and the slider reaches 100%');
+  assert.equal(picked.categories.idle.glyph.value, '💤', 'even the glyph we retired stays when the user picked it');
+
+  /** (4) The marker alone decides: the value does not have to look unusual. */
+  const marked = api.sanitizeSettings({
+    choices: { 'categories.error.glyph.motion': true, 'categories.error.glyph.frequency': true },
+    categories: { error: { glyph: { motion: 'blink', frequency: 1 } } },
+  });
+  assert.equal(marked.categories.error.glyph.motion, 'blink', 'a marked field survives its own old default');
+  assert.equal(marked.categories.error.glyph.frequency, 1, 'and so does a marked 100%');
+
+  /** (1) The neighbour the user never touched still follows the current preset. */
+  const untouched = api.sanitizeSettings({
+    choices: { 'categories.error.glyph.motion': true },
+    categories: { error: { glyph: { motion: 'blink', motionTarget: 'glyph' } } },
+  });
+  assert.equal(untouched.categories.error.glyph.motion, 'blink', 'the marked field stays');
+  assert.equal(untouched.categories.error.glyph.motionTarget, 'row', 'the unmarked neighbour updates');
+
+  /** (5) A backup keeps the markers, so a restore does not lose the picks behind them. */
+  api.writeSettings({ categories: { idle: { glyph: { value: '🌙' } } } });
+  assert.equal(api.readSettings().categories.idle.glyph.value, '🌙');
+  api.writeSettings({ categories: { idle: { glyph: { value: '🧊' } } } });
+  assert.equal(api.readSettings().categories.idle.glyph.value, '🧊', 'a new pick lands');
+  const surface = api.createHotlistApi({
+    getSettings: api.readSettings,
+    writeSettings: api.writeSettings,
+    resetSettings: api.resetSettings,
+    onSettingsChange: api.onSettingsChange,
+    preview: () => false,
+  });
+  assert.equal(surface.settings.restore(0).ok, true, 'the newest backup can be put back');
+  assert.equal(api.readSettings().categories.idle.glyph.value, '🌙', 'the earlier pick returns');
+  assert.equal(api.readSettings().choices['categories.idle.glyph.value'], true, 'together with its marker');
+
+  /** (6) A reset forgets the markers: the presets are factory again. */
+  api.resetSettings();
+  assert.deepEqual(api.readSettings().choices, {}, 'a reset clears every marker');
+  assert.equal(
+    api.sanitizeSettings({ categories: { error: { glyph: { motion: 'blink' } } } }).categories.error.glyph.motion,
+    'bounce',
+    'and the presets rule again',
+  );
+
+  /** (7) Idempotent, markers included. */
+  const once = api.sanitizeSettings({
+    choices: { 'categories.pending.glyph.motion': true },
+    categories: { pending: { glyph: { motion: 'blink' } } },
+  });
+  assert.deepEqual(api.sanitizeSettings(once), once, 'a second pass changes nothing');
+
+  /** (8) The marker map is cleaned on the way in: only `true`, only real paths, only short keys. */
+  const cleaned = api.sanitizeChoices({
+    'categories.pending.glyph.motion': true,
+    'categories.pending.glyph.frequency': false,
+    'not.a.real.path': true,
+    [`categories.pending.glyph.${'x'.repeat(90)}`]: true,
+    'categories.pending.glyph.motionTarget': true,
+  });
+  assert.deepEqual(
+    Object.keys(cleaned),
+    ['categories.pending.glyph.motion', 'categories.pending.glyph.motionTarget'],
+    'false, unknown shapes and oversized keys are dropped',
+  );
+
+  storage.removeItem(key);
+  storage.removeItem(preservedKey);
+  storage.removeItem(backupKey);
+  api.resetSettings();
 });
 
 console.log(`PASS — ${groups} groups`);

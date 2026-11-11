@@ -3,7 +3,7 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `@merusu/dsh-better-notice` · version `4.6.3` · MIT
+- Package: `@merusu/dsh-better-notice` · version `4.6.5` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
 - One command to install: `dsh plugin --profile <profile> add @merusu/dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
@@ -20,9 +20,9 @@ finished, which one failed.
 
 | Surface | What you see | Where the code lives |
 |---|---|---|
-| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:4189`) |
-| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:1867` / `1838`) |
-| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:3704`) · `mountPopout` (`client.js:3149`) |
+| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:4291`) |
+| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:1974` / `1951`) |
+| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:3806`) · `mountPopout` (`client.js:3251`) |
 
 **Six states, judged in this order — highest wins, a session belongs to exactly one:**
 
@@ -39,8 +39,8 @@ error  >  pending  >  completed  >  running  >  pinned  >  idle
 | `pinned` | pinned **in the host's own UI** — read from `pinnedSessionIds`, never stored by this plugin | no | — |
 | `idle` | active within the global recent window | no | — |
 
-The two functions that decide this are `classify()` (`client.js:1483-1538`) and
-`sidebarStateOf()` (`client.js:1844-1865`). They share the same order but apply
+The two functions that decide this are `classify()` (`client.js:1590-1645`) and
+`sidebarStateOf()` (`client.js:1951-1972`). They share the same order but apply
 different extra conditions (the sidebar has an error TTL and honours
 `completionUnread`). Change both, or you get two different answers for the same
 session on two surfaces.
@@ -48,18 +48,26 @@ session on two surfaces.
 **Default display order** (`CATEGORY_ORDER`, `client.js:123`):
 `error 10 · pending 10 · pinned 15 · completed 20 · running 30 · idle 50`.
 
-**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:180`). Rows past it are cut
+**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:203`). Rows past it are cut
 from the tail — the priority head always survives. `plan.overflow` reports how
 many were dropped.
 
-**Settings are never overwritten.** `sanitizeSettings()` (`client.js:770`) is
+**Settings are never overwritten.** `sanitizeSettings()` (`client.js:867`) is
 pure and falls back per field, never wholesale. Unknown keys go to
 `PRESERVED_KEY` (`client.js:107`) and come back on the next read; out-of-range
-values come back too (`outOfRangeOf`, `client.js:1141`); the last five writes
+values come back too (`outOfRangeOf`, `client.js:1239`); the last five writes
 are kept as a rolling backup ring under `BACKUP_KEY` (`client.js:109`,
 `BACKUP_LIMIT = 5`). There is deliberately **no `SETTINGS_VERSION` bump** for
 cosmetic changes — a version bump means writing a migration, and a wrong
 migration silently wipes user data.
+
+**One exception: our own factory presets are ours.** A stored value that still
+equals a default an earlier release shipped — `💤` for the idle glyph,
+`blink`/`none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — is
+not a user choice, so it follows the current default (`LEGACY_VALUES`,
+`client.js:152`). A value the user actually picked is recorded in `choices`
+(`client.js:702-737`, written by `writeSettings()` from the incoming patch
+only) and the preset rule never touches it; `resetSettings()` clears the map.
 
 ---
 
@@ -110,7 +118,7 @@ authenticated** — publish public assets only, never user data.
 
 ```js
 window.__HOTLIST__ = {
-  version,                                              // "4.6.3"
+  version,                                              // "4.6.5"
   settings: { get, set, reset, subscribe, backups, restore },
   assets:   { add, list, clear, preview },
 };
@@ -149,7 +157,7 @@ assets/                error|pending|completed × 4 webp tiers + 6 svg fallbacks
 assets/sounds/         attention.wav, complete.wav (+ their manifest)
 docs/ARCHITECTURE.md   layering, state model, settings schema, line-number index
 docs/EXTENDING.md      API surface + how to extend without breaking data
-docs/TESTING.md        the 63 test groups, each with its source line
+docs/TESTING.md        the 65 test groups, each with its source line
 test/classify.test.mjs the whole self-test (pure node, no browser)
 tools/meru-tts/        optional TTS helper for making your own sound cues
 ```
@@ -160,7 +168,7 @@ tools/meru-tts/        optional TTS helper for making your own sound cues
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs      # expect: PASS — 63 groups
+node test/classify.test.mjs      # expect: PASS — 65 groups
 ```
 
 `node --check` alone is not enough: a deleted-but-still-referenced constant is

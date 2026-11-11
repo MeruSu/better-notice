@@ -294,7 +294,8 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 - **超范围的原始值不丢**：盘上是 `maxSeats: 99` 这种，读的时候按 `1`–`12` 夹取使用，但原值记在保留层里；哪天上限放宽了，`reviveOutOfRange()` 会把 `99` 还回去。
 - **每次落盘前存一份滚动备份**：最近 5 份（`BACKUP_KEY`，`BACKUP_LIMIT = 5`），只记 `{at, settings}`。查有哪些副本用 `window.__HOTLIST__.settings.backups()`（返回 `[{at, version}]`，最新在前），要退回某一份用 `settings.restore(0)`（0 = 最近一份，`-1` 或不传 = 最旧一份）。
 - **唯一例外**是 `RETIRED_PATHS` 里的路径（例如 v4.6.1 退役的 `categories.favorite`）：这些是插件主动删除的字段，读时丢弃、不进保留层，否则它们会永远跟着用户。
-- 想确认这套还在生效：单测 `user settings are never overwritten`、`defaults never overwrite stored values`、`legacy default order is adopted, real choices are kept` 三组红了就是破了。
+- **另一条例外（v4.6.4 起）：出厂预设不是用户选择。** 盘上某个值只等于我们过去某一代发的默认值（`LEGACY_VALUES`：闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——用户没改过的东西不该把他锁在旧默认上。用户动过的值一律不动——「动过」由 `choices`（`{ "<路径>": true }`，v4.6.5 起）记录，所以 `none` / `blink` / 「仅图标」/ 频率 100% / 关音效这些和旧默认同值的选项也能落地。
+- 想确认这套还在生效：单测 `user settings are never overwritten`、`defaults never overwrite stored values`、`legacy default order is adopted, real choices are kept`（这三组保「不覆盖用户」）与 `factory presets are replaced, user choices are kept`（这一组保「旧预设要换掉」）与 `user picks survive the preset rule`（这一组保「用户选过的值不被闸门改」）红了就是破了。
 
 ## 8. 想加功能而不是配置
 

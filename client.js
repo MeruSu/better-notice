@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.6.3';
+    const VERSION = '4.6.5';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -126,7 +126,8 @@ window.__ModuleLoader__.load({
     /**
      * `order` values that earlier versions wrote as their own default. A stored value equal to one of
      * these was never a user choice, so the current default may replace it; anything else is left alone.
-     * `error` (10) had the same default in both generations, so it needs no entry.
+     * `error` (10) had the same default in both generations, so it needs no entry. `LEGACY_VALUES`
+     * below applies the same boundary field by field.
      */
     const LEGACY_DEFAULTS = {
       'categories.pinned.order': [0, 1],
@@ -142,6 +143,28 @@ window.__ModuleLoader__.load({
     const CATEGORY_MOTION = { pinned: 'bounce', error: 'bounce', pending: 'bounce', completed: 'spin', running: 'spin', idle: 'none' };
     /** Per-category default playback frequency (`1` = every tick, `0` = never). */
     const CATEGORY_FREQUENCY = { pinned: 0.3, error: 0.9, pending: 0.9, completed: 1, running: 1, idle: 0 };
+    /**
+     * Values that earlier builds wrote as their own default. A stored value that matches one of
+     * these was never a choice, so the current default replaces it; anything else is the user's and
+     * is left untouched. The first column is the generation current at v4.3.0 (`motionTarget` was `glyph`,
+     * every frequency was `1`, every sound was off). Same rule as `LEGACY_DEFAULTS` above.
+     */
+    const LEGACY_VALUES = {
+      'glyph.value': ['💤'],
+      'glyph.motion': ['none', 'blink'],
+      'glyph.motionTarget': ['glyph'],
+      'glyph.frequency': [1],
+      'glyphSecondary.motion': ['blink'],
+      'sound.enabled': [false],
+    };
+    /**
+     * Which picks the page can offer, and where their marker lives. Writing one of those fields
+     * makes it the user's choice — from then on `LEGACY_VALUES` never touches it again.
+     */
+    const CHOICE_SLOTS = ['glyph', 'glyphSecondary'];
+    const CHOICE_FIELDS = ['value', 'motion', 'motionTarget', 'frequency'];
+    const CHOICE_KEY = /^categories\.[a-z]+\.[a-zA-Z]+(\.[a-zA-Z]+)?$/;
+    const CHOICE_LIMIT = 256;
     /** `[tab, sidebar, topbar]` per category: every category reaches the tab and sidebar rows, none the top bar. */
     const CATEGORY_SURFACES = {
       pinned: { tab: true, sidebar: true, topbar: false },
@@ -294,6 +317,8 @@ window.__ModuleLoader__.load({
         collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: RECENT_WINDOW_MINUTES.fallback },
         sound: { volume: 60 },
         pinned: { maxSeats: PINNED_SEATS.fallback },
+        /** Fields the user picked himself; anything absent here is still a factory preset. */
+        choices: {},
         categories: defaultCategories(),
       };
     }
@@ -663,7 +688,57 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return settings;
     }
 
-    function sanitizeGlyph(raw, fallback, legacy) {
+    /** A path's known factory defaults, or `[]` when that path never had one. */
+    function legacyValuesOf(sub, key) {
+      return LEGACY_VALUES[`${sub}.${key}`] ?? [];
+    }
+
+    /** A stored scalar equal to an earlier factory default is not a choice: keep the current default. */
+    function isLegacyValue(values, value) {
+      return values.some((candidate) => candidate === value);
+    }
+
+    /** Marker map -> a legal one: only `true`, only known shapes, bounded so it cannot grow forever. */
+    function sanitizeChoices(raw) {
+      const next = {};
+      if (isPlainObject(raw) === false) return next;
+      for (const [key, value] of Object.entries(raw)) {
+        if (Object.keys(next).length >= CHOICE_LIMIT) break;
+        if (value !== true) continue;
+        if (key.length > 80 || CHOICE_KEY.test(key) === false) continue;
+        next[key] = true;
+      }
+      return next;
+    }
+
+    /**
+     * The fields this patch actually writes, on top of the markers already stored. It must see the
+     * incoming patch and not the merged settings: the preset rule rewrites values while sanitising,
+     * and a value it rewrote is the factory default, never the user's pick.
+     */
+    function choicesFromPatch(patch, base) {
+      const next = { ...(isPlainObject(base.choices) ? base.choices : {}) };
+      if (isPlainObject(patch) === false) return next;
+      const categories = isPlainObject(patch.categories) ? patch.categories : {};
+      for (const [category, change] of Object.entries(categories)) {
+        if (CATEGORY_IDS.includes(category) === false || isPlainObject(change) === false) continue;
+        for (const slot of CHOICE_SLOTS) {
+          const glyph = change[slot];
+          if (isPlainObject(glyph) === false) continue;
+          for (const field of CHOICE_FIELDS) {
+            if (Object.prototype.hasOwnProperty.call(glyph, field)) next[`categories.${category}.${slot}.${field}`] = true;
+          }
+        }
+        if (isPlainObject(change.sound) && Object.prototype.hasOwnProperty.call(change.sound, 'enabled')) {
+          next[`categories.${category}.sound.enabled`] = true;
+        }
+      }
+      return next;
+    }
+
+    function sanitizeGlyph(raw, fallback, legacy, sub = 'glyph', chosen = null) {
+      /** `chosen(field)` answers "did the user pick this one himself?" for the slot being read. */
+      const isChoice = typeof chosen === 'function' ? chosen : () => false;
       const next = { ...fallback };
       const own = isPlainObject(raw) ? raw : {};
       const old = isPlainObject(legacy) ? legacy : {};
@@ -676,21 +751,35 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (next.uploads.length > 0 && (own.source === undefined || own.source === 'upload')) next.source = 'upload';
       if (next.uploads.length === 0 && next.source === 'upload') next.source = 'emoji';
       next.kind = next.uploads.length > 0 ? 'img' : 'emoji';
-      /** `value` is the emoji only; a data URL there is a v4.1 upload and belongs in the pool. */
-      const emojiSource = typeof own.value === 'string' && isValidImage(own.value) === false
+      /**
+       * `value` is the emoji only; a data URL there is a v4.1 upload and belongs in the pool.
+       * A stored emoji equal to an earlier factory default is not a choice either — that is
+       * the case this whole pass exists for: idle used to ship 💤 and must now show 🧊.
+       */
+      const valueChosen = isChoice('value');
+      const legacyValues = legacyValuesOf(sub, 'value');
+      const oldIsChoice = oldEmoji !== null && (valueChosen || isLegacyValue(legacyValues, oldEmoji) === false);
+      const ownIsChoice = typeof own.value === 'string' && isValidImage(own.value) === false && (valueChosen || isLegacyValue(legacyValues, own.value) === false);
+      const emojiSource = ownIsChoice
         ? own.value
-        : oldEmoji !== null ? oldEmoji : fallback.kind === 'emoji' ? fallback.value : '';
+        : oldIsChoice ? oldEmoji : fallback.kind === 'emoji' ? fallback.value : '';
       const emoji = emojiSource.replace(/[\u0000-\u001f\u007f]/g, '').trim();
       next.value = [...emoji].length <= GLYPH_TEXT_LIMIT ? emoji : '';
-      if (MOTION_NAMES.includes(own.motion)) next.motion = own.motion;
-      else if (MOTION_NAMES.includes(old.motion)) next.motion = old.motion;
-      if (MOTION_TARGETS.includes(own.motionTarget)) next.motionTarget = own.motionTarget;
+      const motionChosen = isChoice('motion');
+      const motionValues = legacyValuesOf(sub, 'motion');
+      const ownMotionIsChoice = MOTION_NAMES.includes(own.motion) && (motionChosen || isLegacyValue(motionValues, own.motion) === false);
+      if (ownMotionIsChoice) next.motion = own.motion;
+      else if (MOTION_NAMES.includes(old.motion) && (motionChosen || isLegacyValue(motionValues, old.motion) === false)) next.motion = old.motion;
+      const targetChosen = isChoice('motionTarget');
+      if (MOTION_TARGETS.includes(own.motionTarget) && (targetChosen || isLegacyValue(legacyValuesOf(sub, 'motionTarget'), own.motionTarget) === false)) next.motionTarget = own.motionTarget;
       if (typeof own.frequency === 'number' && Number.isFinite(own.frequency)) {
-        next.frequency = clamp(
-          Math.round(own.frequency / MOTION_FREQUENCY.step) * MOTION_FREQUENCY.step,
+        /** Two decimals: the step is 0.05, so this loses nothing and keeps 0.3 and 0.9 exact. */
+        const rounded = clamp(
+          Number((Math.round(own.frequency / MOTION_FREQUENCY.step) * MOTION_FREQUENCY.step).toFixed(2)),
           MOTION_FREQUENCY.min,
           MOTION_FREQUENCY.max,
         );
+        if (isChoice('frequency') || isLegacyValue(legacyValuesOf(sub, 'frequency'), rounded) === false) next.frequency = rounded;
       } else {
         /** v4.3 stored an interval and 0 meant "never": that is frequency 0, not the default 1. */
         const { motionIntervalMs: legacyInterval } = own;
@@ -702,7 +791,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     }
 
     /** One category -> a legal one. Every field falls back on its own. */
-    function sanitizeCategory(raw, category, fallback) {
+    function sanitizeCategory(raw, category, fallback, choices = {}) {
+      const picked = isPlainObject(choices) ? choices : {};
+      const isChoiceIn = (slot) => (field) => picked[`categories.${category}.${slot}.${field}`] === true;
       const next = { ...fallback };
       next.surfaces = { ...fallback.surfaces };
       next.glyph = { ...fallback.glyph };
@@ -724,8 +815,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           if (typeof raw.surfaces[key] === 'boolean') next.surfaces[key] = raw.surfaces[key];
         }
       }
-      next.glyph = sanitizeGlyph(raw.glyph, next.glyph, raw);
-      if (next.glyphSecondary !== null) next.glyphSecondary = sanitizeGlyph(raw.glyphSecondary, next.glyphSecondary, null);
+      next.glyph = sanitizeGlyph(raw.glyph, next.glyph, raw, 'glyph', isChoiceIn('glyph'));
+      if (next.glyphSecondary !== null) next.glyphSecondary = sanitizeGlyph(raw.glyphSecondary, next.glyphSecondary, null, 'glyphSecondary', isChoiceIn('glyphSecondary'));
 
       if (isPlainObject(raw.popout)) {
         const popout = raw.popout;
@@ -750,8 +841,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const sound = raw.sound;
         next.sound.uploads = sanitizeAssets(sound.uploads, 'sound');
         /** v4.1 stored a placeholder `kind`: any real kind meant "on", `none` meant "off". */
-        if (typeof sound.enabled === 'boolean') next.sound.enabled = sound.enabled;
-        else if (typeof sound.kind === 'string') next.sound.enabled = sound.kind !== 'none';
+        if (typeof sound.enabled === 'boolean') {
+          /**
+           * Off was the factory default of every class, so a stored `false` follows the current
+           * default — unless the user is the one who switched it off, which the marker proves.
+           */
+          const enabledChosen = picked[`categories.${category}.sound.enabled`] === true;
+          next.sound.enabled = enabledChosen || isLegacyValue(legacyValuesOf('sound', 'enabled'), sound.enabled) === false ? sound.enabled : next.sound.enabled;
+        } else if (typeof sound.kind === 'string') next.sound.enabled = sound.kind !== 'none';
         if (typeof sound.builtin === 'boolean') next.sound.builtin = sound.builtin;
         else if (sound.kind === 'upload') next.sound.builtin = false;
       }
@@ -770,6 +867,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     function sanitizeSettings(raw) {
       const next = defaultSettings();
       if (!isPlainObject(raw)) return next;
+      next.choices = sanitizeChoices(raw.choices);
 
       if (raw.maxSeats === 'auto') next.maxSeats = 'auto';
       else if (typeof raw.maxSeats === 'number' && Number.isFinite(raw.maxSeats)) {
@@ -839,7 +937,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       const rawCategories = isPlainObject(raw.categories) ? raw.categories : {};
       for (const category of CATEGORY_IDS) {
-        const entry = sanitizeCategory(rawCategories[category], category, next.categories[category]);
+        const entry = sanitizeCategory(rawCategories[category], category, next.categories[category], next.choices);
         if (legacyInterval !== null) {
           entry.glyph.frequency = legacyInterval;
           if (entry.glyphSecondary !== null) entry.glyphSecondary.frequency = legacyInterval;
@@ -863,7 +961,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       };
       const glyphOfState = (state, category, secondary) => {
         const base = secondary === true ? next.categories[category].glyphSecondary : next.categories[category].glyph;
-        return sanitizeGlyph(legacyOf(state), base, null);
+        return sanitizeGlyph(legacyOf(state), base, null, secondary === true ? 'glyphSecondary' : 'glyph');
       };
 
       /** approval -> pending primary; question -> pending secondary; plan-review and subagents are dropped. */
@@ -1048,7 +1146,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     /** Every path this build can write; anything else came from a version we do not know yet. */
     function knownLeaves() {
       const leaves = new Set([
-        'version', 'maxSeats', 'takeOverStatusDot', 'hideNativeDot', 'pins',
+        'version', 'maxSeats', 'takeOverStatusDot', 'hideNativeDot', 'pins', 'choices',
         'positions.tab', 'positions.topbar', 'positions.sidebar',
         'display.reduceMotion', 'display.motionIntervalMs',
         'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.overlayKey',
@@ -1370,7 +1468,12 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           const categories = { ...base.categories };
           for (const [category, change] of Object.entries(value)) {
             if (!isPlainObject(categories[category]) || !isPlainObject(change)) continue;
-            categories[category] = { ...categories[category], ...change };
+            const merged = { ...categories[category] };
+            for (const [field, fieldValue] of Object.entries(change)) {
+              /** One level deeper: `{glyph: {motion}}` keeps the stored uploads and pools. */
+              merged[field] = isPlainObject(fieldValue) && isPlainObject(merged[field]) ? { ...merged[field], ...fieldValue } : fieldValue;
+            }
+            categories[category] = merged;
           }
           next.categories = categories;
           continue;
@@ -1387,13 +1490,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      */
     function writeSettings(patch) {
       const base = settingsCache ?? readSettings();
-      settingsCache = sanitizeSettings(mergePatch(base, upgradePatch(patch)));
+      const upgraded = upgradePatch(patch);
+      /** Mark first, merge second: a value the preset rule rewrites afterwards is not a choice. */
+      const marked = { ...base, choices: choicesFromPatch(upgraded, base) };
+      settingsCache = sanitizeSettings(mergePatch(marked, upgraded));
       persist(settingsCache);
       notify();
       return settingsCache;
     }
 
     function resetSettings() {
+      /** A reset drops every marker too: the presets are factory again, so future ones may replace them. */
       settingsCache = defaultSettings();
       persist(settingsCache);
       notify();
@@ -2571,19 +2678,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       }, []);
 
       const patch = (next) => setSettings(writeSettings(next));
-      const patchCategory = (category, change) => patch({
-        categories: { [category]: { ...settings.categories[category], ...change } },
-      });
+      /** A patch carries only what the control changed; `mergePatch` keeps everything else. */
+      const patchCategory = (category, change) => patch({ categories: { [category]: change } });
       const patchGlyph = (category, secondary, change) => {
         const key = secondary === true ? 'glyphSecondary' : 'glyph';
-        patchCategory(category, { [key]: { ...settings.categories[category][key], ...change } });
+        patchCategory(category, { [key]: change });
       };
-      const patchPopout = (category, change) => patchCategory(category, {
-        popout: { ...settings.categories[category].popout, ...change },
-      });
-      const patchSound = (category, change) => patchCategory(category, {
-        sound: { ...settings.categories[category].sound, ...change },
-      });
+      const patchPopout = (category, change) => patchCategory(category, { popout: change });
+      const patchSound = (category, change) => patchCategory(category, { sound: change });
       const toggleCard = (category) => {
         const next = openCards.includes(category)
           ? openCards.filter((item) => item !== category)
@@ -4620,6 +4722,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       defaultCategory,
       sanitizeSettings,
       sanitizeCategory,
+      sanitizeChoices,
+      choicesFromPatch,
       migrateFromV3,
       migrateSettings,
       positionsOf,
