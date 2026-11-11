@@ -1,295 +1,658 @@
 # Better Notice
 
-> 把还活着的会话摆到你手边：对话区 tab 行里给每个会话一个座位，左侧会话栏行首给一枚状态图标，状态一变就响一声、弹一张图。
+**English** · [中文](README.zh.md)
 
-Better Notice（中文名「热表」）是 [DeepSeek Harness](https://github.com/deepseek-ai) Web UI 的插件。它读宿主自己的会话状态（`sessions.list`、`uiSession.sessionStatus`），不做额外采样，把「等你动手」的会话排到最前，凉掉的留在原地。
+A [DeepSeek Harness](https://github.com/deepseek-ai) Web UI plugin that gives every *hot* session a seat in the conversation tab row, a status glyph in front of its sidebar row, and — when its state changes — a sound and a popout image.
 
-- npm 包名：`@merusu/dsh-better-notice`
-- 仓库：<https://github.com/MeruSu/better-notice>
-- 版本：`4.5.0`（见 [CHANGELOG.md](CHANGELOG.md)）
-- 许可：MIT
+It solves one specific annoyance: the sidebar is a flat recency list, so once you have a dozen sessions you cannot tell which one is **waiting for your approval**, which one **just finished**, and which one **crashed** — you click through them one by one. Better Notice reads the host's own session state (`sessions.list`, `uiSession.sessionStatus`) and re-sorts those sessions into six categories, each with its own place, icon, sound and artwork.
 
----
-
-## 它解决什么
-
-DSH 的会话栏是按时间排的一列。会话一多，你分不清哪一个在等你审批、哪一个刚跑完、哪一个报错了——只能一个个点进去看。
-
-Better Notice 把它们分成七类，摊到三个地方：
-
-- **对话区 tab 行**：每个热会话占一个 tab 座位，点一下直接切过去（当前会话不占座位，它本身就是「对话」tab）。
-- **左侧会话栏**：每行标题前一枚状态图标（emoji 或上传的方图），可带动效。
-- **状态变化时**：响一声提示音 + 弹一张状态图。
-
-## 特性
-
-| 类别 | 什么时候出现 | 座位 | 侧栏图标 | 弹出图 | 音效 |
-|---|---|---|---|---|---|
-| 📌 `pinned` | 你在设置里钉住的会话 | ✅ | ✅ | — | — |
-| ⛔ `error` | Agent 报了错（`api-session/error`），10 分钟过期 | ✅ | ✅ | ✅ | 🔈 |
-| 🔐 `pending` | 等你审批 / 等你回答 / 等你过方案（副图标 ❓） | ✅ | ✅ | ✅ | 🔈 |
-| ✅ `completed` | 本插件看到它跑完，7 分钟内 | ✅ | ✅ | ✅ | 🔈 |
-| ⏳ `running` | 正在干活（含「子代理在跑、父会话空闲」） | ✅ | ✅ | — | — |
-| 💤 `idle` | 空闲，且最后活动在「最近对话展示时间」内（默认 5 分钟） | ✅ | ✅ | — | — |
-| ⭐ `favorite` | 预留，当前恒不产出 | — | — | — | — |
-
-图例：✅ = 默认开；— = 默认关（弹出图、音效可逐类打开）；🔈 = 有内置音效但**默认不响**，要去设置页打开。
-
-**判定优先级**固定为 `pinned > pending > error > completed > running > idle`（一个会话同时「报错 + 待审批」时归 `pending`，因为待审批是唯一能动手的态）；**展示顺序**另由每类的 `order` 决定，默认 `0 / 10 / 20 / 30 / 40 / 50 / 60`。
-
-另有一条与面无关的机制：**「刚完成」跨刷新保留**。宿主自己的 `completionUnread` 只维护 1–3 分钟、一打开会话就清；Better Notice 自己记下 `running true → 非 running` 的时刻（合并写，500ms 一批），页面重载后按 `collect.completedTtlMs` 和当前工作区剪枝恢复——刷新页面不会把刚跑完的会话从 ✅ 里弄丢。
-
-## 安装
-
-需要 Node 22+ 与一个已经跑得起来的 DSH Web profile。本文档在 DSH `0.2.2-rc.1` 上核对。
-
-**方式一：本地目录（推荐，当前唯一实测可用的方式）**
-
-```powershell
-# 1. 克隆到任意目录，示例用 C:\src\better-notice
-git clone https://github.com/MeruSu/better-notice.git C:\src\better-notice
-
-# 2. 装进某个 profile（<profile> 换成你的 profile 名）
-dsh plugin --profile <profile> add C:/src/better-notice
-
-# 3. 重启这个 profile 的 GUI —— 必须重启，见下
-dsh --profile <profile>
-```
-
-两点注意：
-
-- **用绝对路径、正斜杠**。`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
-- 装的是目录本身（`link:`），之后改代码不用重装。改 `client.js` 刷新页面就生效；改 `index.js` / `cordis.patch.yml` / `package.json` 要重启 GUI。
-
-**方式二：按包名**
+Install in one line (then restart the GUI — see [Install](#install)):
 
 ```powershell
 dsh plugin --profile <profile> add @merusu/dsh-better-notice
 ```
 
-这条只在包已发布到 registry 时才成立。当前**尚未发布到 npm**，所以现在实际可用的只有方式一。
+- Package: `@merusu/dsh-better-notice` (module id is the same string)
+- Version: `4.6.1` (see [CHANGELOG.md](CHANGELOG.md))
+- License: MIT
+- Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
-卸装：
+| Who you are | Read |
+|---|---|
+| I just want it working | [Install](#install) → [Verify](#verify) → [What it does](#what-it-does). Defaults are fine; ignore every setting. |
+| I want to tune it | [Customization index](#customization-index) — organized by *what you want*, not by field name. |
+| I am an AI agent | Start with **[AGENTS.md](AGENTS.md)** (what already exists, the three things that break the host, the public API), then [If you are an AI agent](#if-you-are-an-ai-agent) → [Modifying this plugin](#modifying-this-plugin). Machine-readable one-pager: **[llms.txt](llms.txt)**. |
+| I want my own sounds | [Sounds and the bundled TTS tool](#sounds-and-the-bundled-tts-tool). |
+
+---
+
+## What it does
+
+Three surfaces, one shared decision:
+
+1. **Conversation tab row** — each hot session takes one tab seat; click it to switch. The current session does not take a seat (it *is* the “Chat” tab).
+
+   ![Tab row seats](screenshots/tab-seats.png)
+
+2. **Left sidebar** — one status glyph in front of every session title (emoji by default, or an uploaded square image), optionally animated.
+
+   ![Sidebar status glyphs](screenshots/sidebar-glyphs.png)
+
+3. **On state change** — one sound plus one popout image that slides in from a window edge.
+
+The glyph can also be your own square picture instead of an emoji:
+
+![Uploaded square images used as sidebar icons](screenshots/uploaded-glyph.png)
+
+> The two `settings-*.png` screenshots below were taken on an earlier release. The current page has no *size* row, no *preview once* button, and rate is a 0–100 % slider; `Hide host status dot`, `Reset all` and the overflow notice were removed in 4.4. The field tables in this file are the authoritative description.
+
+## Default behaviour, out of the box
+
+**Only three states pop a picture: `error`, `pending`, `completed`.** In words: *something broke*, *you have to approve / choose / review*, *it just finished*. `pinned`, `running` and `idle` never pop — an idle session leaning into your screen would be noise, not news. A popout stays for a few seconds and then leaves on its own (`popout.displayMs`, default 7 s, configurable per category).
+
+**The bundled artwork follows colour semantics**, and it is **the author's placeholder art**, not a finished design:
+
+| State | Character | Pose | Why this colour |
+|---|---|---|---|
+| `error` | **red Meru** | `meru2-0-opinion` — leaning out sideways | red reads as warning: something needs you |
+| `pending` | **red Meru** | `meru2-0-id` — holding up an ID | red again: *you* have to act |
+| `completed` | **blue Lan** | `lan2-0-sleepy` | blue reads as calm / settled: done |
+
+Only those three states ship raster art (4 tiers each: 64 / 320 / 780 / 1560 px, `.webp`). `pinned`, `running` and `idle` have no raster art — their popouts fall back to the packaged SVG and then to the emoji glyph. That is why the package is ~700 KB instead of ~1.6 MB, and it costs nothing functionally: those three do not pop by default anyway.
+
+**You are meant to replace all of it.** Settings → the category card → *Popout → upload image*, or `window.__HOTLIST__.assets.add(category, 'popout', { name, dataUrl })`. Any square transparent PNG/JPG/WebP/GIF works; SVG is rejected.
+
+> **A note from the author.** The art in `assets/` is a placeholder. A later version of this repository may ship the **complete art-generation skill** — the whole pipeline used to make these characters — so that anyone can produce their own set instead of drawing from scratch. If you want custom art but do not know where to start, **you may prefer to wait for the next release**: it may bring assets and a documented process you can reuse.
+
+## Categories at a glance
+
+| Category | When it appears | Tab seat | Sidebar glyph | Popout image | Sound |
+|---|---|---|---|---|---|
+| 📌 `pinned` | You pinned it in the **host's own** UI (hover/right-click a sidebar row → “Pin session”) | ✅ | ✅ | — | — |
+| ⛔ `error` | The agent reported an error (`api-session/error`), expires after 10 min | ✅ | ✅ | ✅ | 🔈 |
+| 🔐 `pending` | Waiting for your approval / answer / plan review (secondary glyph ❓) | ✅ | ✅ | ✅ | 🔈 |
+| ✅ `completed` | This plugin saw it finish, within the last 7 min | ✅ | ✅ | ✅ | 🔈 |
+| ⏳ `running` | Working (includes “a subagent is running, parent idle”) | ✅ | ✅ | — | — |
+| 💤 `idle` | Idle, and last activity is inside the *recent window* (default 5 min) | ✅ | ✅ | — | — |
+
+✅ = on by default · — = off by default (popout and sound are opt-in per category) · 🔈 = a bundled sound exists but **stays silent until you enable that category** in settings.
+
+### How a session is classified
+
+A session belongs to exactly **one** category. The first matching rule, top to bottom, wins:
+
+```
+error > pending > completed > running > pinned > idle
+```
+
+Rationale: an error is a root cause and a pending approval is often its consequence, so the error wins; pinning is just “I want to look at this first”, not “something is happening”, so it ranks last of the *active* states. This order is **not configurable** — changing it changes semantics, not looks.
+
+**Display order** is a different thing and *is* configurable per category (`order`, default `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50`). `error` and `pending` tie by default; ties fall back to the classification priority above, so what you actually see is *error → pending → pinned → completed → running → idle*.
+
+One mechanism is independent of all surfaces: **“just finished” survives a page reload.** The host's own `completionUnread` only lives for 1–3 minutes and is cleared as soon as you open the session, so Better Notice records the `running true → not running` transition itself (batched writes, 500 ms), and after a reload replays it subject to `collect.completedTtlMs` and the current workspace. Refreshing the page does not lose your ✅ sessions.
+
+## Install
+
+Requires Node 22+ and a working DSH Web profile. Verified against DSH `0.2.2-rc.1`.
+
+```powershell
+# Install into a profile (<profile> is your profile name)
+dsh plugin --profile <profile> add @merusu/dsh-better-notice
+
+# Restart that profile's GUI — required, see below
+dsh --profile <profile>
+```
+
+- **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
+- Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
+- Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
+
+Uninstall:
 
 ```powershell
 dsh plugin --profile <profile> remove @merusu/dsh-better-notice
 ```
 
-### 为什么必须重启
+### Why a restart is mandatory
 
-这是 Cordis bundle，两个半边：
+This is a Cordis bundle with two halves:
 
-- `package.json` 的 `dsh.bundle.patch` → `cordis.patch.yml`，往配置里插一行 `- insert: [{id: hotlist, name: '@merusu/dsh-better-notice'}]`；
-- **Host 半边** `index.js` 注册 `/hotlist-sound` 前缀路由，把内置 wav 音效发给页面（DSH 的共用素材路由只认图片，`.wav`/`.mp3` 在那里会 404）；
-- **Client 半边** `client.js` 由 `dsh.client` 声明（平台 `web`、`immediately`），注册 tab 座位、侧栏图标、浮层与设置页。
+- `package.json` → `dsh.bundle.patch` → `cordis.patch.yml` inserts `- insert: [{id: hotlist, name: '@merusu/dsh-better-notice'}]` into the profile config.
+- **Host half** `index.js` registers the `/hotlist-sound` prefix route that serves the bundled `.wav` files. The host's shared asset route only accepts images, so audio would 404 there.
+- **Client half** `client.js` is declared through `dsh.client` (platform `web`, `immediately`) and registers the tab seats, sidebar glyphs, popout and settings page.
 
-新增 host 路由这一步在进程启动时完成，只刷新页面不够。
+The host route is created during process start-up, so a page refresh is not enough.
 
-### 装完怎么确认成功
+### Verify
 
-在 GUI 里打开浏览器控制台，依次确认：
+In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → 返回版本号，例如 `'4.5.0'`；
-2. `typeof window.__HOTLIST__` → `'object'`，`Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
-3. 设置（账号菜单 →「设置」）左导航出现 **「热表」**，点开是 7 张折叠卡 + 一块全局区；
-4. 侧栏的会话行前面出现状态图标；
-5. 页面顶部**不应**出现 `Failed to load plugins` 横幅——出现就是没装好，看控制台第一条报错。
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.1'`.
+2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
+3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
+4. Session rows in the sidebar now start with a status glyph.
+5. **No** `Failed to load plugins` banner at the top of the page. If there is one, read the first console error.
 
-音效路由自检（同一控制台）：
+Audio route self-check:
 
 ```js
 await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('content-type')])
 // → [200, 'audio/wav']
 ```
 
-## 用法
+## Usage details
 
-**座位。** 对话区 tab 行里，每个热会话一个座位，点击切过去。能放几个由 tab 行实际宽度决定，也可以写死 1–12（`maxSeats`）。座位多了会被截断：`pinned` / `pending` / `error` 这三个「要人处理」的类别不按上限裁，但有硬顶 `上限 + 4`。
+**Seats.** One seat per hot session in the tab row. How many fit is derived from the real tab-row width, and can be pinned to `1`–`12` (`maxSeats`). Overflow is trimmed: `error` and `pending` (the two “a human must act” categories) are exempt from the seat limit but capped at *limit + 4*; `pinned` also gets priority but has its own cap, `pinned.maxSeats` (`0`–`12`, default `3`, `0` = hide pinned seats entirely).
 
-**侧栏图标。** 左侧会话栏每行标题前一枚状态标记。它读同一批会话状态与同一份设置，判定用 `sidebarStateOf()`，与 tab 面的 `classify()` 有两处已知差别（`running` 与 `completed` 的先后、是否认宿主的 `completionUnread`），见「已知限制」第 9 条。
+**Sidebar glyphs.** One marker per row, driven by the same session state and the same settings, classified by `sidebarStateOf()` rather than `classify()`. The two functions disagree in two known ways (relative order of `running` vs `completed`, and whether the host's `completionUnread` counts) — see [Known limitations](#known-limitations) item 8.
 
-**弹出图。** 会话首次进入 `error` / `pending` / `completed` 时从窗口贴边探出。同一时刻只留一个位置：高优先的在弹时，低优先的直接丢弃而不排队；同一会话同一类别 10 秒内不重复弹。优先级 `error > pending > completed`。当前会话自己不弹；页面在后台（`document.hidden`）时也不弹。
+**Popout images.** Shown when a session *enters* `error` / `pending` / `completed`. Only one is on screen at a time: while a higher-priority one is up, lower-priority ones are dropped rather than queued; the same session and category will not pop twice within 10 s. Priority `error > pending > completed`. The current session never pops, and nothing pops while the page is hidden.
 
-**音效。** 会话进入某类时响一次。三道闸：冷启动首轮只记不播、同会话同类去重（离开即清）、全局 1500ms 节流（后来的直接丢弃，不排队）。音量是全局的。
+**Sounds.** Played once when a session enters a category. Three gates: the first round after a cold start only records, the same session+category is deduped (cleared when it leaves), and a global 1500 ms throttle drops late arrivals instead of queueing. Volume is global.
 
-**快捷键。**
+**Shortcuts.**
 
-| 按键 | 作用 |
+| Keys | Action |
 |---|---|
-| `Alt+Shift+[` | 切到上一个座位（只在当前座位环里走，两端回绕） |
-| `Alt+Shift+]` | 切到下一个座位 |
-| `Alt+Shift+S` | 手动弹一次浮层（默认关，需 `shortcuts.overlayEnabled`） |
+| `Alt+Shift+[` | Previous seat (cycles within the current seat ring, wraps) |
+| `Alt+Shift+]` | Next seat |
+| `Alt+Shift+S` | Pop the overlay once (off by default; needs `shortcuts.overlayEnabled`) |
 
-按键只在页面区域、没有菜单或对话框挡住、非长按、非输入法组合、没有按着 `Ctrl`/`Cmd` 时才处理。`Alt+1..9` 直跳**未实现**——网页端裸 Alt+数字被宿主的 `isWebBindingAllowed` 拒，`dsh-session-hotkeys` 又在 capture 阶段抢键。
+Keys are only handled when the page has focus region, no menu/dialog is open, it is not a long press, not an IME composition, and `Ctrl`/`Cmd` is not held. `Alt+1..9` direct jump is **not implemented** — bare Alt+digit is rejected by the host's `isWebBindingAllowed`, and the third-party `dsh-session-hotkeys` grabs it in the capture phase.
 
-## 配置
+## Customization index
 
-设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order 30）。7 张折叠卡 + 顶部全局区，**改完即时生效，不需要刷新页面**。
+Field reference tables are below; this section is organized by intent. Everything here is editable in **Settings → “Better Notice”** and applies immediately, no reload. The few rows marked *API only* have no control yet — use `window.__HOTLIST_SETTINGS__.set(...)`.
 
-- **折叠态**一行一类：图标预览、类别名、「· 顺序 N」、五个只读状态小标签（Tab / 栏 / 顶 / 弹 / 音，开=高亮）、右端 caret。点整行展开，**多张卡可以同时展开**。展开状态存 `sessionStorage`（`dsh.hotlist.open`），不写进设置。
-- **展开区**（紧凑多列）：① 图标（来源 / 上传 / 图标值 / 播放频率滑块）；② 动效（`motion` + 作用于 `glyph`/`row`）；③ 弹出（开关 / 弹出图 / 入场·待机·退出 / 出现侧·停留时长）；④ 音效（启用 / 来源 / 试听）；⑤ 顺序。
-- **全局区**：座位上限（含「自动」）、刚完成保持时长（分钟）、全局音量、**最近对话展示时间**（0–120 分钟）、`positions.tab`、`positions.topbar`（置灰「即将支持」）、`takeOverStatusDot`。
-- 非法值写入时会被夹回范围；写盘失败（localStorage 配额满）会在页脚提示，`window.__HOTLIST_SETTINGS__.lastError()` 能拿到原因。
+**Baseline:** you do not have to configure anything. Defaults are “6 tab seats + sidebar glyphs + popouts on three categories + all sounds silent”.
 
-### 全局默认值
+### Placement — where it shows up
 
-| 设置 | 默认值 | 范围 / 说明 |
+Three surfaces are independent; you can enable one, two, or none (none = the plugin is effectively paused without uninstalling).
+
+| I want… | Field | Values | Default |
+|---|---|---|---|
+| Only in the conversation tab row | `positions.tab` | `true` / `false` | `true` |
+| Also show a status glyph in the sidebar | `positions.sidebar` *(API only)* | `true` / `false` | `true` |
+| Put it in the window top bar | `positions.topbar` | `false` (**not implemented**, greyed out in settings) | `false` |
+
+Per-category placement is a second layer: `categories.<id>.surfaces.{tab,sidebar,topbar}` decides whether *that* category may appear on *that* surface. Settings shows these as read-only chips; change them through the API.
+
+### Quantity — how many at once
+
+| I want… | Field | Values | Default |
+|---|---|---|---|
+| Limit tab seats | `maxSeats` | `1`–`12`, or `'auto'` (fit the real width) | `6` |
+| Limit how many pinned sessions get seats | `pinned.maxSeats` | `0`–`12` (`0` = hide pinned entirely) | `3` |
+
+### Time — how long things stay hot
+
+| I want… | Field | Values | Default |
+|---|---|---|---|
+| Keep a just-finished session in ✅ longer | `collect.completedTtlMs` | `1`–`1440` **minutes** | `7` |
+| Decide how stale a session may be and still count as `idle` | `collect.recentWindowMinutes` | **minutes**; settings exposes `1`–`36`, the API accepts `0`–`120` (`0` = never show idle) | `5` |
+
+> The recent window has **two layers on purpose**: storage clamps `0`–`120` (so scripts can set 90), the settings control only offers `1`–`36`. Don't mistake the UI bound for the data bound.
+
+### The six categories — each one is configured separately
+
+Category ids: `pinned` · `error` · `pending` · `completed` · `running` · `idle`. Every row below is `categories.<id>.<field>`, six copies, mutually independent.
+
+| I want… | Field | Values | Default |
+|---|---|---|---|
+| Turn a whole category off | `categories.<id>.enabled` | `true` / `false` | all six `true` |
+| Decide where that category sits | `categories.<id>.order` | `1`–`99` | `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50` |
+| Sort within the category | `categories.<id>.sortBy` | `'time'` (recent activity first) / `'manual'` (host pin order) | `'time'` (`pinned` = `'manual'`) |
+| Restrict it to some surfaces | `categories.<id>.surfaces.{tab,sidebar,topbar}` | three booleans | first two `true`, `topbar` `false` |
+| Choose where the icon comes from | `categories.<id>.glyph.source` | `'emoji'` / `'upload'` / `'popout'` | `'emoji'` |
+| Change the glyph character | `categories.<id>.glyph.value` | emoji, at most 8 code points | per category, see the table above |
+| Use your own square image | `categories.<id>.glyph.uploads` | up to 6, ≤16 KB each, `png/jpeg/webp/gif` | `[]` |
+| Change the motion | `categories.<id>.glyph.motion` | `none` / `spin` / `pulse` / `bounce` / `blink` | see [reference](#per-category-fields) |
+| Animate the title too | `categories.<id>.glyph.motionTarget` | `'glyph'` (icon only) / `'row'` (icon + title) | `'row'` since 4.6.0 |
+| Make it animate less often | `categories.<id>.glyph.frequency` | `0`–`1`, step `0.05` (`0` = never) | `1` |
+| Pop an image when this category appears | `categories.<id>.popout.enabled` | `true` / `false` | `error` / `pending` / `completed` = `true` |
+| Built-in artwork or your own | `categories.<id>.popout.builtin` / `.images` | `true` / `[]`; ≤6 images, ≤64 KB each | `true` / `[]` |
+| How long the popout stays | `categories.<id>.popout.displayMs` | `2000`–`20000`, rounded to 500 | `7000` |
+| Ambient motion while it waits | `categories.<id>.popout.ambient` | `none` / `breath` / `float` | `breath` on the popping three |
+| How it leaves | `categories.<id>.popout.exit` | `drop` / `particles` / `fade` / `slide-out` | `drop` |
+| Which edge it comes from | `categories.<id>.popout.side` | `'auto'` (random each time) / `'left'` / `'right'` (mirrored) | `'auto'` |
+| Play a sound for this category | `categories.<id>.sound.enabled` | `true` / `false` | `false` |
+| Built-in cue or your own | `categories.<id>.sound.builtin` / `.uploads` | `true` / `[]`; ≤6, ≤128 KB each | `true` / `[]` |
+
+`pending` has one extra field: `categories.pending.glyphSecondary` (same shape as `glyph`, default `❓`).
+
+### Assets — glyph images, popout art, sounds
+
+Every pool takes at most 6 items: glyph images ≤16 KB, popout art ≤64 KB, sounds ≤128 KB, everything together ≤2 MB, and the source file is capped at 4 MB before encoding. Accepted image types: `png`, `jpeg`, `webp`, `gif` — **SVG is rejected**.
+
+Picking is automatic and uses two different rules: **glyphs are seeded by identity** (same session + same category = same image forever), **popout art and sounds are random per event** (a fresh pick on every pop and every cue). Full limit table and the three ways to load assets: [Assets](#assets).
+
+### Sounds ship as exactly two files
+
+`assets/sounds/attention.wav` serves `error` and `pending`; `assets/sounds/complete.wav` serves `completed`. All three categories default to `sound.enabled: false` — **you must switch a category on to hear anything**. To generate your own lines, see [Sounds and the bundled TTS tool](#sounds-and-the-bundled-tts-tool).
+
+### Classification priority is fixed
+
+Top to bottom, first match wins: **error > pending > completed > running > pinned > idle**. It is deliberately not exposed to users (it changes meaning, not appearance). What *is* configurable per category is display order (`order`) — a different thing.
+
+## Settings reference
+
+Field-name-level documentation for people writing scripts.
+
+![Global block of the settings page (earlier release)](screenshots/settings-full.png)
+
+![A category card expanded (earlier release)](screenshots/settings-sound.png)
+
+- **Collapsed card:** glyph preview, category name, `· order N`, five read-only chips (Tab / Bar / Top / Pop / Snd — highlighted = on), caret. Click the row to expand; **several cards may be open at once**. Open state lives in `sessionStorage` (`dsh.hotlist.open`), never in settings.
+- **Expanded area** (compact multi-column): ① glyph (source / upload / value / frequency slider); ② motion (`motion` + target `glyph`/`row`); ③ popout (enabled / image / entrance·ambient·exit / side·display time); ④ sound (enabled / source / preview); ⑤ order.
+- **Global block:** seat limit (with “auto”), **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar` (greyed “coming soon”), `takeOverStatusDot`.
+- Out-of-range writes are clamped. A failed write (localStorage quota) is reported in the page footer and through `window.__HOTLIST_SETTINGS__.lastError()`.
+
+### Global defaults
+
+| Setting | Default | Range / notes |
 |---|---|---|
-| `maxSeats` | `6` | `1`–`12`，或 `'auto'`（跟随 tab 行实际宽度） |
-| `positions.tab` | `true` | 对话区 tab 行座位总开关 |
-| `positions.sidebar` | `true` | 侧栏总开关（设置页无此行，走 API） |
-| `positions.topbar` | `false` | 窗口顶栏，**未实现**，设置页置灰 |
-| `takeOverStatusDot` | `true` | 顶掉其它插件（`dsh-sessions-manager`）画的行首状态点 |
-| `hideNativeDot` | `true` | 隐藏宿主原生状态槽（v4.4 起设置页无此行，字段保留） |
-| `collect.completedTtlMs` | `420000`（7 分钟） | 1–1440 分钟 |
-| `collect.recentWindowMinutes` | `5` | 0–120 分钟；`0` = 不显示 `idle` |
-| `sound.volume` | `60` | 0–100 全局音量 |
+| `maxSeats` | `6` | `1`–`12`, or `'auto'` (follows the real tab-row width) |
+| `positions.tab` | `true` | master switch for tab seats |
+| `positions.sidebar` | `true` | master switch for the sidebar (no settings row; API only) |
+| `positions.topbar` | `false` | window top bar, **not implemented**, greyed out |
+| `takeOverStatusDot` | `true` | take over the status dot drawn by other plugins (`dsh-sessions-manager`) |
+| `hideNativeDot` | `true` | hide the host's native status slot (no settings row since 4.4; field kept) |
+| `collect.completedTtlMs` | `420000` (7 min) | 1–1440 minutes |
+| `collect.recentWindowMinutes` | `5` | **minutes**. Settings offers `1`–`36`; API accepts `0`–`120` (`0` = hide `idle`) |
+| `sound.volume` | `60` | 0–100, global |
 | `overlay.side` | `'auto'` | `auto` / `left` / `right` |
-| `overlay.sizeMin` / `sizeMax` | `260` / `520` | 120–900px（v4.5 起设置页无此行，取中值再按视口收窄） |
-| `pins` | `{}` | `{ <sessionId>: 级别 1–99 }`，最多 50 条 |
-| `shortcuts.jumpEnabled` / `overlayEnabled` / `overlayKey` | `true` / `false` / `'Alt+Shift+S'` | v4.4 起设置页无这几行，键照样工作 |
+| `overlay.sizeMin` / `sizeMax` | `260` / `520` | 120–900 px (no settings row since 4.5; midpoint, narrowed to the viewport) |
+| `pinned.maxSeats` | `3` | `0`–`12`, `0` = hide pinned; only limits *how many* — pinning itself comes from the host |
+| `display.reduceMotion` | `'auto'` | `auto` / `on` / `off`; `on` freezes all motion |
+| `shortcuts.jumpEnabled` / `overlayEnabled` / `overlayKey` | `true` / `false` / `'Alt+Shift+S'` | no settings rows since 4.4; keys keep working |
 
-### 每类可调的项（`categories.<id>.*`）
+### Per-category fields
 
-| 设置 | 默认值 | 说明 |
+| Setting | Default | Notes |
 |---|---|---|
-| `enabled` | 前 6 类 `true`，`favorite` `false` | 关掉即不判定、不出座位、侧栏不出图标 |
-| `order` | `10`…`60` | 1–99，`pinned` 强制 0 |
-| `sortBy` | `'time'`（`pinned` 为 `'manual'`） | `time` = 最近活动倒序；`manual` = 按 `pins` 级别 |
-| `surfaces.tab` / `.sidebar` / `.topbar` | 前两项 `true`，topbar `false` | 该类在各面出不出现（设置页只读显示） |
-| `glyph.source` | `'emoji'` | `emoji` / `upload` / `popout`（拿该类弹出图当图标） |
-| `glyph.value` | 见上表 | emoji，最长 8 个字形 |
-| `glyph.uploads` | `[]` | 上传方图池，最多 6 张，单张 ≤16KB，`png/jpeg/webp/gif`（**拒 svg**） |
-| `glyph.motion` / `.motionTarget` | 见上表 / `'glyph'` | 动效名 / `glyph` 或 `row`（图标 + 标题一起动） |
-| `glyph.frequency` | `1` | 0–1（步进 0.05）：`1` = 每拍都播，越左越稀，`0` = 不播 |
-| `popout.enabled` | `error`/`pending`/`completed` 为 `true` | 该类别进入时是否弹浮层 |
-| `popout.builtin` / `.images` | `true` / `[]` | 内置素材 或 从上传池随机取（每池最多 6 张，单张 ≤64KB） |
-| `popout.displayMs` | `7000` | 2000–20000（500ms 取整） |
-| `popout.entrance` | `'slide'` | **只读**，固定 clip 揭示 |
-| `popout.ambient` / `.exit` / `.side` | `breath` / `drop` / `'auto'` | 待机 / 退出动效 / 出现侧 |
-| `sound.enabled` | `false` | 音效开关 |
-| `sound.builtin` | `true` | `true` = 用内置两个 wav：`pending`/`error` → `attention.wav`，`completed` → `complete.wav` |
-| `sound.uploads` | `[]` | 上传音效池，最多 6 条，单条 ≤128KB |
+| `enabled` | all six `true` | off = no classification, no seat, no sidebar glyph |
+| `order` | `10`…`50` | 1–99, display order only; `error` and `pending` tie at `10`, resolved by classification priority |
+| `sortBy` | `'time'` (`pinned`: `'manual'`) | `time` = recent activity first; `manual` = host pin order |
+| `surfaces.tab` / `.sidebar` / `.topbar` | `true` / `true` / `false` | read-only chips in settings |
+| `glyph.source` | `'emoji'` | `emoji` / `upload` / `popout` (reuse that category's popout art) |
+| `glyph.value` | per category | emoji, at most 8 code points |
+| `glyph.uploads` | `[]` | up to 6, ≤16 KB each, `png/jpeg/webp/gif` (**no SVG**) |
+| `glyph.motion` | `pinned/error/pending/completed/running/idle` → `none` / `bounce` / `blink` / `none` / `spin` / `none` | `none` / `spin` / `pulse` / `bounce` / `blink` |
+| `glyph.motionTarget` | `'row'` | `glyph` = icon only, `row` = icon + title |
+| `glyph.frequency` | `1` | 0–1 step 0.05; `1` = every tick, `0` = never |
+| `popout.enabled` | `true` for `error` / `pending` / `completed` | pop an image when the session enters the category |
+| `popout.builtin` / `.images` | `true` / `[]` | built-in art, or random pick from the pool (≤6, ≤64 KB) |
+| `popout.displayMs` | `7000` | 2000–20000, 500 ms steps |
+| `popout.entrance` | `'slide'` | **read-only**, fixed clip reveal |
+| `popout.ambient` / `.exit` / `.side` | `breath` / `drop` / `'auto'` | idle motion / exit / edge |
+| `sound.enabled` | `false` | per-category sound switch |
+| `sound.builtin` | `true` | `true` = bundled wavs: `pending`/`error` → `attention.wav`, `completed` → `complete.wav` |
+| `sound.uploads` | `[]` | up to 6, ≤128 KB each |
 
-## 素材自定义
+## If you are an AI agent
 
-三类素材都可在设置页上传，也可用 API 批量灌：**图标**、**弹出图**、**音效**。
+Read this part before touching anything. The user says one sentence; map it to a field, change it, confirm.
 
-| 项 | 上限 |
-|---|---|
-| 每类每池份数 | 6 份 |
-| 图标（编码后） | ≤ 16 KB |
-| 弹出图（编码后） | ≤ 64 KB |
-| 音效（编码后） | ≤ 128 KB |
-| 全部上传合计 | ≤ 2 MB |
-| 图标 / 弹出图的源文件 | ≤ 4 MB |
+| The user says | What it actually is | Change | Suggested value |
+|---|---|---|---|
+| “It's too noisy” | Usually motion or popouts — sounds are off by default | sound: `sound.enabled` / `sound.volume`; motion: `glyph.frequency`; popout: `popout.enabled` | `sound.volume: 20`–`30`; `glyph.frequency: 0.1`–`0.3`; or turn the three `popout.enabled` off |
+| “The blinking is annoying” | Motion, not sound | `glyph.frequency` down or `0`; global switch `display.reduceMotion = 'on'` | `frequency: 0` freezes that category |
+| “Too cluttered” | Reduce quantity first, then surfaces | `maxSeats`; then `positions.sidebar = false` | `maxSeats: 3`–`4` |
+| “Only tell me when I have to act” | Keep `error` + `pending` only | turn `surfaces` off for `completed`/`running`/`idle` | `{tab:false,sidebar:false,topbar:false}` on those three |
+| “Make it more obvious” | Add popout/sound/motion | `popout.enabled`, `sound.enabled`, `frequency` up | `popout.displayMs: 12000`, `frequency: 1`, `overlay.sizeMin/sizeMax` up |
+| “I can't see category X” | Three switches in order | ① `categories.<id>.enabled` ② its `surfaces` ③ for `idle`, the recent window | ① must be `true` ② that surface's bit must be `true` ③ `recentWindowMinutes > 0` |
+| “My change did nothing” | Depends what changed | `client.js` → refresh page; `index.js` → **restart GUI**; a setting → check `lastError()`, it was probably clamped | — |
+| “When does the top bar work?” | Not implemented | `positions.topbar` / `surfaces.topbar` | always `false`; do not promise it |
+| “How do I pin / unpin?” | Not ours | the host's own sidebar row menu | we only read it; `pinned.maxSeats` limits how many show |
 
-格式：图标与弹出图只收 `image/png`、`image/jpeg`、`image/webp`、`image/gif`（拒收 SVG）；音效收 MP3 / M4A / WAV / OGG / AAC / WebM。单份超限、池满、格式不对都只拒收刚加的那一份；总预算超出时会按类别顺序裁掉池尾素材。
-
-**随机规则分两种，别混**：
-
-- **图标按「身份」定种**：种子是 `"<sessionId>|<category>"` 的 FNV-1a 哈希——同一会话在同一类别里反复渲染、刷新页面都是同一张，只有换类别才换图。
-- **弹出图与音效按「事件」随机**：每弹一次、每响一次都重取一份。
-
-内置素材在 `assets/`：`<类别>-<档位>.webp`（档位 64 / 320 / 780 / 1560）+ 同名 `.svg`（webp 失败时用）+ 最后一层回落 emoji；音效是 `assets/sounds/{attention,complete}.wav`，由 host 半边的 `/hotlist-sound/` 前缀路由自服务。
-
-## 对外 API
-
-页面里有两个对象，给脚本和别的 AI 用。
+Two ways to write settings, same effect:
 
 ```js
-// 设置存取
-const s = window.__HOTLIST_SETTINGS__;
-s.version          // 4 —— 设置 schema 版本，不是插件版本
-s.get()            // 当前设置（内部缓存本身，别就地改）
-s.set(patch)       // 合并写入并立刻生效
-s.reset()          // 全部恢复默认
-s.subscribe(fn)    // 订阅变更，返回取消订阅函数
-s.defaults()       // 默认设置（每次新建一份）
-s.lastError()      // 最近一次写盘错误（字符串或 null）
+// A few fields: patch. NOTE glyph/popout/sound are replaced wholesale — get() first.
+window.__HOTLIST_SETTINGS__.set({ maxSeats: 4 });
 
-// 设置 + 三个素材池
+// Several places: get a copy, edit the whole object, write it back.
+const next = JSON.parse(JSON.stringify(window.__HOTLIST_SETTINGS__.get()));
+next.categories.completed.surfaces = { tab: false, sidebar: false, topbar: false };
+next.categories.running.surfaces = { tab: false, sidebar: false, topbar: false };
+window.__HOTLIST_SETTINGS__.set(next);
+```
+
+Rules for agents:
+
+1. **Read before writing.** `get()`, then write; a patch below `categories.<id>` replaces `glyph` / `popout` / `sound` as whole blocks and silently resets the rest.
+2. **Never change `classify()` order to “fix” visibility.** Use `enabled`, `surfaces`, `order`. Priority is semantics.
+3. **Never reset user settings.** No `reset()`, no clearing the storage key, no “helpful” forced defaults in `sanitize*` — see [Modifying this plugin](#modifying-this-plugin).
+4. **Pinning is the host's job.** Do not invent a pin menu; read `pinnedSessionIds`.
+5. **Top bar does not exist yet.** Say so instead of faking it.
+
+## Sounds and the bundled TTS tool
+
+**First, the good news: nothing has to be installed to hear something.** Two cue files ship with the plugin — `attention.wav` for `error` and `pending`, `complete.wav` for `completed`. Open the category in settings and flip `sound.enabled`. The rest of this section only matters if you want **new lines** or **different voices**.
+
+### 1. No local text-to-speech? Use the helper in this repository
+
+The **GitHub repository** contains `tools/meru-tts/`: a single-file Python script that turns one sentence into an mp3 or wav. It is **not part of the running plugin** — it only produces assets.
+
+> **Limit up front:** `dsh plugin add` **cannot** give you this tool — the npm package has no `tools/` directory (`files` only lists `index.js`, `client.js`, `cordis.patch.yml`, `assets`). “Install the plugin” and “build your own cues” are two separate paths; the tool requires cloning the repo.
+
+### 2. Where the API key comes from (there is a free tier)
+
+The tool defaults to Xiaomi MiMo TTS; register on Xiaomi's MiMo open platform and create a key (a free tier is enough for a handful of personal cues; treat the exact quota as subject to their current policy). Then export it:
+
+```powershell
+$env:MIMO_API_KEY="your key"
+```
+
+**The user has to register this themselves** — it needs a phone number and identity verification, an agent cannot do it for them. Two other providers are supported: `openai` (needs `OPENAI_API_KEY`) and `edge` (edge-tts, needs `pip install edge-tts`, no key).
+
+### 3. Generate one line
+
+```powershell
+# --no-play is mandatory, otherwise the script plays straight to your speakers
+python tools/meru-tts/meru-tts.py --provider mimo --voice 茉莉 --style "轻柔一点" --no-play -f mp3 -o done.mp3 "ding, done"
+```
+
+- `--list-voices` prints the voices of the current provider — **do not guess voice names**; `--dry-play` only reports whether a local output device exists and produces no file.
+- Python 3.10+; `pylibs/` (`comtypes`, `psutil`, `pycaw`) is bundled, no extra `pip install`.
+- The tool writes no config; the key is only read from the environment.
+
+### 4. Load the result into the plugin
+
+Three ways, pick one:
+
+1. **Settings upload** — Better Notice → the category card → sound group → upload. Easiest, recommended for humans.
+2. **API** — `window.__HOTLIST__.assets.add('<category>', 'sound', { name: 'done.mp3', dataUrl: 'data:audio/mpeg;base64,...' })`.
+3. **Replace the bundled file** — drop it in as `assets/sounds/attention.wav` / `complete.wav` (same name, no code change); adding *new* files also means touching `BUILTIN_SOUND` and `assets/sounds/manifest.json`.
+
+Check the size first: **≤128 KB per cue, ≤6 per category, ≤2 MB of all assets combined**. Over budget is rejected (`assets.add` returns `{ ok: false, reason: 'budget' }` or `'full'`).
+
+### 5. One sentence to hand to any AI
+
+> Use `tools/meru-tts/meru-tts.py` from this repository to generate a notification cue saying “<your line>” with voice 茉莉 and a gentle style, output mp3, then tell me how to install it as Better Notice's error sound.
+
+The agent should follow this order:
+
+1. Confirm `MIMO_API_KEY` is set (`echo $env:MIMO_API_KEY`). If it is not, stop and ask the user to register — **never invent a key**.
+2. Run `--list-voices` first to confirm the voice exists, then generate.
+3. Check the file size: it must be ≤128 KB to enter the sound pool; if it is bigger, shorten the line or lower the bitrate and regenerate.
+4. Install it: have the user upload it in settings, or hand them a `window.__HOTLIST__.assets.add('<category>', 'sound', { name, dataUrl })` snippet (`<category>` is `error` / `pending` / `completed`).
+5. Remind them: `sound.enabled` is `false` by default for every category and must be switched on in settings.
+
+Details in [`tools/meru-tts/README.md`](tools/meru-tts/README.md).
+
+## Assets
+
+All three asset kinds can be uploaded in settings or loaded in bulk through the API: **glyphs**, **popout art**, **sounds**.
+
+| Item | Limit |
+|---|---|
+| Items per category per pool | 6 |
+| Glyph image (encoded) | ≤ 16 KB |
+| Popout art (encoded) | ≤ 64 KB |
+| Sound (encoded) | ≤ 128 KB |
+| All uploads combined | ≤ 2 MB |
+| Source file for glyph / popout | ≤ 4 MB |
+
+Formats: glyphs and popout art accept `image/png`, `image/jpeg`, `image/webp`, `image/gif` (SVG is rejected); sounds accept MP3 / M4A / WAV / OGG / AAC / WebM. An oversized item, a full pool or a wrong type only rejects that one item; when the overall budget is exceeded, items are trimmed from the tail of the pools in category order.
+
+**Two different random rules — do not mix them up:**
+
+- **Glyphs are seeded by identity**: seed is a FNV-1a hash of `"<sessionId>|<category>"` — the same session in the same category always shows the same image, across re-renders and reloads; only a category change switches it.
+- **Popout art and sounds are random per event**: a fresh pick on every pop and every cue.
+
+Built-in art lives in `assets/`: **three** categories ship raster art (`error`, `pending`, `completed`) as `<category>-<tier>.webp` (tiers 64 / 320 / 780 / 1560); the other three (`pinned`, `running`, `idle`) have only a `.svg`, and every category finally falls back to an emoji. Sounds are `assets/sounds/{attention,complete}.wav`, served by the host half through the `/hotlist-sound/` prefix route.
+
+## JavaScript API
+
+Two objects are exposed for scripts and other agents.
+
+```js
+// settings
+const s = window.__HOTLIST_SETTINGS__;
+s.version          // 4 — settings schema version, not the plugin version
+s.get()            // current settings (the internal cached object; do not mutate in place)
+s.set(patch)       // shallow-merge and apply immediately
+s.reset()          // back to defaults
+s.subscribe(fn)    // subscribe, returns an unsubscribe function
+s.defaults()       // a fresh copy of the defaults
+s.lastError()      // last storage write error (string or null)
+
+// settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                     // '4.5.0'
+api.version                                        // '4.6.1'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
+api.settings.backups()                             // → [{ at, version }]
+api.settings.restore(index)                        // → { ok, at? }
 api.assets.add(category, kind, { name, dataUrl })  // → { ok, reason?, bytes? }
 api.assets.list(category, kind)                    // → [{ name, bytes }]
 api.assets.clear(category, kind)                   // → boolean
-api.assets.preview('pending')                      // 立刻试听 → boolean
+api.assets.preview('pending')                      // play a cue now → boolean
 ```
 
-- `kind`：`'glyph'` | `'popout'` | `'sound'`。
-- `category`：`'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle' | 'favorite'`。
-- `add` 的 `reason` 是 `invalid` / `full` / `refused` / `budget` 之一。
+- `kind`: `'glyph'` | `'popout'` | `'sound'`.
+- `category`: `'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle'`.
+- `add`'s `reason` is one of `invalid` / `full` / `refused` / `budget`.
 
-**两个坑**：
+**Two traps:**
 
-1. `set` 只做**两级**浅合并——根字段与 `categories.<cat>` 逐个合并，再下一层（`glyph`、`popout`、`sound`）是**整块替换**。所以 `set({ categories: { error: { glyph: { frequency: 0.5 } } } })` 会把 `error.glyph` 其余键打回默认。先 `get()`，改完整个对象再 `set()`。
-2. 设置存在浏览器 `localStorage`，与页面 origin 绑定；GUI 端口变了就是另一个 origin，设置会看起来「丢了」。
+1. `set` merges only **two levels** — root fields and `categories.<cat>` are merged key by key, but anything below that (`glyph`, `popout`, `sound`) is **replaced as a whole block**. `set({ categories: { error: { glyph: { frequency: 0.5 } } } })` resets the rest of `error.glyph` to defaults. Always `get()`, edit the whole object, then `set()`.
+2. Settings live in browser `localStorage`, bound to the page origin. If the GUI port changes, that is a different origin and settings will look “lost”.
 
-更多例子（批量导入、按 URL 灌素材、试听的三种方式）见 [docs/EXTENDING.md](docs/EXTENDING.md)。
+More examples (bulk import, loading assets from URLs, the three preview paths) in [docs/EXTENDING.md](docs/EXTENDING.md).
 
-## 已知限制
+## Known limitations
 
-1. **`Alt+1..9` 直跳未实现**。网页端裸 Alt+数字被宿主 `isWebBindingAllowed` 拒，第三方 `dsh-session-hotkeys` 又在 capture 阶段抢键。字段与 UI 保留。目前提供 `Alt+Shift+[` / `]` 循环。
-2. **宿主自己的 `refreshViews` 会在会话被释放后抛一次** `uiConversation.binding: unknown session`。触发条件是「座位指向的会话被点进去后拒绝审批 / 结束」。它不在本插件调用栈里，加 `window.onerror` 全局吞会盖掉以后真出的错，故不处理。
-3. **⛔ 只覆盖 agent 级错误**（`api-session/error`，live-only、重连不补发）。工具执行失败不算。反过来，**用户拒绝审批导致会话结束会进 ✅**：判定只看 `running true → 非 running`，与结束原因无关。
-4. **没有独立的「子代理」状态**。宿主不暴露该信号，「子代理在跑」并入 `running`。
-5. **`plan-review` 与 ❓ 不区分**。宿主只暴露一个 `pendingInteraction.kind`。
-6. **tab 标签只能是字符串**。宿主用字符串画标签，所以 tab 上永远只有 emoji，不能放方图。
-7. **窗口顶栏未实现**。`positions.topbar` / `surfaces.topbar` 只参与可见性判断。
-8. **`favorite` 是预留类**。结构在、设置页可看（只读），判定永远不产出——没有「收藏」操作入口。
-9. **tab 与侧栏的判定函数不是同一个**。`classify()`（tab 面）与 `sidebarStateOf()`（侧栏面）读同一批数据，但优先级有两处不同：侧栏 `running` 先于 `completed`，tab 面相反；侧栏还认宿主的 `completionUnread`，tab 面只认本插件记下的 `completedAt`。所以「刚跑完又立刻重新开始跑」的会话会短暂出现「tab 还是 ✅、侧栏已经 ⏳」。这是两面的取舍，不是待修的 bug。
-10. **tab 行放不下会被裁**。官方把多余 tab 折进一个点不到的溢出菜单，所以本插件自己按行宽算上限。
-11. **动效是抽签不是常亮**。每类按自己的播放频率掷骰子，命中才挑该类一个座位播一遍，同屏最多 2 个在动。
-12. **音效有 1.5 秒全局节流**。两次播放间隔不足 1500ms 时后来的那条直接丢弃；冷启动的第一轮只记不播。这条只有源码与单测口径（组 `sound player dedupe`）——真机上很难构造连续两次真实状态转换。
-13. **设置与页面端口绑定**。`localStorage` 挂在 origin 上，GUI 端口变了就是另一个 origin。
+1. **`Alt+1..9` direct jump is not implemented.** Bare Alt+digit is rejected by the host's `isWebBindingAllowed`, and the third-party `dsh-session-hotkeys` grabs the key in the capture phase. The field and UI exist; cycling is what you get today.
+2. **The host's own `refreshViews` throws once** with `uiConversation.binding: unknown session` after a session is released (triggered when a seated session is entered and then you decline an approval / it ends). It is not in this plugin's call stack, and swallowing it with a global `window.onerror` would hide real errors later, so it is left alone.
+3. **⛔ only covers agent-level errors** (`api-session/error`, live-only, not replayed after reconnect). Tool failures do not count. Conversely, a session that ends because *you declined an approval* lands in ✅: classification only looks at `running true → not running`, regardless of why it stopped.
+4. **There is no separate “subagent” state.** The host exposes no such signal, so “a subagent is running” is folded into `running`.
+5. **`plan-review` and ❓ are not distinguished.** The host exposes a single `pendingInteraction.kind`.
+6. **Tab labels are strings only.** The host renders them from a string, so tabs only ever show an emoji, never an uploaded image.
+7. **The window top bar is not implemented.** `positions.topbar` / `surfaces.topbar` only feed the visibility maths.
+8. **Tab and sidebar do not share one classifier.** `classify()` (tab) and `sidebarStateOf()` (sidebar) read the same data; since 4.6.0 their priorities agree (`error > pending > completed > running > pinned > idle`) but they are still different functions: the sidebar also honours the host's `completionUnread`, the tab surface only trusts this plugin's own `completedAt`, and sidebar errors carry their own 30 min TTL (`SIDEBAR_ERROR_TTL_MS`) instead of the 10 min the tab surface uses (`ERROR_TTL_MS`). So a session that finishes and immediately restarts can briefly show “tab ✅, sidebar ⏳”. This is a deliberate trade-off between the two surfaces, not a bug to fix.
+9. **The tab row can run out of room.** The host folds extra tabs into an unreachable overflow menu, so this plugin computes its own limit from the row width.
+10. **Motion is sampled, not always-on.** Each category rolls its own frequency; on a hit, one seat of that category plays one animation. At most 4 animate at once (`MOTION_CONCURRENCY`).
+11. **Sounds have a 1.5 s global throttle.** A cue arriving less than 1500 ms after the previous one is dropped; the first round after a cold start only records. This is verified by source and unit test (group `sound player dedupe`) — on a real machine it is hard to produce two genuine transitions that fast.
+12. **Settings are bound to the page origin.** `localStorage` belongs to the origin, so a different GUI port means a different origin.
 
-## 开发
+## Modifying this plugin
+
+For anyone — human or AI — who has to change behaviour. Goal: read this, find the place, verify it yourself, no follow-up questions.
+
+> **About line numbers:** `client.js:NNN` below are positions at the 4.6.1 release and are only a **starting point**. They drift as soon as the file changes, so search by **symbol name** (`grep -n 'function classify' client.js`). Mismatched line numbers are normal; the symbol name is the truth. Same for `test/classify.test.mjs`: group names are stabler than line numbers.
+
+### Architecture in one paragraph
+
+One npm package, two halves:
+
+| File | Runs in | Does |
+|---|---|---|
+| `index.js` | Host (Node) | **One job only**: registers the `/hotlist-sound` prefix route that serves `assets/sounds/*.wav`, because the host's shared asset route only accepts images (`.wav` / `.mp3` would 404 there). |
+| `client.js` | Browser | **All UI logic** (~4,700 lines, single file, no build): tab seats, sidebar glyphs, popout, sounds, settings page. Registered via `window.__ModuleLoader__.load({ id: '<package name>' })`. |
+| `cordis.patch.yml` | Config | The bundle insert line that makes a profile aware of the package. |
+
+`client.js` pulls in no dependencies except `require('react')`; DOM is written with `h()` (an alias of `React.createElement`). No bundling and no `npm install` are needed to change it.
+
+### Data flow
+
+```
+ctx.get('sessions').list.getSnapshot()            ← session list (title, updatedAt, running)
+ctx.get('uiSession').sessionStatus.getSnapshot()   ← the single source of status truth
+ctx.get('uiWorkspace').workspaces.list             ← workspace grouping + pinnedSessionIds (host pins)
+ctx.remote.$on('api-session/error', …)             ← agent-level errors
+                 │
+                 ▼
+        classify()       category + token          client.js:1477
+        sortSeats()      ordering within a category client.js:1541
+        buildSeatPlan()  apply limits, assign order client.js:1564
+                 │
+     ┌───────────┴────────────┬──────────────────┐
+     ▼                        ▼                  ▼
+mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
+tab seats (conversation.view)   sidebar DOM      settings page (settings.section)
+client.js:4183                client.js:1861    client.js:2555
+```
+
+The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:4604` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
+
+### Touch points: change one thing, change these
+
+**1) Add a category**
+
+`CATEGORY_IDS` (`client.js:122`) → `CATEGORY_ORDER` (`:123`) → `CATEGORY_GLYPHS` (`:141`) → `CATEGORY_MOTION` (`:142`) → `CATEGORY_SURFACES` (`:144`, value is `{tab, sidebar, topbar}`) → defaults in `defaultCategory()` (`:246`) → accept the key in `sanitizeSettings()` (`:764`) → one rule in `classify()` (`:1477`) → one entry each in the dictionaries `ZH` (`:307`) / `EN` (`:431`) → one new group in `test/classify.test.mjs`. Missing `CATEGORY_GLYPHS` usually just means a blank icon; missing `CATEGORY_SURFACES` throws inside `defaultCategory()`.
+
+**2) Add a setting**
+
+Five places, or you get “writes but does not read” / “Chinese leaking into the English UI”: the default (`defaultSettings()` `:277` or `defaultCategory()` `:246`) → normalisation (`sanitizeSettings()` `:764`, **always provide a fallback; invalid input falls back, never throws**) → the control (`HotlistSettingsPage` `:2555`, row containers carry `data-hotlist-row="<field path>"`, existing keys look like `maxSeats`, `collect.completedTtlMs`, `categories.<cat>`) → both dictionaries (`ZH` / `EN`, key sets must match exactly) → unit test. **Do not bump `SETTINGS_VERSION`** unless the data structure really changed (see below).
+
+**3) Add a motion**
+
+Add the name to `MOTION_NAMES` (`:153`) → a duration to `MOTION_MS` (`:1736`) → a `@keyframes hl-<name>` to `SIDEBAR_STYLE` (`:1758`) (animate `transform` / `opacity` only, never layout-triggering properties) → for the title variant, one entry each in `TEXT_MOTION` (`:1745`) and `TEXT_BURST` (`:1752`) plus `@keyframes hl-text-<name>`. Concurrency is capped by `MOTION_CONCURRENCY` (`:192`).
+
+**4) Add a popout-art slot**
+
+Art is `assets/<category>-<tier>.webp` (tiers 64 / 320 / 780 / 1560) for the three popping categories, a same-named `.svg` for all six, and an emoji as the last resort; resolution happens in `popoutAssetRef()` (`:917`). A new category that should pop also needs the `popout.enabled` decision in `defaultCategory()` (`:247`) and matching files in `assets/`, otherwise you only get the SVG / emoji fallback.
+
+**5) Replace a bundled sound**
+
+`BUILTIN_SOUND` (`:212`) is the only table mapping category → filename (`SOUND_CATEGORIES` (`:214`) is derived from it). Put the new wav in `assets/sounds/`, edit the table, keep `assets/sounds/manifest.json` in sync. The URL is built from `SOUND_URL` (`:211`) as `/hotlist-sound/<file>`; the actual serving is `serveSound()` in `index.js` — a **GUI restart is mandatory** (host routes register at start-up).
+
+**6) Change ordering or priority**
+
+- **Display order:** `CATEGORY_ORDER` (`:123`) plus each category's `order`, consumed by `sortSeats()` (`:1541`). Placement only, never classification.
+- **Classification priority:** the order of the `if`s inside `classify()` (`:1477`). A session belongs to one category; **first match wins**.
+- They are separate on purpose: users may change `order` but cannot decide who wins a session. Editing `classify` changes semantics — always re-run the `category order` and `sidebar priority` test groups.
+
+### Title motion, for agents
+
+Sidebar titles can carry a CSS animation; **tab seats cannot** — the tab label is a string rendered by the host, so we can only put an icon and text there. “The text animates too” therefore only exists in the left sidebar.
+
+- Field: `settings.categories.<id>.glyph.motionTarget`
+- Values: `'glyph'` = icon only; `'row'` = icon + title, started and stopped together.
+- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:233`).
+
+```js
+// Option A: change the default for every category (source edit, defaultGlyph() at client.js:233)
+function defaultGlyph(category) {
+  return {
+    kind: 'emoji',
+    value: CATEGORY_GLYPHS[category] ?? '',
+    source: 'emoji',
+    motion: CATEGORY_MOTION[category] ?? 'none',
+    motionTarget: 'row',        // ← this line; 'glyph' = icon only
+    frequency: MOTION_FREQUENCY.fallback,
+    uploads: [],
+  };
+}
+```
+
+```js
+// Option B: per category (source edit, override inside defaultCategory() at client.js:246)
+// e.g. only "pending" animates its title, everything else animates the icon only:
+glyph: { ...defaultGlyph(category), motionTarget: category === 'pending' ? 'row' : 'glyph' },
+```
+
+```js
+// Option C: at runtime, no source edit (applies immediately; lost on reload unless persisted)
+window.__HOTLIST_SETTINGS__.set({
+  categories: { pending: { glyph: { motionTarget: 'glyph' } } },
+});
+```
+
+**Option C has a trap you must know:** `set` merges only two levels, and `glyph` / `popout` / `sound` are replaced as whole blocks — the line above resets `pending.glyph`'s `value`, `motion` and `frequency`. Do `get()`, edit the whole object, `set()`.
+
+Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:1745`, looping) and `TEXT_BURST` (`:1752`, one-shot), a duration in `MOTION_MS` (`:1736`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`:1758`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`:192`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
+
+### Upgrades never overwrite user settings
+
+**Promise: upgrading the plugin never changes a setting the user already chose.** Changing defaults affects new installs only.
+
+How that is guaranteed:
+
+- **Defaults only fill gaps**; anything on disk wins. `sanitizeSettings()` starts from the defaults and then, field by field, keeps any valid stored value — so changing `CATEGORY_ORDER` or `defaultGlyph()` is invisible to existing users.
+- **Adding a field:** a fallback in `sanitize*` is enough, **do not bump `SETTINGS_VERSION`**. A version bump claims “a migration is required”, and a wrong migration silently wipes user data — no structural change, no version change.
+- **Real structural changes** (dropping a field, changing its meaning) must keep the chain “read old → convert → drop the old field” (today that lives in `sanitizeSettings()`; the v3.1 → v4 migration went through it) and bump `SETTINGS_VERSION` by the smallest step. The `migrate v3 to v4` test group is the acceptance test for that chain.
+
+Three things you must never do:
+
+1. **Never** write “force it to the new default” inside `sanitize*` — that rewrites user data on every read.
+2. **Never** “tidy up” by deleting the localStorage key — category orders and uploaded asset pools live there.
+3. **Never** call `reset()` during `apply()` — one restart would zero the configuration.
+
+Self-check: run `node test/classify.test.mjs`. The group `current version keeps custom order` (`test/classify.test.mjs:605`) is exactly this guard: it writes a v4 record with a custom `order` into a fake `localStorage` and asserts the custom value survives. Its siblings are `user settings are never overwritten` (`:2427`) and `legacy default order is adopted, real choices are kept` (`:2461`). If these go red, your change eats user data — do not commit.
+
+### Five hard rules
+
+1. **Anything handed to the host must be a thunk, not a value.** The host calls `command.label()` directly in `refreshLabels()`; passing a string keeps the whole `uiWorkspace` from starting and the page shows a single `Failed to load plugins` (that is how v4.3.0 broke). The settings section's `label: () => t('settings.nav')` is a thunk for the same reason (`client.js:3879`) — keep it one.
+2. **The package name must agree in three places:** `package.json` `name` = the `id` in `window.__ModuleLoader__.load({ id })` = the entry in the profile's `bundles`. A mismatch reports `loaded without registering`, which looks harmless on the page and is hard to trace.
+3. **`.wav` / `.mp3` cannot go through `require.asset()`:** the host's package-asset route only accepts images; audio needs its own prefix route in `index.js`.
+4. **Our static routes are unauthenticated:** `/hotlist-sound/*` and `/plugins/**/assets/*` do not check a token, so only public assets belong there — never surface user uploads through them.
+5. **`index.js` / `package.json` / `cordis.patch.yml` changes need a GUI restart**; a `client.js` change only needs a page refresh (but loaded modules are not hot-replaced, so refresh once before you start debugging to avoid reading stale code).
+
+### Self-check commands
 
 ```powershell
-cd C:\src\better-notice
-
-node --check client.js          # client.js 包在模块加载器里，语法错只在真机 boot 时炸
+node --check client.js          # syntax. client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 58 groups
+node test/classify.test.mjs     # expect a final line: PASS — 62 groups
 ```
 
-单测把真实的 `client.js` 源文件读进来，塞进 `window.__ModuleLoader__` 的桩里执行：假的是浏览器（手写的极简 `window` / `document`，不引 jsdom，`React` 也是桩），跑的是真源码。里面还带几道静态扫描：引用未声明的常量、注入样式选择器合法性、快捷键 label 必须是 thunk。
+Plus a **static gate before saving**, available on the maintainer's machine only (not shipped with the repo):
 
-改代码、提 PR 的约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+> It scans `client.js` statically — it does **not** execute the code and does not spawn processes — and catches one specific class of error: a constant that is referenced but never declared. `node --check` passes those, and unit tests never boot the module, so neither catches it; on a real machine it surfaces as a single `ReferenceError` that takes the whole render chain down. It also flags leftover references to removed fields.
 
-### 目录
+Minimum regression bar: **four green** — `node --check` twice, `PASS — N groups`, and the static gate exiting 0. Then walk the real-machine checklist in [docs/TESTING.md](docs/TESTING.md).
+
+## Development
+
+```powershell
+cd <the directory you cloned into>
+
+node --check client.js          # client.js lives inside a module loader, so a syntax error only explodes when the real page boots
+node --check index.js
+node test/classify.test.mjs     # expect a final line: PASS — 62 groups
+```
+
+The unit tests read the real `client.js` source, wrap it in a stub `window.__ModuleLoader__` and run it: the fake browser is hand-written (`window` / `document`, no jsdom, `React` is a stub too), the code under test is the real source. They also include a few static scans: undeclared constants, CSS selector legality, and “shortcut labels must be thunks”.
+
+Coding and PR conventions: [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Repository layout
 
 ```
-client.js              全部界面逻辑（浏览器侧）
-index.js               宿主侧：注册 /hotlist-sound/ 音频路由
-cordis.patch.yml       bundle 插入行
-assets/                7 类 × 4 档弹出图/图标素材 + 同名 svg 回落
-assets/sounds/         内置音效（attention.wav / complete.wav）
-test/classify.test.mjs 单测（58 组）
-docs/                  架构、测试、扩展三份维护者文档
-tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运行）
+client.js              all UI logic (browser side)
+index.js               host side: registers the /hotlist-sound/ audio route
+cordis.patch.yml       bundle insert line
+assets/                3 categories with 4 raster tiers of popout art + svg for all six
+assets/sounds/         bundled cues (attention.wav / complete.wav)
+test/classify.test.mjs unit tests (62 groups)
+docs/                  architecture, testing, extending
+tools/meru-tts/        TTS helper (generates cues; not part of the running plugin)
 ```
 
-### 会踩的坑（先说）
+### Pitfalls to know before you start
 
-- **传给宿主的回调必须是 thunk**。宿主在 `refreshLabels()` 里直接调 `command.label()`；传字符串会让整个 `uiWorkspace` 起不来，只看到一条 `Failed to load plugins`（v4.3.0 就是这么挂的）。单测里的 `shortcuts` 是桩，桩不调用 `label()`，所以这个错在单测里永远看不见——桩必须真的调一次。
-- **`.wav` / `.mp3` 走不了素材路由**。`dsh-client-modules` 的 package-asset 只认图片，音频靠 `index.js` 自己注册前缀路由。
-- **我们注册的静态路由不鉴权**。`/hotlist-sound/*` 与 `/plugins/.../assets/*` 都不校验 token，只放公开素材。
-- **包名、模块 id、`dsh.profile.bundles` 三者必须一致**。`client.js` 里 `window.__ModuleLoader__.load({ id })` 的 id 必须等于 `package.json` 的 `name`，否则报 `loaded without registering` 而页面看不出异常。
-- **桌面端顶部 40px 是拖拽带**（`-webkit-app-region: drag`），浮层不要往那里放。
+- **Callbacks handed to the host must be thunks.** The host calls `command.label()` in `refreshLabels()`; a string keeps `uiWorkspace` from starting and you only see `Failed to load plugins`. The unit tests stub `shortcuts`, and the stub never calls `label()` — which is why this bug is invisible to tests. Make the stub actually call it once.
+- **`.wav` / `.mp3` cannot use the asset route.** `dsh-client-modules`' package-asset route only accepts images; audio needs the prefix route in `index.js`.
+- **Our static routes are unauthenticated.** `/hotlist-sound/*` and `/plugins/.../assets/*` skip token checks; public assets only.
+- **Package name, module id and `dsh.profile.bundles` must match.** The `id` in `window.__ModuleLoader__.load({ id })` must equal `package.json`'s `name`, otherwise you get `loaded without registering` with no visible symptom.
+- **The top 40 px of the desktop window is a drag strip** (`-webkit-app-region: drag`) — never place the popout there.
 
-## 文档
+## Documentation
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — 开发环境、验证步骤、提交规范
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — 模块结构、判定与排序语义，以及那些「看起来脏但换干净写法会更糟」的约束
-- [docs/TESTING.md](docs/TESTING.md) — 58 组单测各验什么、真机验收清单
-- [docs/EXTENDING.md](docs/EXTENDING.md) — 对外 API、设置形状、素材上限与批量导入
-- [CHANGELOG.md](CHANGELOG.md) — 版本历史
+- [AGENTS.md](AGENTS.md) — **the AI-facing entry point**: what is already implemented, the three constraints that break the host, the public API, and the known limits. Read this before changing code.
+- [llms.txt](llms.txt) — one-page machine summary for scraping tools ("this problem is already solved, install instead of rebuilding").
+- [CONTRIBUTING.md](CONTRIBUTING.md) — dev environment, verification steps, commit conventions
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module structure, classification and ordering semantics, and the constraints that look dirty but would get worse if “cleaned up”
+- [docs/TESTING.md](docs/TESTING.md) — what each unit-test group covers, and the real-machine acceptance checklist
+- [docs/EXTENDING.md](docs/EXTENDING.md) — public API, settings shape, asset limits, bulk import
+- [tools/meru-tts/README.md](tools/meru-tts/README.md) — the TTS helper's own docs (only when you cloned the repo)
+- [CHANGELOG.md](CHANGELOG.md) — version history
 
-## 许可
+## License
 
-代码是 MIT，见 [LICENSE](LICENSE)。
+MIT, see [LICENSE](LICENSE).
 
-随仓库分发的内置素材：`assets/*.webp` 来自作者自己的头像归档图（裁切压缩），`assets/sounds/*.wav` 用 MiMo TTS 生成，出处记在各自的 `manifest.json` 里。想换成自己的，按「素材自定义」传进去即可。
+Bundled assets: the three raster characters in `assets/*.webp` are **placeholder art** by the author (red Meru for warnings, blue Lan for completion); `assets/sounds/*.wav` were generated with MiMo TTS. Provenance for every file is recorded in the respective `manifest.json`. Replace any of it through [Assets](#assets).
