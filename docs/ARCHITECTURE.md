@@ -2,7 +2,7 @@
 
 目标读者：下一个要改这份代码的人。看完应该能回答三件事——状态从哪来、三种显示位置各自怎么挂、哪些地方看起来"脏"但**换干净写法会更糟**。
 
-所有行号对 `client.js`（4546 行，v4.3.0）。
+所有行号对 `client.js`（4571 行，v4.3.1）。
 
 ## 1. 分层与真实名字
 
@@ -82,9 +82,9 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 
 | 触发 | 频率 | 干什么 | 位置 |
 | --- | --- | --- | --- |
-| `sessions.list.subscribe(sync)` | 数据变即触发 | 会话增删、标题、updatedAt | `client.js:4473` |
-| `uiSession.sessionStatus.subscribe(sync)` | 数据变即触发 | 三状态字段变化 | `client.js:4474` |
-| `workspaces.list.subscribe(sync)` | 数据变即触发 | 工作区归属、归档 | `client.js:4475` |
+| `sessions.list.subscribe(sync)` | 数据变即触发 | 会话增删、标题、updatedAt | `client.js:4477` |
+| `uiSession.sessionStatus.subscribe(sync)` | 数据变即触发 | 三状态字段变化 | `client.js:4478` |
+| `workspaces.list.subscribe(sync)` | 数据变即触发 | 工作区归属、归档 | `client.js:4479` |
 | `setInterval(sync, 30s)` | 30s | `idle.within` 窗口、`collect.completedTtlMs` 过期、失败标记过期 | `REFRESH_MS` `client.js:91`，定时器 `client.js:91` |
 | `window resize`（防抖 200ms） | — | 重算 `seatLimit()` | `seatLimit` `client.js:3925`，监听 `client.js:3925` |
 | `onSettingsChange` | 写入即触发 | 座位与图标立刻反映设置页 | `client.js:1095` |
@@ -156,7 +156,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 
 ## 12. 版本与标记（验收脚本依赖）
 
-- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:3757`，旧名别名 `client.js:3758`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:4013-4014`）、设置页根 `data-hotlist-settings="v4.3.0"`（`client.js:2886`）。
+- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:3757`，旧名别名 `client.js:3758`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:4013-4014`）、设置页根 `data-hotlist-settings="v4.3.1"`（`client.js:2886`）。
 - 设置页行选择器 `[data-hotlist-row]`；侧栏 marker `span[data-hotlist-glyph]`；我们注入的样式都带 `data-hotlist-style`（`sidebar` / `takeover` / `page`）。
 
 ## 13. v4.3 已落地与还没接的行为

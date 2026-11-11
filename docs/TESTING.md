@@ -52,7 +52,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | adapter sidebar markers | `test:1027` | marker 插在标题前、幂等、row 动效只写 `opacity`/`translate`（不出现 `scale`）、stop 全还原、`misses()===0` |
 | takeover gate | `test:1063` | takeover style 注入/移除、dsm 点 inline 还原、`[[…]]` 不出现 |
 | styles stay valid | `test:1094` | 所有注入的样式文本选择器合法、不含二次包裹 |
-| settings page | `test:1130` | section 注册（id、order 30、label「热表」）、页根 `data-hotlist-settings="v4.3.0"`、全局区行键齐、7 张卡按 order 排、折叠态 35 个 chip（每卡 topbar 一个 disabled）、favorite 卡显示「预留」 |
+| settings page | `test:1130` | section 注册（id、order 30、label「热表」）、页根 `data-hotlist-settings="v4.3.1"`、全局区行键齐、7 张卡按 order 排、折叠态 35 个 chip（每卡 topbar 一个 disabled）、favorite 卡显示「预留」 |
 | settings page card order | `test:1193` | 改 `categories.error.order = 5` 后卡片顺序变 `pinned, error, …`，`favorite` 恒在末位 |
 | settings page favorite locked | `test:1206` | `favorite` 卡展开后所有 `input/select/button` 都 disabled、显示「预留」；`sanitizeCategory` 对 `reserved` 类短路 |
 | settings page overflow notice | `test:1225` | `publishOverflow(3)` 后页面出现 `[data-hotlist-overflow]`，文案带计数；归零后消失 |

@@ -1177,7 +1177,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.3.0');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.3.1');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
@@ -2158,6 +2158,39 @@ test('shortcut edges', () => {
   assert.equal(bare.registrations.some((id) => id.startsWith('hotlist-seat-')), true, 'seats still register');
   assert.equal(press(bare, 'BracketRight'), false);
   bare.cleanup();
+});
+
+/**
+ * The host calls `command.label()` when it builds its catalog
+ * (`dsh-client-shortcuts/lib/client.js:1190` and `:1249`). Handing it a translated
+ * string instead of a thunk throws `TypeError: command.label is not a function`
+ * inside `refreshLabels`, which takes the whole web boot down — every UI service
+ * goes `pending (waiting for service: …)` and the page shows only a banner.
+ * This group exists because the unit suite stubs the service, so the mistake is
+ * invisible until a real browser loads it.
+ */
+test('shortcut labels are thunks', () => {
+  const ids = ['a', 'b', 'c'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id });
+  const ctx = createCtx({ list: { ids, byId }, groups: { items: [], archivedSessionIds: [] } });
+  api.apply(ctx.ctx, {});
+  assert.equal(ctx.shortcutRegistrations.length, 3, 'three fixed commands');
+  for (const spec of ctx.shortcutRegistrations) {
+    assert.equal(typeof spec.label, 'function', `${spec.id} label must be a thunk`);
+    const label = spec.label();
+    assert.equal(typeof label, 'string', `${spec.id} label() must return a string`);
+    assert.equal(label.length > 0, true, `${spec.id} label() must not be empty`);
+  }
+  assert.deepEqual(
+    ctx.shortcutRegistrations.map((spec) => spec.id),
+    ['hotlist.cycle.prev', 'hotlist.cycle.next', 'hotlist.overlay.once'],
+  );
+  assert.deepEqual(
+    ctx.shortcutRegistrations.map((spec) => spec.bindings[0].code),
+    ['BracketLeft', 'BracketRight', 'KeyS'],
+  );
+  ctx.cleanup();
 });
 
 console.log(`PASS — ${groups} groups`);

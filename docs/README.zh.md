@@ -86,7 +86,7 @@ window.__HOTLIST_SETTINGS__.get()                      // 当前完整设置
 window.__HOTLIST_SETTINGS__.set({ maxSeats: 8 })        // 局部写入，返回新设置
 window.__HOTLIST_SETTINGS__.set({ categories: { idle: { within: 30 } } })  // 类别内局部写
 window.__HOTLIST_SETTINGS__.reset()                    // 恢复默认
-window.__HOTLIST_VERSION__                             // '4.3.0'
+window.__HOTLIST_VERSION__                             // '4.3.1'
 ```
 
 从 v3（3.0 / 3.1）升上来不用手动做任何事：读取时按迁移表把 8 个 `states` 收进 7 个 `categories`（`approval`→`pending.glyph`、`question`→`pending.glyphSecondary`、`error/completed/running/idle`→同名类、`plan-review`/`subagents` 丢弃、`showIdle`→`idle.enabled`、`overlay.enabled`→各类 `popout.enabled`），然后写回一次。v3 的 `overlay.scale` 倍数在 v4.1 没有对应物，读取时丢弃（旧数据不会坏，只是尺寸回到 260/520）。迁移细节见 `docs/ARCHITECTURE.md` §10。

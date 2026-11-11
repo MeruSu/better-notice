@@ -17,7 +17,7 @@
 
 ## 1. 两个入口
 
-### 1.1 `window.__HOTLIST_SETTINGS__`（v4.1.0 起可用，v4.2.0 与 `window.__HOTLIST__` 并存，v4.3.0 起快捷键生效）
+### 1.1 `window.__HOTLIST_SETTINGS__`（v4.1.0 起可用，v4.2.0 与 `window.__HOTLIST__` 并存，v4.3.1 起快捷键生效）
 
 ```js
 const api = window.__HOTLIST_SETTINGS__;
@@ -34,7 +34,7 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
-插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'4.3.0'`）。
+插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'4.3.1'`）。
 
 写设置后不需要刷新页面：tab、侧栏、设置页都在同一个 store 上重算。
 
@@ -64,7 +64,7 @@ window.__HOTLIST__ = {
 
 存储键 `dsh.hotlist.settings.v1`（v2.x 旧键 `dsh.session-switcher.settings` 会自动迁移并删除）。
 
-下面所有字段在 v4.3.0 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池（读旧记录时缺字段一律回落默认，不会报错）。
+下面所有字段在 v4.3.1 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池（读旧记录时缺字段一律回落默认，不会报错）。
 
 ```js
 {
@@ -150,7 +150,7 @@ window.__HOTLIST__ = {
 index = fnv1a(seed) % pool.length
 ```
 
-**种子不含时间**（v4.3.0 起）：同一会话在同一类别里反复渲染、刷新页面都取同一张；只有 `sessionId` 或类别变了才重掷。别把 `Date.now()` 加进去——那会让图标每次渲染都闪。
+**种子不含时间**（v4.3.1 起）：同一会话在同一类别里反复渲染、刷新页面都取同一张；只有 `sessionId` 或类别变了才重掷。别把 `Date.now()` 加进去——那会让图标每次渲染都闪。
 
 ---
 

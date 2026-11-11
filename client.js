@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.3.0';
+    const VERSION = '4.3.1';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -4398,9 +4398,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           bindings: [{ code, modifiers: ['alt', 'shift'] }],
           group: 'application',
         }), `hotlist: ${id}`);
-        register('hotlist.cycle.prev', 'BracketLeft', t('shortcuts.cyclePrev'));
-        register('hotlist.cycle.next', 'BracketRight', t('shortcuts.cycleNext'));
-        register('hotlist.overlay.once', OVERLAY_CODE, t('shortcuts.overlayOnce'));
+        // `label` is a thunk here: the host calls `command.label()` when it builds
+        // its catalog (dsh-client-shortcuts/lib/client.js:1190, :1249). Passing the
+        // translated string throws `TypeError: command.label is not a function` and
+        // takes the whole web boot down with it.
+        register('hotlist.cycle.prev', 'BracketLeft', () => t('shortcuts.cyclePrev'));
+        register('hotlist.cycle.next', 'BracketRight', () => t('shortcuts.cycleNext'));
+        register('hotlist.overlay.once', OVERLAY_CODE, () => t('shortcuts.overlayOnce'));
 
         /**
          * Walk the live seats. `direction` -1 is `[`, +1 is `]`; a current session
