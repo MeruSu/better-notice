@@ -2,6 +2,16 @@
 
 版本号跟 `client.js` 里的 `const VERSION` 一致，也与 `package.json` 的 `version` 一致（后者同时是 npm 分发版本号）。设置数据另有一套 schema 版本（`SETTINGS_VERSION`），两者不同：前者是发布版本，后者只在**数据结构**变化时才动。
 
+## 4.6.3
+
+**只调整默认参数，没有改任何逻辑。**
+
+- **动效默认值**：报错 / 待处理 / 置顶改为「弹跳」并同时作用于标题（`motionTarget: 'row'`），已完成改为「旋转」；进行中仍是旋转，闲置仍是不动。
+- **播放频率默认值**：报错 90%、待处理 90%、置顶 30%、已完成 100%、进行中 100%、闲置 0%（闲置不参与动效）。频率仍按「每个节拍掷一次骰子」的概率工作。
+- **提示音默认开关**：报错 / 待处理 / 置顶 / 已完成四类默认开启，进行中与闲置默认关闭。
+- **闲置图标换成 `🧊`**（冰块）：`💤` 是三个码位挤在一起，13px 下糊成一团；冰块对应「不用的会话已经凉了」，冷色也和其余五类拉开。
+- 老安装已存的值原样保留——这批只是默认值，没有迁移，也不覆盖用户改过的东西。`SETTINGS_VERSION` 仍为 4，`VERSION` / `package.json.version` → `4.6.3`。
+
 ## 4.6.2
 
 **删掉第 7 类「收藏」+ 最近对话窗口补单位、UI 收窄到 1–36。**
@@ -26,7 +36,7 @@
 **设置页减法 + 内置音效换成两个 wav。首个公开版本。**
 
 - **删掉设置页「浮层尺寸」那一栏**（`overlay.sizeMin` / `sizeMax`）。字段与「取中值再按视口收窄」的算法都保留，只是不再有 UI；想改用 API。
-- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:184`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
+- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:186`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
 - 包名从本地命名空间 `@local/dsh-hotlist` 改为 **`@merusu/dsh-better-notice`**，`package.json` 的 `version` 与 `VERSION` 对齐到 `4.5.0`（此前是 `1.0.0`）。
 - 仓库随附 `tools/meru-tts/`：生成这两条提示音用的 TTS 小工具（不参与插件运行）。
 
@@ -48,7 +58,7 @@
 
 - 症状：加载后只剩一条 `Failed to load plugins` 横幅，`web boot: 20 entries did not activate`，`ui-workspace` / `ui-open-in-app` / `ui-sidebar-terminal` 直接 `failed`，其余 UI 全 `pending (waiting for service: uiWorkspace)`；console 里 24 条重复的 `locale subscriber crashed: TypeError: command.label is not a function`。
 - 根因：宿主要求快捷键命令的 `label` 是 **thunk**——`dsh-client-shortcuts/lib/client.js:1190` 与 `:1249` 都是 `label: command.label()`，直接调用。我们传的是 `t(...)` 的返回值（字符串），于是在 `refreshLabels()` 里抛错，把 `uiWorkspace` 一起拖下水。
-- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4401-4407`）。
+- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4407-4413`）。
 - 为什么没被拦住：单测里 `shortcuts` 是桩，桩不调用 `label()`，所以「传字符串」在单测里永远看不见。补了一组 **`shortcut labels are thunks`** 断言：`typeof spec.label === 'function'`、调用返回非空字符串。教训写进 `docs/TESTING.md`：凡宿主会调用我们传入的回调，桩必须真的调一次。
 
 ## 4.3.0

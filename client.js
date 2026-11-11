@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.6.2';
+    const VERSION = '4.6.3';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -138,8 +138,10 @@ window.__ModuleLoader__.load({
     const RETIRED_PATHS = ['categories.favorite'];
     const SORT_BY = ['time', 'manual'];
     /** Default glyph per category (`glyphSecondary` starts on `pending` only). */
-    const CATEGORY_GLYPHS = { pinned: '📌', error: '⛔', pending: '🔐', completed: '✅', running: '⏳', idle: '💤' };
-    const CATEGORY_MOTION = { pinned: 'none', error: 'bounce', pending: 'blink', completed: 'none', running: 'spin', idle: 'none' };
+    const CATEGORY_GLYPHS = { pinned: '📌', error: '⛔', pending: '🔐', completed: '✅', running: '⏳', idle: '🧊' };
+    const CATEGORY_MOTION = { pinned: 'bounce', error: 'bounce', pending: 'bounce', completed: 'spin', running: 'spin', idle: 'none' };
+    /** Per-category default playback frequency (`1` = every tick, `0` = never). */
+    const CATEGORY_FREQUENCY = { pinned: 0.3, error: 0.9, pending: 0.9, completed: 1, running: 1, idle: 0 };
     /** `[tab, sidebar, topbar]` per category: every category reaches the tab and sidebar rows, none the top bar. */
     const CATEGORY_SURFACES = {
       pinned: { tab: true, sidebar: true, topbar: false },
@@ -237,7 +239,7 @@ window.__ModuleLoader__.load({
         source: 'emoji',
         motion: CATEGORY_MOTION[category] ?? 'none',
         motionTarget: 'row',
-        frequency: MOTION_FREQUENCY.fallback,
+        frequency: CATEGORY_FREQUENCY[category] ?? MOTION_FREQUENCY.fallback,
         uploads: [],
       };
     }
@@ -252,7 +254,7 @@ window.__ModuleLoader__.load({
         surfaces: { ...CATEGORY_SURFACES[category] },
         glyph: defaultGlyph(category),
         glyphSecondary: category === 'pending'
-          ? { ...defaultGlyph('pending'), value: '❓', motion: 'blink' }
+          ? { ...defaultGlyph('pending'), value: '❓', motion: 'bounce' }
           : null,
         popout: {
           enabled: popout,
@@ -264,7 +266,11 @@ window.__ModuleLoader__.load({
           exit: 'drop',
           side: 'auto',
         },
-        sound: { enabled: false, builtin: true, uploads: [] },
+        sound: {
+          enabled: ['error', 'pending', 'pinned', 'completed'].includes(category),
+          builtin: true,
+          uploads: [],
+        },
       };
     }
 
@@ -3013,7 +3019,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     const KIT_IDLES = Object.freeze(['breath', 'float', 'none']);
     const KIT_EXITS = Object.freeze(['drop', 'particles', 'fade', 'slide-out']);
     const KIT_EMOJI = Object.freeze({
-      pending: '❓', error: '⛔', completed: '✅', running: '⏳', idle: '💤', pinned: '📌',
+      pending: '❓', error: '⛔', completed: '✅', running: '⏳', idle: '🧊', pinned: '📌',
     });
     const KIT_TIMING = Object.freeze({
       enterMs: 550,
@@ -4609,6 +4615,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       buildSeatPlan,
       orderedCategories,
       categoryAllOff,
+      CATEGORY_GLYPHS,
       defaultSettings,
       defaultCategory,
       sanitizeSettings,

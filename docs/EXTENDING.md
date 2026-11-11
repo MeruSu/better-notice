@@ -108,7 +108,7 @@ window.__HOTLIST__ = {
     uploads: [],                // [{ name, dataUrl }]，source='upload' 时按会话定种取一张
     motion: 'pulse',            // none | spin | pulse | bounce | blink
     motionTarget: 'glyph',      // 'glyph' | 'row'（row 只对侧栏标题生效）
-    frequency: 1,               // 0–1，步进 0.05：每 1s 掷一次骰子，1 = 每个节拍都播，0 = 该类永不动
+    frequency: 1,               // 0–1，步进 0.05：每 1s 掷一次骰子，1 = 每个节拍都播，0 = 该类永不动（默认按类，见 README 的字段表）
   },
   glyphSecondary: null,         // 仅 pending 有：❓ 小图标，同样带 motion
   popout: {

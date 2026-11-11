@@ -1212,7 +1212,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.6.2');
+  assert.equal(page.props['data-hotlist-settings'], 'v4.6.3');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
@@ -2511,6 +2511,31 @@ test('recent window UI bounds are narrower than the API', () => {
   } finally {
     api.writeSettings({ collect: { recentWindowMinutes: 5 } });
   }
+});
+
+// 64. v4.6.3 only moved default parameters: six categories, four fields each, plus the frozen idle artwork.
+test('defaults for v4.6.3', () => {
+  const settings = api.defaultSettings();
+  const table = {
+    pinned: { motion: 'bounce', motionTarget: 'row', frequency: 0.3, sound: true },
+    error: { motion: 'bounce', motionTarget: 'row', frequency: 0.9, sound: true },
+    pending: { motion: 'bounce', motionTarget: 'row', frequency: 0.9, sound: true },
+    completed: { motion: 'spin', motionTarget: 'row', frequency: 1, sound: true },
+    running: { motion: 'spin', motionTarget: 'row', frequency: 1, sound: false },
+    idle: { motion: 'none', motionTarget: 'row', frequency: 0, sound: false },
+  };
+  for (const [category, want] of Object.entries(table)) {
+    const entry = settings.categories[category];
+    assert.equal(entry.glyph.motion, want.motion, `${category}.motion`);
+    assert.equal(entry.glyph.motionTarget, want.motionTarget, `${category}.motionTarget`);
+    assert.equal(entry.glyph.frequency, want.frequency, `${category}.frequency`);
+    assert.equal(entry.sound.enabled, want.sound, `${category}.sound.enabled`);
+  }
+  assert.equal(settings.categories.idle.glyph.motion, 'none', 'idle never animates');
+  assert.equal(settings.categories.idle.glyph.frequency, 0, 'idle never rolls for a burst');
+  assert.equal(settings.categories.pending.glyphSecondary.motion, 'bounce', 'the question style moves like the rest of pending');
+  assert.equal(api.CATEGORY_GLYPHS.idle, '🧊', 'idle shows an ice cube, not the three-codepoint sleep glyph');
+  assert.equal(settings.sound.volume, 60, 'the global volume default did not move');
 });
 
 console.log(`PASS — ${groups} groups`);
