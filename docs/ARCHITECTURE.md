@@ -54,7 +54,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 ## 3. 座位 id、`heal`、`repair` —— 三件互相配套的事
 
 - 座位是 `conversation.view` 的一条注册，id 为 `hotlist-seat-<sid>`（`SEAT_PREFIX`，`client.js:84`；历史前缀 `seat-` 见 `SEAT_PREFIXES`，`client.js:86`）。
-- **为什么必须是前缀 id**：宿主把"每个会话当前选中的 view id"持久化进 `localStorage['dsh.conversation.<sessionId>']`（`dsh-client-ui-conversation:4560-4571`）。如果座位 id 就是裸 sessionId，用户点一次座位，源会话的偏好被写成"我的座位页"；座位注销后该 view 不存在，宿主 `resolveActiveView`/`restoreView` 互相激活 → React #185（Maximum update depth）直到人肉清 localStorage。真机事故记录：`cangku/261111_cr8_react185_crash.png`。
+- **为什么必须是前缀 id**：宿主把"每个会话当前选中的 view id"持久化进 `localStorage['dsh.conversation.<sessionId>']`（`dsh-client-ui-conversation:4560-4571`）。如果座位 id 就是裸 sessionId，用户点一次座位，源会话的偏好被写成"我的座位页"；座位注销后该 view 不存在，宿主 `resolveActiveView`/`restoreView` 互相激活 → React #185（Maximum update depth）直到人肉清 localStorage。事故现场截图在作者本机的 `cangku/` 里，不随仓库分发。
 - `healViewPreferences()`（`client.js:1428`）在模块加载时扫所有 `dsh.conversation.*`，把指向 `hotlist-seat-*` / `seat-*` / `session-switcher` / `hotlist` 的偏好改回 `chat`（`isSeatViewId`，`client.js:1423`），其它字段原样保留。
 - `repairSourcePreference()`（`client.js:1455`）补一个更细的竞态：宿主会在我们 `openSession(target)` 之前先写源会话偏好，所以"离开时 activate chat"仍可能被覆盖；在 `settle()` 的开头、250ms、1200ms 三处再修一次源会话的偏好。**这是补偿宿主时序，不是绕过 API**（没有"设置某会话 view"的公开 API）。
 
@@ -88,7 +88,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 | `setInterval(sync, 30s)` | 30s | `idle.within` 窗口、`collect.completedTtlMs` 过期、失败标记过期 | `REFRESH_MS` `client.js:91`，定时器 `client.js:91` |
 | `window resize`（防抖 200ms） | — | 重算 `seatLimit()` | `seatLimit` `client.js:3925`，监听 `client.js:3925` |
 | `onSettingsChange` | 写入即触发 | 座位与图标立刻反映设置页 | `client.js:1095` |
-| 侧栏内部 1s tick / 30s 全量刷新 | — | `document.hidden` 暂停动效；缓慢兜底 DOM 抖动 | `SIDEBAR_TICK_MS`/`SIDEBAR_REFRESH_MS` `client.js:1524`/`client.js:1524` |
+| 侧栏内部 1s tick / 30s 全量刷新 | — | `document.hidden` 暂停动效；缓慢兜底 DOM 抖动 | `SIDEBAR_TICK_MS`（`client.js:1518`）/ `SIDEBAR_REFRESH_MS`（`client.js:1524`） |
 
 `sync()` 是唯一的收敛点（`client.js:4228`）：读快照 → 记完成态 → 清失败标记 → 读设置 → 按位置开关 start/stop → 算 plan → 挂座位 → 刷侧栏。不要在别处直接改座位。
 
@@ -132,7 +132,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 
 - 形状（`defaultSettings()`，`client.js:243`）：`version / maxSeats / positions{tab,topbar,sidebar} / takeOverStatusDot / hideNativeDot / display{reduceMotion} / shortcuts{jumpEnabled,overlayEnabled,overlayKey} / overlay{side,sizeMin,sizeMax,fallbackImage} / collect{completedTtlMs} / sound{volume} / pins{<sid>:level} / categories{7 类 × 26 字段}`。
 - 每类字段（`defaultCategory()`，`client.js:209`）：`enabled / reserved / order / sortBy / pinLevel / surfaces{tab,sidebar,topbar} / glyph{kind,value,source,motion,motionTarget,motionIntervalMs,size,uploads[]} / glyphSecondary / popout{enabled,builtin,images[],displayMs,entrance,ambient,exit,side} / sound{enabled,builtin,uploads[]} / within`。音效音量是**全局** `sound.volume`，类别里只剩种类与开关。
-- `SETTINGS_VERSION = 4`（`client.js:82`）。v4.1 只改字段形状、没有升版本号（旧记录经 `sanitizeSettings` 逐字段回落即可）：`display.motionWhenNativeVisible` / `display.maxAnimated` / `overlay.scale` 已删，新增 `glyph.source`、`glyph.motionIntervalMs`、`overlay.sizeMin/sizeMax`、顶层 `sound.volume`。同理 v3 的 `overlay.scale` 倍数在迁移里直接丢弃（只读 `overlay['scale']` 做兼容分支已删），尺寸回落到 260/520。
+- `SETTINGS_VERSION = 4`（`client.js:82`）。v4.1 只改字段形状、没有升版本号（旧记录经 `sanitizeSettings` 逐字段回落即可）：`display.motionWhenNativeVisible` / `display.maxAnimated` 已删，新增 `glyph.source`、`glyph.motionIntervalMs`、`overlay.sizeMin/sizeMax`、顶层 `sound.volume`。v3 的 `overlay.scale` 倍数**不是丢弃**：迁移时折算成 `overlay.sizeMax = max(clamp(round(scale × 260), 120, 900), 260)`（`client.js:882-886`），所以 `1 ≈ 260px`、`2 ≈ 520px`、`3 ≈ 780px`，极小值也会落在 260。
 - 迁移链：
   - **v1（2.x，「会话 tab」时代）**：`{completedTtlMs, maxSeats}`，键 `dsh.session-switcher.settings`（`LEGACY_SETTINGS_KEY`，`client.js:106`）。
   - **v2（2.5 更名「热表」）**：同形状，新键（`SETTINGS_KEY`，`client.js:105`）；读旧键后写新键并删旧键。
@@ -148,7 +148,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 
 **加一个类别**：`CATEGORY_IDS`/`CATEGORY_ORDER`（`client.js:118-119`）、`CATEGORY_GLYPHS`（`client.js:123`）、`CATEGORY_MOTION`（`client.js:124`）、`CATEGORY_SURFACES`（`client.js:126`）、`CATEGORY_OF_TOKEN`（`client.js:184`）、`classify()` 的判定分支（`client.js:1271`）、`sidebarStateOf`（`client.js:1624`）、`buildSeatPlan` 的 `always` 集（`client.js:1358`）、ZH/EN 字典（`client.js:273` 起）、设置页卡片循环；再加单测。
 
-**加一个显示位置**：`defaultSettings().positions` 加键（`:229`）、`positionsOf`（`:244`）加派生、`sanitizeSettings` 里保留布尔（`:659-661`）、写一个适配器工厂并让 `sync()` 开关它（`:3824-3846`）、设置页加卡片。不要动 plan。
+**加一个显示位置**：`defaultSettings().positions` 加键（`client.js:247`）、`positionsOf`（`client.js:262`）加派生、`sanitizeSettings` 里保留布尔（`client.js:776`）、写一个适配器工厂并让 `sync()` 开关它（`client.js:4228`）、设置页加卡片。不要动 plan。
 
 **改快捷键**：已接线，实现在 `ctx.inject(['shortcuts'], …)` 块里（`client.js:4387`）。**不要**自己 `window.addEventListener('keydown')`——官方有 `ctx.shortcuts`（`@deepseek-ai/dsh-client-shortcuts`）：`register`（可被用户改键）/ `registerFixed`（固键）/ `observeFixedInput`（自己分派），都返回幂等 disposer，用 `ctx.effect` 交给 Cordis 回收。注意 `Alt+1..9` 在 web 端被 `isWebBindingAllowed` 拒（裸 Alt+数字），第三方 `dsh-session-hotkeys` 又会在 capture 阶段抢键；`Alt+Shift+[` / `]` 与 `Alt+Shift+S` 可行。`registerFixed` 只负责显示（它不做 region/modal/repeat 过滤），所以全部守卫写在 `observeFixedInput` 里：`gesture.repeat/composing/defaultPrevented/control/meta` 任一成立就放行原事件；`context.region !== 'page'` 让位给输入框；`context.modal !== null` 让位给菜单/对话框（`modalSelector` 含 `role=menu`）；两条都过了才 `input.consume()`。`S` 还要求 `shortcuts.overlayEnabled === true`（默认关）。
 
@@ -161,9 +161,9 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 
 ## 13. v4.3 已落地与还没接的行为
 
-设置页是 7 张折叠卡（`data-category`，可多开）+ 全局区，紧凑多列排版（折叠 ≈40px、展开 ≤520px）；浮层已接线（§14）+ 完成时间已落盘（§15）；动效按类抽签（§16）；音效与素材池（v4.2）、两条循环热键（v4.3）都已接上。仍是「只存值不接行为」的：`shortcuts.jumpEnabled`（`Alt+1–9` 被占用，设置页恒灰）、`overlay.fallbackImage`（没有 UI）、`surfaces.topbar` / `positions.topbar`（恒 false，等顶栏）。
+设置页是 7 张折叠卡（`data-category`，可多开）+ 全局区，紧凑多列排版（折叠 ≈40px、展开 ≤520px）；浮层已接线（§16）+ 完成时间已落盘（§14）；动效按类抽签（§15）；音效与素材池（v4.2）、两条循环热键（v4.3）都已接上。仍是「只存值不接行为」的：`shortcuts.jumpEnabled`（`Alt+1–9` 被占用，设置页恒灰）、`overlay.fallbackImage`（没有 UI）、`surfaces.topbar` / `positions.topbar`（恒 false，等顶栏）。
 
-## 15. 「刚完成」为什么要持久化
+## 14. 「刚完成」为什么要持久化
 
 `✅ completed` 是热表自己算出来的：宿主只把 `completionUnread` 维护 1–3 分钟、打开会话立刻清（`dsh-client-ui-session/lib/client.js:964-981`），不够用。所以热表自己记 `running true→false` 与 `completionUnread false→true` 两个跳变（`observeCompletion`，`client.js:3886`），时间放 `completedAt` Map。
 
@@ -178,7 +178,7 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 - **列表没拉完就不许剪枝**：`sessions.list` 快照带 `phase`（`dsh-api-session-controller/lib/client.js:2995` 构造时 `'pending'`，`:3283` 首拉 `session.list` 成功才 `'ready'`）。`observeCompletion` 开头 `if (snapshot.list.phase !== 'ready') return;`——否则 reload 后首轮 sync 拿着"只到了几行"的快照，把刚从盘上读回来的时间戳全判成"会话不存在"删掉。真机日志：1201ms 时 `rowN=8 / tabN=0` 就写回了 `{}`。单测 `completedAt persistence` 覆盖三条：pending 不剪、ready 才剪、当前会话同步删。
 - 只持久化 completed。`error` 是 live-only（重连不补发），`idle` 是时间窗口，都不该落盘。
 
-## 16. 动效为什么是"抽签"而不是"常亮"
+## 15. 动效为什么是"抽签"而不是"常亮"
 
 旧做法是给每个座位加 CSS 无限动画并按 `maxAnimated` 截断，结果是整屏图标一起转、看不出重点。现在：
 
@@ -188,9 +188,9 @@ api-session/error│ sidebarStateOf          client.js:1624 │
 - 动画本身仍是纯 CSS（`hl-spin` 等 + 单程变体 `hl-spin 2.4s linear 1`），`row` 目标用只改 `opacity`/`translate` 的 `hl-text-*`（文字不能缩放）。
 - 键名 `data-hotlist-burst` 标记"这一轮正在动"，验收脚本与单测都靠它数并发。
 
-## 14. 浮层（popout）：素材、kit 与调用方分工
+## 16. 浮层（popout）：素材、kit 与调用方分工
 
-素材与 kit 的权威副本都在 cangku（不属于发布物）：设计稿 `cangku/tmp/hotlist-art/popout-kit.js`，接线契约 `cangku/tmp/hotlist-art/v4-popout-integration.md`。进插件的是**内联副本**（`client.js:2901-3369`，kit 段注释在 `client.js:2901`）：`TIERS` / `SCALES` / `KIT_TIMING` / `KIT_CSS` / `mountPopout` 等逐字照抄，只加了一个选项 `isReduced`（产品级 `display.reduceMotion` 推导不出系统偏好，由调用方算完传进来）。改动画常量要两边一起改，并同步 `assets/manifest.json`。
+素材与 kit 的权威副本在作者本机的 `cangku/`（不属于发布物）：设计稿 `cangku/tmp/hotlist-art/popout-kit.js`，接线契约 `cangku/tmp/hotlist-art/v4-popout-integration.md`。进插件的是**内联副本**（`client.js:2901-3369`，kit 段注释在 `client.js:2901`）：`TIERS` / `SCALES` / `KIT_TIMING` / `KIT_CSS` / `mountPopout` 等逐字照抄，只加了一个选项 `isReduced`（产品级 `display.reduceMotion` 推导不出系统偏好，由调用方算完传进来）。改动画常量要两边一起改，并同步 `assets/manifest.json`。
 
 - **素材**：`assets/<category>-<tier>.webp`（`TIERS=[64,320,780,1560]`，选档由 `tierFor(cssPx,dpr)` 算）；离线或缺档回落到 `assets/<category>.svg`（`fallbackRef`，`client.js:2977`），再回落 emoji（`KIT_EMOJI`）。`assetRef`（`client.js:2972`）拼的是 `plugins/@local/dsh-hotlist/assets/…`，由 `makeResolveAsset`（`client.js:3377`）区分三种输入：`data:` 原样、`builtin:<cat>` 或空串走内置、其余当 asset id；**任何分支都不抛**。实际加载走模块 loader 的 `require.asset`（`@deepseek-ai/dsh-client-modules/lib/client.js:844`）。
 - **尺寸**：v4.1 起由全局 `overlay.sizeMin/sizeMax` 决定——`show()` 取两者中值传给 kit（`size`），不再有 `overlay.scale` 倍数；`resolvePopoutSide` 决定左右。

@@ -1,9 +1,9 @@
 # 扩展热表（Hot List）
 
 这份文档写给三种人：想改热表行为的另一个 AI、想批量灌素材的脚本作者、以及三个月后回来维护它的我。
-目标只有一个：**读完这一页就能把活儿干完，不必读 `client.js`（4000 行）**。
+目标只有一个：**读完这一页就能把活儿干完，不必读 `client.js`（4571 行）**。
 
-热表是纯前端插件（`@local/dsh-hotlist`），三个渲染面共用一层判定：
+热表是纯前端插件（`@local/dsh-hotlist`），三个渲染面都从同一批只读会话状态与同一份设置里判定，但判定函数分两个（tab 面 `classify()`、侧栏面 `sidebarStateOf()`，差别见下）：
 
 | 面 | 宿主槽位 | 出现什么 |
 | --- | --- | --- |
@@ -11,7 +11,7 @@
 | 侧栏会话行 | 宿主 DOM（`[role="treeitem"][data-row-key^="…"]`） | 行内标题前的状态图标 |
 | 设置页 | `settings.section`（id `hotlist`） | 7 张类别卡 + 全局区 |
 
-判定链是纯函数：`classify()` → `sortSeats()` → `buildSeatPlan()`。tab 与侧栏因此永远不会对同一会话给出两种状态。
+判定链是纯函数：`classify()`（`client.js:1271`）→ `sortSeats()` → `buildSeatPlan()`。侧栏那一面另有一个纯函数 `sidebarStateOf()`（`client.js:1624`），读同样的会话状态与设置，但有两处已知差别：侧栏把 `running` 排在 `completed` 之前（tab 面相反），并且侧栏的 `completed` 认宿主的 `completionUnread`，tab 面只认本插件记下的 `completedAt`。所以「刚跑完又立刻重新开始跑」的会话会短暂地 tab 显示 ✅、侧栏显示 ⏳——这不是 bug 修复项，是两面各自的取舍（见 README「已知限制」第 13 条）。`error` 窗口两面都是 10 分钟：错误表在 `readSnapshot()`（`client.js:4151`）里就按 `ERROR_TTL_MS` 删了，`SIDEBAR_ERROR_TTL_MS`（30 分钟）只是侧栏函数里的第二道闸，碰不到更老的条目。另外，侧栏适配器调 `sidebarStateOf()` 时只传了 `session` / `status` / `error` / `completedAt` / `settings` / `now`（`client.js:1884-1891`），`readSession` 里备好的 `pinned` 与 `children`（`client.js:4329-4330`）没有传进去，所以侧栏既不出 📌、也不把「子代理在跑」并入 ⏳（见 README「已知限制」第 14 条）。
 
 ---
 
@@ -22,16 +22,18 @@
 ```js
 const api = window.__HOTLIST_SETTINGS__;
 api.version            // 4 —— 设置 schema 版本，不是插件版本
-api.get()              // 返回完整设置对象（深拷贝）
+api.get()              // 返回当前设置对象（内部缓存本身，不是拷贝：别就地改它）
 api.set(patch)         // 合并写入并立刻生效（部分对象即可）
 api.reset()            // 全部恢复默认
 api.subscribe(fn)      // 订阅变更，返回取消订阅函数
 api.override(patch)    // 临时覆盖，不落盘
-api.defaults()         // 默认设置（深拷贝）
-api.glyphOf(token)     // 状态 token → 当前图标（字符串）
-api.emojiOf(token)
+api.defaults()         // 默认设置（每次调用新建一份，改它不影响当前设置）
+api.glyphOf(settings, token)   // 状态 token → 当前图标（emoji 或 dataURL）
+api.emojiOf(settings, token)   // 状态 token → 只能放字符串的表面上的回落 emoji
 api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
+
+`glyphOf` / `emojiOf` 是内部函数原样挂出去的（`client.js:985`、`:990`），**第一个参数自己传当前设置**，一般是 `api.get()`。`token` 的取值是 `CATEGORY_OF_TOKEN` 的键（`client.js:184-192`）：`pinned` / `approval` / `question` / `error` / `completed` / `running` / `idle`；待处理在这一层分成 `approval`（主图标）与 `question`（❓ 副图标），没有 `pending`、也没有 `favorite`。未知 token 会回落成 `running` 的默认图标。
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
 插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'4.3.1'`）。
@@ -42,13 +44,13 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 
 ```js
 window.__HOTLIST__ = {
-  version,                                  // 插件版本字符串
+  version,                                  // 插件版本字符串，如 '4.3.1'
   settings: { get, set, reset, subscribe }, // 与 1.1 同名同义
   assets: {
-    add(category, kind, item),   // 追加一份素材，item = { name, dataUrl }
-    list(category, kind),        // 返回当前池（数组，元素 { name, dataUrl }）
-    clear(category, kind),       // 清空该池，返回删除份数
-    preview(category),           // 立刻播一条该类别池里的音效（试听），返回是否播放
+    add(category, kind, item),   // item = { name, dataUrl }；返回 { ok, reason?, bytes? }
+    list(category, kind),        // 返回当前池：[{ name, bytes }]
+    clear(category, kind),       // 清空该池，返回 boolean
+    preview(category),           // 立刻播一条该类别池里的音效（试听），返回 boolean
   },
 };
 ```
@@ -56,7 +58,7 @@ window.__HOTLIST__ = {
 `kind` 取值：`'glyph'`（图标图）、`'popout'`（弹出图）、`'sound'`（音效）。
 `category` 取值：`'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle' | 'favorite'`。
 
-`assets.add` 返回 `true`（已收）或 `false`（拒收，原因见 §4.2 与 `console.debug('[hotlist] asset rejected'…)`）。
+`assets.add` 成功返回 `{ ok: true, bytes }`（`bytes` 是收下的那一份的体积），失败返回 `{ ok: false, reason }`，`reason` 是 `'invalid'`（参数不是 `{ name, dataUrl }`）、`'full'`（池已满）、`'refused'`（格式或单份体积不合格）、`'budget'`（总预算不够）之一；拒收时另记一条 `console.debug('[hotlist] asset rejected'…)`。上限见 §4.2。
 
 ---
 
@@ -64,7 +66,7 @@ window.__HOTLIST__ = {
 
 存储键 `dsh.hotlist.settings.v1`（v2.x 旧键 `dsh.session-switcher.settings` 会自动迁移并删除）。
 
-下面所有字段在 v4.3.1 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池（读旧记录时缺字段一律回落默认，不会报错）。
+下面所有字段在 v4.3.1 都已落地：v4.1.0 每类只有一张弹出图和固定的音效种类，v4.2.0 把它们换成了素材池（读旧记录时缺字段一律回落默认，不会报错）。
 
 ```js
 {
@@ -73,9 +75,9 @@ window.__HOTLIST__ = {
   positions: { tab: true, topbar: false, sidebar: true },   // topbar 尚未实现，恒 false
   takeOverStatusDot: true,      // 隐藏别的插件画在行首的状态点
   hideNativeDot: true,          // 隐藏宿主自带的会话状态点
-  display: { reduceMotion: 'auto' },   // 'auto' | 'on' | 'off'（API 可写，设置页没有行）
+  display: { reduceMotion: 'auto' },   // 'auto' | 'on' | 'off'；只有 'on' 会强制停动效，'auto'/'off' 都不置位，系统偏好照旧生效
   shortcuts: { jumpEnabled: true, overlayEnabled: false, overlayKey: 'Alt+Shift+S' }, // overlayEnabled 生效；jumpEnabled 恒灰
-  overlay: { side: 'auto', sizeMin: 260, sizeMax: 520, fallbackImage: '' },
+  overlay: { side: 'auto', sizeMin: 260, sizeMax: 520, fallbackImage: '' }, // fallbackImage 只存值，没有渲染出口
   collect: { completedTtlMs: 420000 },  // 「刚完成」保持时长，1–1440 分钟（步进 1 分钟）
   sound: { volume: 60 },        // 全局音量 0–100
   pins: { '<sessionId>': 1 },   // 1–99，越小越靠前；仅 pinned 卡
@@ -83,17 +85,18 @@ window.__HOTLIST__ = {
 }
 ```
 
-每个类别（7 个，一个不少）：
+每个类别（7 个，一个不少）。下面这份以 `error` 卡为例（`enabled` / `popout.enabled` / `motion` 都是按类取自 `defaultCategory()`，不是全局同一个值）：
 
 ```js
 {
   enabled: true,                // favorite 恒 false（预留）
-  reserved: false,              // favorite 恒 true：只占位，任何改动被忽略
+  reserved: false,              // favorite 恒 true：那一类不判定、不产出，任何改动被忽略
   order: 0,                     // pinned 恒 0；其余 1–99，决定展示顺序（不影响判定）
   sortBy: 'time',               // 'time' | 'manual'（pinned 用 manual）
-  pinLevel: null,               // pinned 卡的手工位次 1–99（最多 50 条）
+  pinLevel: null,               // 遗留字段：恒 null，排序读的是顶层 pins[sessionId]（client.js:1288）
   surfaces: { tab: true, sidebar: true, topbar: false },
   glyph: {
+    kind: 'emoji',              // 'emoji' | 'img'（上传后由代码切换）
     source: 'emoji',            // 'emoji' | 'upload' | 'popout'
     value: '📌',                // emoji 文本（source='upload' 时忽略）
     uploads: [],                // [{ name, dataUrl }]，source='upload' 时按会话定种取一张
@@ -105,17 +108,15 @@ window.__HOTLIST__ = {
   glyphSecondary: null,         // 仅 pending 有：❓ 小图标，同样带 motion
   popout: {
     enabled: true,              // 只有 error / pending / completed 默认开
-    image: '',                  // 'builtin:<cat>' 或 dataURL；空 = 内置
     builtin: true,              // true = 用内置素材
     images: [],                 // [{ name, dataUrl }]；非空时每次弹出随机取一张
     displayMs: 7000,            // 2000–20000，步进 500
-    entrance: 'slide',          // 只读：slide | unfold | overshoot | fade，当前固定 clip 揭示
+    entrance: 'slide',          // 只读：当前固定为 clip 揭示（探出）
     ambient: 'breath',          // none | breath | float
     exit: 'drop',               // drop | particles | fade | slide-out
     side: 'auto',               // auto | left | right（auto 按侧栏宽度决定）
   },
   sound: {
-    kind: 'chime1',             // v4.1 占位字段：none | chime1 | chime2 | alert | upload
     enabled: false,
     builtin: true,              // true = 用内置 21 条（只有 pending/error/completed）；false = 只用 uploads
     uploads: [],                // [{ name, dataUrl }]，每次事件随机取一条
@@ -124,13 +125,15 @@ window.__HOTLIST__ = {
 }
 ```
 
+上面就是 `defaultCategory()`（`client.js:209`）实际返回的形状，多余键（v4.1 的 `sound.kind`、单个 `popout.image`）在读取时会被迁移掉，不存在于新记录里。
+
 ### 迁移口径（v3 / v4.0 → v4.2）
 
 - 旧 `categories.<cat>.sound.kind`（`none|alert|chime1|chime2`）：`!== 'none'` → `sound.enabled = true`，然后丢掉 `kind`。
 - 旧 `popout.image`（单个 dataURL 字符串）→ `popout.images = [{ name: 'legacy', dataUrl }]`。
 - 旧 `glyph.value` 里的 dataURL（v4.0 单图）→ `glyph.uploads = [{ name: 'legacy', dataUrl }]`，`source = 'upload'`。
 - 旧全局 `display.motionIntervalMs` → 分发到每个类别的 `glyph.motionIntervalMs`。
-- 旧 v3 `overlay.scale`（倍数）在 v4.1 起**丢弃**，尺寸改由 `sizeMin/sizeMax` 决定。
+- 旧 v3 `overlay.scale`（倍数）→ 折算成 `overlay.sizeMax = max(clamp(round(scale × 260), 120, 900), 260)`，旧键丢弃（`client.js:882-886`）。`scale: 1` = 260px、`2` = 520px、`3` = 780px；`scale` 为 0 或很小也至少 260（`OVERLAY_SIZE.fallbackMin`），超过 900 的一律按 900 收。
 
 ---
 
@@ -176,7 +179,7 @@ index = fnv1a(seed) % pool.length
 | 全部上传合计 | ≤ 2 MB（防撑爆 localStorage） | `ASSET_TOTAL_MAX_BYTES` |
 | 设置页选中的源文件 | ≤ 4 MB（超过直接拒，不进编码） | `GLYPH_SOURCE_MAX_BYTES` |
 
-图标与弹出图必须是 `image/png`、`image/jpeg`、`image/webp`、`image/gif`（**拒收 SVG**）；音效必须是 `audio/*`。
+图标与弹出图必须是 `data:image/(png|jpeg|webp|gif);base64,…`（**拒收 SVG**，正则 `GLYPH_IMAGE_RE` `client.js:150`）；音效必须是 `data:audio/<any>;base64,…`（正则 `SOUND_AUDIO_RE` `client.js:172`）——API 这一层不限具体音频格式，设置页的上传控件另限 MP3 / M4A / WAV / OGG / AAC / WebM（`SOUND_FILE_TYPES` `client.js:2091`）。
 v4.1.0 用 `GLYPH_MAX_TOTAL_BYTES = 256 KB` 管图标池；v4.2.0 换成统一的 2 MB 总预算，覆盖图标 / 弹出图 / 音效三类素材。
 超限一律拒收最新一份，已存的保持不动，并在设置页给一行可见文案。
 
@@ -200,8 +203,8 @@ async function importSounds(files) {
   const api = window.__HOTLIST__;
   for (const file of files) {
     const dataUrl = await toDataUrl(file);
-    const ok = api.assets.add('pending', 'sound', { name: file.name, dataUrl });
-    console.log(file.name, ok ? 'accepted' : 'rejected');
+    const res = api.assets.add('pending', 'sound', { name: file.name, dataUrl });
+    console.log(file.name, res.ok ? 'accepted' : `rejected (${res.reason})`);
   }
   console.log('pool:', api.assets.list('pending', 'sound').map((one) => one.name));
 }
@@ -236,13 +239,16 @@ await importFromUrls('error', 'popout', ['/my-art/error-a.png', '/my-art/error-b
 
 ### 5.3 直接写设置（等价路径）
 
-`assets.add` 只是 `settings.set` 的语法糖——它把 `{ name, dataUrl }` 推进对应数组并校验配额。没有 `window.__HOTLIST__` 时（例如 v4.1.0）可以直接：
+`assets.add` 只是 `settings.set` 的语法糖——它把 `{ name, dataUrl }` 推进对应数组并校验配额。没有 `window.__HOTLIST__` 时（v4.1.0 及更早）可以直接：
 
 ```js
-const now = window.__HOTLIST_SETTINGS__.get();
-now.categories.error.sound.enabled = true;
-window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.error.sound } } });
+// 注意：set 的第三层是整块替换，所以要把 sound 整块传回去
+const current = window.__HOTLIST_SETTINGS__.get();
+const sound = { ...current.categories.error.sound, enabled: true };
+window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound } } });
 ```
+
+别就地改 `get()` 返回的对象——那是插件内部缓存本身（`client.js:1078`），改了不会走净化、不会落盘、也不会广播。
 
 ---
 
@@ -272,6 +278,6 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 
 ## 8. 想加功能而不是配置
 
-- 纯判定（分类、排序、上限）在 `classify/sortSeats/buildSeatPlan`，改这里要同步跑单测（`node test/classify.test.mjs`，52 组）。
-- 新渲染面才需要碰宿主槽位；现有三面之外加第四个面，先看 `docs/ARCHITECTURE.md` 的「扩展点」一节。
-- 改动后必须跑：`node --check client.js`、`node test/classify.test.mjs`、`node C:\Meru\Seek\cangku\tmp\261111_gate_pre_restart.mjs`（静态闸门，拦未声明常量与已删字段）。三样齐才算完。
+- 纯判定（分类、排序、上限）在 `classify/sortSeats/buildSeatPlan`，改这里要同步跑单测（`node test/classify.test.mjs`，53 组）。
+- 新渲染面才需要碰宿主槽位；现有三个挂载点（`conversation.view`、侧栏 DOM、`settings.section`）之外要加第四个，先看 `docs/ARCHITECTURE.md` 的「扩展点」一节。
+- 改动后必须跑：`node --check client.js`、`node --check index.js`、`node test/classify.test.mjs`（`PASS — 53 groups`）。三样齐才算完。单测里带两道静态扫描（`no undefined constants`、`styles stay valid`），`node --check` 抓不到「引用一个没人声明的常量」这类崩溃，这两组补的就是这个口子。

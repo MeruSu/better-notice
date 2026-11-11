@@ -2,22 +2,24 @@
 
 分两层：能在 Node 里跑的（单测，快、必须过），和只能在真机 GUI 上看的（单测替代不了）。
 
+> §2 的真机验收流程依赖 **ego-browser**（harness 自带的浏览器自动化：`ego_script` / `ego_navigate` / `ego_cdp` 等）。没有它也能照着判定键人工看，但自动化不了。
+
 ## 1. 单测
 
 ```powershell
-cd C:\Meru\Seek\plugins\dsh-hotlist
+cd <仓库目录>            # 例如 C:\src\better-notice
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs       # 期望最后一行: PASS — 52 groups，exit 0
+node test/classify.test.mjs       # 期望最后一行: PASS — 53 groups，exit 0
 ```
 
 `node --check` 是必须的：`client.js` 是包在 `window.__ModuleLoader__.load({factory})` 里的单文件脚本，语法错只在真机 boot 时才炸。
 
-patch 校验（js-yaml 从本机 profile 借）：
+patch 校验（借本机某个 profile 里的 js-yaml；哪个 profile 装了就用哪个，都没有可以跳过——期望值是固定的）：
 
 ```powershell
-node --input-type=module -e "import {createRequire} from 'node:module';import fs from 'node:fs';const r=createRequire('C:/Users/DELL/.dsh/profiles/desktop/node_modules/noop.js');console.log(JSON.stringify(r('js-yaml').load(fs.readFileSync('cordis.patch.yml','utf8'))))"
+node --input-type=module -e "import {createRequire} from 'node:module';import fs from 'node:fs';const r=createRequire(process.env.USERPROFILE + '/.dsh/profiles/<profile>/node_modules/noop.js');console.log(JSON.stringify(r('js-yaml').load(fs.readFileSync('cordis.patch.yml','utf8'))))"
 ```
 
 期望 `[{"insert":[{"id":"hotlist","name":"@local/dsh-hotlist"}]}]`。
@@ -26,16 +28,16 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 
 `test/classify.test.mjs` 不用 import：它 stub 一个 `window.__ModuleLoader__.load` 抓住 factory，再 `new Function(source)()` 执行**真实的 client.js 源文件**，拿回模块的导出（`classify`、`sortSeats`、`buildSeatPlan`、`sanitizeSettings`、`migrateSettings`、`createSidebarAdapter`…）。所以测的是真代码，假的是浏览器环境：`document` / `localStorage` / `React` / cordis `ctx`。
 
-### 1.2 52 组各测什么
+### 1.2 53 组各测什么
 
 | 组 | 位置 | 覆盖 |
 | --- | --- | --- |
 | heal view preferences | `test:457` | 加载时把遗留座位 id（`hotlist-seat-*` / `seat-*` / `session-switcher` / `hotlist`）的 view 偏好改回 `chat`，其它键原样保留 |
-| settings read/write | `test:467` | 默认值形状（`version` 4、无 `placement`、`positions` 三键、`overlay.scale` 1、`idle.surfaces.tab` **true**）、越界归一（`maxSeats:0→1`、`40→12`、TTL 夹取）、旧键迁移、`window.__HOTLIST_SETTINGS__` 形状 |
+| settings read/write | `test:467` | 默认值形状（`version` 4、无 `placement`、`positions` 三键、`overlay` 只有 `side`/`sizeMin`/`sizeMax`/`fallbackImage`、`idle.surfaces.tab` **true**）、越界归一（`maxSeats:0→1`、`40→12`、TTL 夹取）、旧键迁移、`window.__HOTLIST_SETTINGS__` 形状 |
 | migrate v3 to v4 | `test:507` | v3 数据逐项迁移：`approval→pending.glyph`、`question→pending.glyphSecondary`、`plan-review`/`subagents` 丢弃、`showIdle→idle.enabled`、`completedTtlMs→collect`、`overlay.enabled→popout.enabled`、`overlay.scale` 吸附、`customImage→fallbackImage`，写回后旧键不残留 |
 | current version keeps custom order | `test:570` | 已是 v4 的记录原样保留用户改过的 `order`/`enabled`，不再走迁移 |
 | alpha version 5 normalizes safely | `test:586` | alpha 工件里的 `version: 5` 安全归一化成 v4（保留它写下的 `categories`） |
-| bad data falls back | `test:601` | 逐字段回落：未知类别丢弃、`kind:'animated'`→emoji、svg 拒收、`pins` 夹取/丢非数字、`overlay.scale:99→3`、`favorite` 恒 disabled |
+| bad data falls back | `test:601` | 逐字段回落：未知类别丢弃、`kind:'animated'`→emoji、svg 拒收、`pins` 夹取/丢非数字、`overlay.scale:99`→`sizeMax 900`（旧倍数 ×260 再夹到 120–900）、`favorite` 恒 disabled |
 | seven categories | `test:642` | 7 类各出一个会话（`favorite` 永不产出）；`idle` 是窗口：5 分钟内收录，多 1ms 不收 |
 | pending merge and subagents | `test:703` | `approval`/`question`/`plan-review` 三态归 `pending`（副图标区分）；子代理在跑归 `running`；同会话多态取最高级 |
 | pinned first | `test:733` | `pins` 命中的会话进 `pinned`，`pinLevel` 决定类内顺序，且恒在 `error` 之前（不管 `order` 怎么设） |
@@ -82,6 +84,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | shortcut cycle and guards | `test:2025` | 三条热键按 `registerFixed` 登记（`Alt+Shift+[` / `]` / `S`，`group:'application'`）；循环只走当前 plan、当前会话不占座位；`region`/`modal`/`repeat`/`control`/`defaultPrevented` 全部放行原事件；`overlayEnabled` 关时 `S` 不被吞 |
 | glyph seed ignores time | `test:2092` | 上传图标定种只依赖 `sessionId|category`：同一 seed 连渲染 5 次同图；源码里不再出现 `enteredAt` |
 | shortcut edges | `test:2109` | 空 plan 不消费、单座环绕自身、跨 plan 变更时环里接着走（`a`→`b`→`c`→`a`）、缺 shift/alt 或无关 code 不消费、没有 `shortcuts` 服务时槽照常注册且热键静默 |
+| shortcut labels are thunks | `test:2172` | 三条热键的 `label` 必须是函数：宿主会自己调 `command.label()`，传字符串是 `TypeError` 并拖掉整个 web boot（v4.3.0 的真事） |
 
 ### 1.3 改测试时踩过的坑（照抄结论）
 
@@ -99,13 +102,14 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 
 ## 2. 真机（唯一能证明"真的能点"的层）
 
-环境：test profile 的 GUI（约定端口 59559，由 profile-runner 起）。验收期间**只能一个人操作 GUI**——另一个窗口的 reload 会把你的断言打断。
+环境：一个装了本插件的 Web profile 的 GUI（用哪个 profile 由你定，别用日常在用的那个）。验收期间**只能一个人操作 GUI**——另一个窗口的 reload 会把你的断言打断。
 
 ### 2.1 验收脚本
 
-- v3.1：`C:\Meru\Seek\cangku\tmp\261111_k4t_v31-acceptance.js`（7 项一把过）。
-- v4.0 / v4.1（卡片设置页 + 浮层）：脚本仍待写；沿用同一命名 `cangku/tmp/261111_*_v4-*.js`。卡片 UI 的判定键是 `[data-hotlist-settings]` 与 `[data-category][data-open]`，折叠态看 `[data-hotlist-card-body]` 数，展开态点 `button.hl-cardHead`；浮层的判定键是 `[data-hotlist-popout]` / `data-hotlist-popout-cat` / `data-side` / `data-reduce-motion`，`onDone` 之后该节点必须消失。
-- 用法写在文件头：`ego_script({ script: <文件内容>, timeoutMs: 118000 })`；前置是目标版本已被 profile 加载，**旧版本的结果不算数**（脚本首先断言 `window.__HOTLIST_VERSION__`）。它会产出 `OUT.summary.verdict` 与截图。
+- v3.1：作者本机的 `cangku/tmp/261111_k4t_v31-acceptance.js`（7 项一把过）。**这些脚本不随仓库分发**，下面是它们依赖的判定键，照着写自己的就行。
+- 卡片设置页：根节点 `[data-hotlist-settings]`，折叠态数 `[data-hotlist-card-body]`，展开态点 `button.hl-cardHead`，类别看 `[data-category][data-open]`。
+- 浮层：`[data-hotlist-popout]` / `data-hotlist-popout-cat` / `data-side` / `data-reduce-motion`；`onDone` 之后该节点必须从 DOM 消失。
+- 用法：`ego_script({ script: <脚本内容>, timeoutMs: 118000 })`；前置是目标版本已被 profile 加载，**旧版本的结果不算数**（脚本第一步就断言 `window.__HOTLIST_VERSION__`）。
 - 脚本只读 + 通过 `window.__HOTLIST_SETTINGS__` 改设置（结束还原）；唯一 DOM 改动是插一个假 `[data-dsm-dot]` 探针并删掉。不点会话、不点「允许」。
 
 ### 2.2 ego 取证的三条硬规矩
@@ -131,16 +135,15 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 
 按顺序，全部过了再提"改完了"：
 
-1. `node --check client.js index.js test/classify.test.mjs`。
-2. `node C:\Meru\Seek\cangku\tmp\261111_gate_pre_restart.mjs` → `STATIC VERDICT: clean`（查未声明常量、已删字段、新字段与模块形状；`node --check` 抓不到「引用一个没人声明的常量」这类崩溃）。
-3. `node test/classify.test.mjs` → `PASS — 52 groups`。
-4. 如果碰了排序：断言「同一批会话只变 `updatedAt` → registry 变更数不增加」（组 `adapter plan`），否则 tab 会每 30s 抖一次。
-5. 如果碰了注册/注销：断言座位 id 仍带 `hotlist-seat-` 前缀、`stop()` 后无残留节点/属性/样式（组 `adapter sidebar markers`、`surface gating`）。
-6. 如果碰了 CSS：断言所有样式文本不含 `[[`，且 takeover 规则只出现在 `data-hotlist-style="takeover"` 的 `<style>` 里（组 `takeover gate`、`styles stay valid`）。
-7. 如果碰了设置模型：`README.md` 的可配置项表要同步（与 `defaultSettings()` 一一对应），并跑 `settings sanitizing` + `migrate v3 to v4`；`SETTINGS_VERSION` 变了就补一条迁移与一条「旧版本安全归一化」用例。
-8. 如果碰了动效：跑 `sidebar motion bursts`（并发上限、reduce 不掷、间隔 0 不掷）。
-9. 如果碰了持久化：跑 `completedAt persistence`（一次 sync 只写一次、成为主视图立刻删、重启剪枝；列表 `phase` 非 `ready` 时不得丢弃读回的条目）。
-10. `VERSION` 升了：`cangku/tmp/` 的验收脚本里的版本断言要同步，否则真机验收会 FAIL。
-11. 如果碰了浮层：跑 `popout side resolution` / `popout priority arbitration` / `popout seq guard` / `popout reduce merge` / `popout cooldown` / `popout first entry only`；确认 `makeResolveAsset` 三条分支都不抛、`onDone` 之后节点被移除。
-12. 如果碰了热键：跑 `shortcut cycle and guards`；确认没有自己挂 `document.addEventListener('keydown')`，且 `S` 只在 `shortcuts.overlayEnabled` 打开时消费事件。
-13. 最后才做真机项（§2.3）。
+1. `node --check client.js`、`node --check index.js` 各跑一次。**别写成 `node --check client.js index.js`**——`--check` 只检查第一个文件，后面的会被当成脚本参数静默忽略。
+2. `node test/classify.test.mjs` → `PASS — 53 groups`。其中 `no undefined constants` 与 `styles stay valid` 是两道静态扫描（未声明常量、样式选择器），`node --check` 抓不到「引用一个没人声明的常量」这类崩溃，这两组补的就是这个口子。
+3. 如果碰了排序：断言「同一批会话只变 `updatedAt` → registry 变更数不增加」（组 `adapter plan`），否则 tab 会每 30s 抖一次。
+4. 如果碰了注册/注销：断言座位 id 仍带 `hotlist-seat-` 前缀、`stop()` 后无残留节点/属性/样式（组 `adapter sidebar markers`、`surface gating`）。
+5. 如果碰了 CSS：断言所有样式文本不含 `[[`，且 takeover 规则只出现在 `data-hotlist-style="takeover"` 的 `<style>` 里（组 `takeover gate`、`styles stay valid`）。
+6. 如果碰了设置模型：`README.md` 的可配置项表要同步（与 `defaultSettings()` 一一对应），并跑 `settings read/write` + `settings sanitizing` + `migrate v3 to v4`；`SETTINGS_VERSION` 变了就补一条迁移与一条「旧版本安全归一化」用例。
+7. 如果碰了动效：跑 `sidebar motion bursts`（并发上限、reduce 不掷、间隔 0 不掷）。
+8. 如果碰了持久化：跑 `completedAt persistence`（一次 sync 只写一次、成为主视图立刻删、重启剪枝；列表 `phase` 非 `ready` 时不得丢弃读回的条目）。
+9. `VERSION` 升了：本机验收脚本里的版本断言要同步，否则真机验收会 FAIL。
+10. 如果碰了浮层：跑 `popout side resolution` / `popout priority arbitration` / `popout seq guard` / `popout reduce merge` / `popout cooldown` / `popout first entry only`；确认 `makeResolveAsset` 三条分支都不抛、`onDone` 之后节点被移除。
+11. 如果碰了热键：跑 `shortcut cycle and guards` + `shortcut labels are thunks`；确认没有自己挂 `document.addEventListener('keydown')`，`S` 只在 `shortcuts.overlayEnabled` 打开时消费事件，`label` 一律传 thunk。
+12. 最后才做真机项（§2.3）。
