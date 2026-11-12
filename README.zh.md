@@ -706,6 +706,13 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 - [tools/meru-tts/README.md](tools/meru-tts/README.md) — TTS 小工具自己的说明（只在 clone 仓库时有）
 - [CHANGELOG.md](CHANGELOG.md) — 版本历史
 
+## 致谢
+
+- **作者与维护者：**[MeruSu](https://github.com/MeruSu)——设计、定方向、审阅与验收。
+- **怎么做的：**在 **DeepSeek Harness（DSH）** 上以 AI 结对的方式完成——代码由 AI agent 在作者指导下编写，再由作者审阅验收。
+- **DeepSeek 提供的是运行环境，不是作者身份。** DSH 是这个插件运行的宿主，也是它被开发出来的环境。DeepSeek **不是**本项目的 contributor，不参与维护，除「宿主平台」这一层关系外与本项目无隶属关系。
+- **美术：**`assets/` 里那三个占位角色图由作者提供。
+
 ## 许可
 
 代码是 MIT，见 [LICENSE](LICENSE)。

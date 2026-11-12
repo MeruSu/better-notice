@@ -706,6 +706,13 @@ Eleven things that have already cost real debugging time — including a broken 
 - [tools/meru-tts/README.md](tools/meru-tts/README.md) — the TTS helper's own docs (only when you cloned the repo)
 - [CHANGELOG.md](CHANGELOG.md) — version history
 
+## Credits
+
+- **Author and maintainer:** [MeruSu](https://github.com/MeruSu) — design, direction, review and acceptance.
+- **How it is built:** in an AI pair-programming loop on **DeepSeek Harness (DSH)** — the code is written by AI agents working under the author's direction, then reviewed and accepted by the author.
+- **DeepSeek provides the runtime, not the authorship.** DSH is the host this plugin runs on and the environment it was developed in. DeepSeek is **not** a contributor to this project, does not maintain it, and has no affiliation with it beyond being the host platform.
+- **Artwork:** the three placeholder characters in `assets/` are provided by the author.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
