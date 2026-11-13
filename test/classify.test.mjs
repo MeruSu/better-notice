@@ -257,7 +257,7 @@ const source = await readFile(new URL('./../client.js', import.meta.url), 'utf8'
 new Function(source)();
 
 const api = loaded.api;
-assert.equal(loaded.id, '@merusu/dsh-better-notice');
+assert.equal(loaded.id, 'dsh-better-notice');
 assert.ok(api && typeof api.apply === 'function');
 
 const tick = async () => {
@@ -1416,8 +1416,8 @@ test('popout side resolution', () => {
   assert.equal(api.tierFor(260, 1), 320);
   assert.equal(api.tierFor(260, 3), 780);
   assert.equal(api.tierFor(780, 3), 1560);
-  assert.equal(api.assetRef('error', 320), 'plugins/@merusu/dsh-better-notice/assets/error-320.webp');
-  assert.equal(api.fallbackRef('error'), 'plugins/@merusu/dsh-better-notice/assets/error.svg');
+  assert.equal(api.assetRef('error', 320), 'plugins/dsh-better-notice/assets/error-320.webp');
+  assert.equal(api.fallbackRef('error'), 'plugins/dsh-better-notice/assets/error.svg');
   assert.equal(api.dropDistance(400), 184);
 });
 
@@ -1885,7 +1885,7 @@ test('no undefined constants', () => {
 
 // 45. Boot smoke: the module loads and reads settings even from a corrupted store.
 test('module boot smoke', () => {
-  assert.equal(loaded.id, '@merusu/dsh-better-notice');
+  assert.equal(loaded.id, 'dsh-better-notice');
   assert.equal(typeof api.readSettings, 'function');
   const key = 'dsh.hotlist.settings.v1';
   const previous = storage.getItem(key);

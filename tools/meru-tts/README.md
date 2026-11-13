@@ -1,6 +1,6 @@
 # meru-tts
 
-把一句话念成音频文件的小工具，用来给 [Better Notice](../../README.md)（`@merusu/dsh-better-notice`）生成提示音。
+把一句话念成音频文件的小工具，用来给 [Better Notice](../../README.md)（`dsh-better-notice`）生成提示音。
 
 它**不参与插件运行**——只是一台「台词 → wav/mp3」的离线小机器。插件装好不装它也能响：自带 `attention.wav`（待处理 / 报错）与 `complete.wav`（完成）两个音效。只有当你想换台词、加新音效时才需要它。
 

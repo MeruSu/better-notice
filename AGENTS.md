@@ -3,9 +3,9 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `@merusu/dsh-better-notice` · version `4.6.5` · MIT
+- Package: `dsh-better-notice` · version `4.6.5` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
-- One command to install: `dsh plugin --profile <profile> add @merusu/dsh-better-notice`
+- One command to install: `dsh plugin --profile <profile> add dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
 
 ---

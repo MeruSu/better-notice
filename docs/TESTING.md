@@ -20,7 +20,7 @@ patch 校验（js-yaml 从本机 profile 借，把 `<profile 目录>` 换成你�
 node --input-type=module -e "import {createRequire} from 'node:module';import fs from 'node:fs';const r=createRequire('<profile 目录>/node_modules/noop.js');console.log(JSON.stringify(r('js-yaml').load(fs.readFileSync('cordis.patch.yml','utf8'))))"
 ```
 
-期望 `[{"insert":[{"id":"hotlist","name":"@merusu/dsh-better-notice"}]}]`。
+期望 `[{"insert":[{"id":"hotlist","name":"dsh-better-notice"}]}]`。
 
 ### 1.1 测试怎么加载真代码
 
@@ -59,7 +59,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | settings upload gate | `test:1297` | `glyphUploadReject`：`null`→`missing`、svg→`type`、**gif 放行**、webp 5 MB→`size`；超限 data URL 在 `sanitizeSettings` 里回落 `emoji` 且 `value:''`。上传是**两道闸**：源文件大小与产物（重编码后）大小 |
 | settings reset drops legacy keys | `test:1310` | 盘上写入带 `states`/`glyphs`/`motion`/`placement`/`showIdle` 的记录后 `resetSettings()`：存储是 `version:4`、`maxSeats:6`，旧键一个不留 |
 | settings maxSeats applies at once | `test:1332` | （async）`writeSettings({maxSeats:2})` 后两轮 `tick()` 座位数 3 → 2，改回 6 恢复 3（两级延迟注销） |
-| popout side resolution | `test:1378` | `resolvePopoutSide`：`left`/`right` 直通；`auto` 量左侧会话栏（量不到或塌陷 → `left`，够宽 → `right`）；配套 `tierFor`（260→320、780→1560）、`assetRef`/`fallbackRef`（`plugins/@merusu/dsh-better-notice/assets/error-320.webp` 与 `error.svg`）、`dropDistance` |
+| popout side resolution | `test:1378` | `resolvePopoutSide`：`left`/`right` 直通；`auto` 量左侧会话栏（量不到或塌陷 → `left`，够宽 → `right`）；配套 `tierFor`（260→320、780→1560）、`assetRef`/`fallbackRef`（`plugins/dsh-better-notice/assets/error-320.webp` 与 `error.svg`）、`dropDistance` |
 | popout priority arbitration | `test:1405` | 单槽抢占：`completed` 弹后 `pending` 抢占、`error` 再抢占；低优先遇到高优先**直接丢弃不排队**；同级换会话 |
 | popout seq guard | `test:1421` | 旧 `displayMs` 定时器回调不能关掉新浮层（单调 `seq` 比对） |
 | popout reduce merge | `test:1454` | `display.reduceMotion:'on'` 与系统偏好合并成 `isReduced`：`data-reduce-motion="1"`、`--hl-enter-ms:120ms`、退场固定 `fade`（`exit-fade` 有、`exit-drop` 无）；系统偏好为假时 `data-reduce-motion="0"` |
@@ -74,7 +74,7 @@ node --input-type=module -e "import {createRequire} from 'node:module';import fs
 | settings page has no reset row | `test:1733` | v4.4 删掉「恢复默认」行：没有 `reset` 行、没有 `[data-hotlist-reset]`；但 `__HOTLIST_SETTINGS__.reset()` 仍能写回默认（API 保留） |
 | completedAt persistence | `test:1752` | （async）`✅` 时间落盘：同一轮两个会话完成只写一次、成为主视图立刻删除并落盘（第二次写不等节流）、重启后按 TTL 与工作区剪枝；列表 `phase` 还是 `pending` 时一律不剪枝（reload 不得把读回的条目写成空），`ready` 后不存在的会话才剪 |
 | no undefined constants | `test:1846` | 静态扫描：剥掉注释/字符串后，任何 `[A-Z][A-Z0-9_]{2,}` 引用都必须有声明（`node --check` 抓不到的整类崩溃，2026-11-11 真出过一次） |
-| module boot smoke | `test:1868` | 模块 id 是 `@merusu/dsh-better-notice`；`readSettings()` 在坏 JSON 上回落默认（`version:4`、`maxSeats` 默认）、v3 记录上安全迁移（`overlay.sizeMin/sizeMax` 260/520）都不抛 |
+| module boot smoke | `test:1868` | 模块 id 是 `dsh-better-notice`；`readSettings()` 在坏 JSON 上回落默认（`version:4`、`maxSeats` 默认）、v3 记录上安全迁移（`overlay.sizeMin/sizeMax` 260/520）都不抛 |
 | sound player dedupe | `test:1890` | 冷启动首轮只记不播（armed）、同会话同类是重绘不响、离开再进入响一次（`/hotlist-sound/attention.wav`、`volume 0.6` 来自全局 60）、1.5 s 内第二声静音并记日志、试听绕过前两闸、`enabled:false` 的类不响、无内置也无上传时 `pickSoundUrl` 返回 `''` |
 | seeded and random asset picks | `test:1953` | 图标定种哈希（同 seed 同下标、不同 seed 分散）、`randomIndex` 边界（1→0、5→4）、`pickSoundUrl` 只对 pending/error/completed 拼 URL（`BUILTIN_SOUND` 形状）、`pickPopoutArt` 三态（内置/上传 data/emoji） |
 | asset quotas | `test:1988` | 每池 6 份（第 7 份被拒、保留最早的）、图标 16 KB、弹出图 64 KB、音效 128 KB、2 MB 总预算按类别顺序裁剪（先删音效再动图片）；图片冒充音效被拒；空名补成 `glyph-1` |

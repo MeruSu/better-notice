@@ -9,10 +9,10 @@ It solves one specific annoyance: the sidebar is a flat recency list, so once yo
 Install in one line (then restart the GUI — see [Install](#install)):
 
 ```powershell
-dsh plugin --profile <profile> add @merusu/dsh-better-notice
+dsh plugin --profile <profile> add dsh-better-notice
 ```
 
-- Package: `@merusu/dsh-better-notice` (module id is the same string)
+- Package: `dsh-better-notice` (module id is the same string)
 - Version: `4.6.5` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
@@ -115,13 +115,13 @@ Requires Node 22+ and a working DSH Web profile. Verified against DSH `0.2.2-rc.
 
 ```powershell
 # Install into a profile (<profile> is your profile name)
-dsh plugin --profile <profile> add @merusu/dsh-better-notice
+dsh plugin --profile <profile> add dsh-better-notice
 
 # Restart that profile's GUI — required, see below
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice) (current `4.6.5`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/merusu-dsh-better-notice-4.6.3.tgz` gives the same result and the same restart.
+- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `4.6.5`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/merusu-dsh-better-notice-4.6.3.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -129,14 +129,14 @@ dsh --profile <profile>
 Uninstall:
 
 ```powershell
-dsh plugin --profile <profile> remove @merusu/dsh-better-notice
+dsh plugin --profile <profile> remove dsh-better-notice
 ```
 
 ### Why a restart is mandatory
 
 This is a Cordis bundle with two halves:
 
-- `package.json` → `dsh.bundle.patch` → `cordis.patch.yml` inserts `- insert: [{id: hotlist, name: '@merusu/dsh-better-notice'}]` into the profile config.
+- `package.json` → `dsh.bundle.patch` → `cordis.patch.yml` inserts `- insert: [{id: hotlist, name: 'dsh-better-notice'}]` into the profile config.
 - **Host half** `index.js` registers the `/hotlist-sound` prefix route that serves the bundled `.wav` files. The host's shared asset route only accepts images, so audio would 404 there.
 - **Client half** `client.js` is declared through `dsh.client` (platform `web`, `immediately`) and registers the tab seats, sidebar glyphs, popout and settings page.
 

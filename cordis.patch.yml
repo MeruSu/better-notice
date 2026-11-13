@@ -1,4 +1,4 @@
-# Bundle patch: one row for @merusu/dsh-better-notice.
+# Bundle patch: one row for dsh-better-notice.
 # The host half registers the /hotlist-sound prefix route so the client can load
 # the bundled sound cues (the shared package-asset route only serves images, so
 # .wav/.mp3 would 404 there). The client half (dsh.client) registers one tab per
@@ -6,4 +6,4 @@
 # popout overlay and the settings page.
 - insert:
     - id: hotlist
-      name: '@merusu/dsh-better-notice'
+      name: 'dsh-better-notice'

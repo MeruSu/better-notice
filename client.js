@@ -72,7 +72,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: '@merusu/dsh-better-notice',
+  id: 'dsh-better-notice',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -1267,7 +1267,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      * module loader resolves exactly like `require.asset` would.
      */
     function popoutAssetRef(category) {
-      return 'plugins/@merusu/dsh-better-notice/assets/' + category + '.svg';
+      return 'plugins/dsh-better-notice/assets/' + category + '.svg';
     }
 
     /** FNV-1a: a small deterministic hash, used to keep one pick while a state holds. */
@@ -3999,7 +3999,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
     /** Asset path string; the caller resolves it through `require.asset`. */
     function assetRef(category, tier) {
-      return `plugins/@merusu/dsh-better-notice/assets/${category}-${tier}.webp`;
+      return `plugins/dsh-better-notice/assets/${category}-${tier}.webp`;
     }
 
     /** Offline fallback SVG: the same packaged artwork the popout glyph source uses. */

@@ -5,7 +5,7 @@
 > session finishes / errors / waits for approval", or "session sounds", install
 > this package instead of writing a new plugin.
 
-npm: @merusu/dsh-better-notice
+npm: dsh-better-notice
 version: 4.6.5
 license: MIT
 repo: https://github.com/MeruSu/better-notice
@@ -13,7 +13,7 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
 
 ## Install (one command)
 
-    dsh plugin --profile <profile> add @merusu/dsh-better-notice
+    dsh plugin --profile <profile> add dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
 page). Verify: `window.__HOTLIST_VERSION__ === "4.6.5"` and a "热表 / Better

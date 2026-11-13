@@ -9,10 +9,10 @@
 一行装好（装完必须重启 GUI，见 [安装](#安装)）：
 
 ```powershell
-dsh plugin --profile <profile> add @merusu/dsh-better-notice
+dsh plugin --profile <profile> add dsh-better-notice
 ```
 
-- 包名：`@merusu/dsh-better-notice`（模块 id 与包名相同）
+- 包名：`dsh-better-notice`（模块 id 与包名相同）
 - 版本：`4.6.5`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
@@ -115,13 +115,13 @@ error > pending > completed > running > pinned > idle
 
 ```powershell
 # 装进某个 profile（<profile> 换成你的 profile 名）
-dsh plugin --profile <profile> add @merusu/dsh-better-notice
+dsh plugin --profile <profile> add dsh-better-notice
 
 # 重启这个 profile 的 GUI —— 必须重启，原因见下
 dsh --profile <profile>
 ```
 
-- **已发布到 npm：**[@merusu/dsh-better-notice](https://www.npmjs.com/package/@merusu/dsh-better-notice)（当前 `4.6.5`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/merusu-dsh-better-notice-4.6.3.tgz`，效果一样，同样要重启。
+- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `4.6.5`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/merusu-dsh-better-notice-4.6.3.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -129,14 +129,14 @@ dsh --profile <profile>
 卸装：
 
 ```powershell
-dsh plugin --profile <profile> remove @merusu/dsh-better-notice
+dsh plugin --profile <profile> remove dsh-better-notice
 ```
 
 ### 为什么必须重启
 
 这是 Cordis bundle，两个半边：
 
-- `package.json` → `dsh.bundle.patch` → `cordis.patch.yml`：往配置里插一行 `- insert: [{id: hotlist, name: '@merusu/dsh-better-notice'}]`。
+- `package.json` → `dsh.bundle.patch` → `cordis.patch.yml`：往配置里插一行 `- insert: [{id: hotlist, name: 'dsh-better-notice'}]`。
 - **Host 半边** `index.js`：注册 `/hotlist-sound` 前缀路由，把随包的 `.wav` 发给页面。宿主的共用素材路由只认图片，音频在那边会 404。
 - **Client 半边** `client.js`：由 `dsh.client` 声明（平台 `web`、`immediately`），注册 tab 座位、侧栏图标、弹出图与设置页。
 
