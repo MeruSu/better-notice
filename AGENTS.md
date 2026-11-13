@@ -175,12 +175,48 @@ node test/classify.test.mjs      # expect: PASS — 65 groups
 syntactically valid and only fails in the browser. Grep for every identifier you
 remove.
 
+### 5.1 If `sh` dies on Windows, it is the sandbox — not git
+
+On Windows, confined agent sandboxes (read-only and workspace-write) block
+**named pipes**. MSYS2/Cygwin `sh` starts itself through a signal pipe, so it
+fails immediately:
+
+```
+1 [main] sh (1076) C:\Git\usr\bin\sh.exe: *** fatal error - couldn't create
+signal pipe, Win32 error 5
+```
+
+`Win32 error 5` is "access denied", not a broken install. What breaks and what
+does not:
+
+- **Breaks** (forks `sh`): `git clone`, `git filter-repo`, `git filter-branch`,
+  `git submodule`, and npm lifecycle scripts.
+- **Still works** (in-process): `git log`, `git add`, `git commit`, `git diff`,
+  `git rev-parse`, `node`, `python`.
+
+Two consequences worth remembering:
+
+1. Rewriting history has to be done with `python` plus git plumbing
+   (`cat-file` → rebuild the commit → `hash-object -w` → `update-ref`) when
+   `filter-repo` cannot spawn a shell. Verify afterwards that the tree is
+   byte-identical: the old and new commits must share the same `^{tree}`.
+2. **Sub-agents cannot escape this.** They are pinned to workspace-write and
+   their approval prompts are auto-rejected, so `sh` is permanently unavailable
+   to them. Only the lead agent can retry with `danger-full-access`, which lifts
+   the pipe block — the identical `sh -c "echo hi"` then prints `hi`. Route
+   shell-forking work to the lead instead of retrying.
+
+Git may not be under `C:\Program Files\Git`. Ask the tool itself:
+`git --exec-path`.
+
 ## 6. Known limits — do not file these as bugs
 
 1. Text animation only works on the left sidebar. Tab-seat labels are rendered by
    the host; their CSS cannot be animated from here.
-2. The `positions.topbar` switch exists but is disabled — the topbar surface is
-   not implemented.
+2. The window top bar is **Windows-only and needs the desktop shell** (it lives in
+   the 40 px strip that `html[data-windows-titlebar]` marks). In a browser the band
+   stays down unless `topbar.previewInWeb` is on. While it is up the tab row stands
+   down on purpose, so the two surfaces never draw the same session twice.
 3. `.mp3` / `.wav` cannot be served by the package-asset route (see 2.3).
 4. Static asset routes are unauthenticated (see 2.3).
 5. On desktop the top 40 px of the window is the window-drag region; never give

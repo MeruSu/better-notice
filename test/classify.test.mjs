@@ -502,7 +502,7 @@ test('heal view preferences', () => {
 // 2. The v5 settings shape: seven categories, global collect/overlay/pinned; a v3-shaped patch still works.
 test('settings read/write', () => {
   assert.equal(DEFAULTS.version, 4);
-  assert.deepEqual(DEFAULTS.positions, { tab: true, topbar: false, sidebar: true });
+  assert.deepEqual(DEFAULTS.positions, { tab: true, topbar: true, sidebar: true });
   assert.deepEqual(Object.keys(DEFAULTS.categories).sort(), [
     'completed', 'error', 'idle', 'pending', 'pinned', 'running',
   ]);
@@ -563,7 +563,8 @@ test('migrate v3 to v4', () => {
   assert.equal(migrated.version, 4);
   assert.equal(migrated.maxSeats, 12);
   assert.equal(migrated.collect.completedTtlMs, 120000);
-  assert.deepEqual(migrated.positions, { tab: false, topbar: false, sidebar: true });
+  /** v4 shipped the top-bar switch disabled, so the archived `false` is the old factory default and yields to v5. */
+  assert.deepEqual(migrated.positions, { tab: false, topbar: true, sidebar: true });
   assert.equal(migrated.categories.pending.glyph.value, '🔔');
   assert.equal(migrated.categories.pending.glyph.motion, 'pulse');
   assert.equal(migrated.categories.pending.glyphSecondary.value, '🙋');
@@ -642,7 +643,7 @@ test('bad data falls back', () => {
     collect: { completedTtlMs: -5 },
     pinned: { maxSeats: 400 },
     categories: {
-      pending: { order: 500, glyph: { kind: 'animated', value: 'x.gif' }, glyphSecondary: { value: '🎉' } },
+      pending: { order: 500, glyph: { kind: 'animated', value: 'xy' }, glyphSecondary: { value: '🎉' } },
       nope: { enabled: true },
       favorite: { enabled: true, glyph: { value: '🔥' } },
       error: { glyph: { value: 'overlongemoji' } },
@@ -651,7 +652,7 @@ test('bad data falls back', () => {
   const settings = api.readSettings();
   assert.equal(settings.version, 4);
   assert.equal(settings.maxSeats, 6);
-  assert.deepEqual(settings.positions, { tab: true, topbar: false, sidebar: true });
+  assert.deepEqual(settings.positions, { tab: true, topbar: true, sidebar: true });
   assert.equal(settings.overlay.side, 'auto');
   assert.equal(settings.overlay.sizeMax, 900);
   assert.equal(settings.overlay.fallbackImage, '');
@@ -660,9 +661,9 @@ test('bad data falls back', () => {
   assert.equal(settings.categories.pending.order, 99);
   assert.equal(settings.categories.pending.glyph.kind, 'emoji');
   /** `kind` follows the pool now, and a non-image `value` is plain glyph text. */
-  assert.equal(settings.categories.pending.glyph.value, 'x.gif');
+  assert.equal(settings.categories.pending.glyph.value, 'xy', 'a short non-image value is plain glyph text');
   assert.equal(settings.categories.pending.glyph.uploads.length, 0);
-  /** Text longer than the eight-character limit is dropped, so the default glyph draws instead. */
+  /** Text longer than the two-code-point limit is dropped, so the default glyph draws instead. */
   assert.equal(settings.categories.error.glyph.value, '');
   assert.equal(settings.categories.pending.glyphSecondary.value, '🎉');
   assert.equal('nope' in settings.categories, false);
@@ -754,7 +755,7 @@ test('pending merge and subagents', () => {
     ['child', { running: true }],
   ]);
   const rows = api.classify(settings, {
-    surface: 'tab', list, statuses, errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null,
+    surface: 'sidebar', list, statuses, errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null,
   });
   const tokens = Object.fromEntries(rows.map((row) => [row.sessionId, `${row.category}:${row.token}`]));
   assert.equal(tokens.a, 'pending:approval');
@@ -774,7 +775,7 @@ test('pinned first', () => {
     byId: { s1: session({ id: 's1' }), s2: session({ id: 's2', running: true }), s3: session({ id: 's3' }) },
   };
   const plan = api.buildSeatPlan({
-    surface: 'tab',
+    surface: 'sidebar',
     list,
     statuses: new Map([['s2', { running: true }]]),
     errors: new Map(),
@@ -784,8 +785,8 @@ test('pinned first', () => {
     limit: 5,
     pinnedSessionIds,
   }, settings);
-  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s1', 1501], ['s3', 1502], ['s2', 3001]]);
-  assert.deepEqual(plan.map((seat) => seat.token), ['pinned', 'pinned', 'running']);
+  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s2', 3001], ['s1', 6001], ['s3', 6002]]);
+  assert.deepEqual(plan.map((seat) => seat.token), ['running', 'pinned', 'pinned']);
 });
 
 // 9. Category order is configurable and drives both the sequence and the seat order numbers.
@@ -798,7 +799,7 @@ test('category order', () => {
     byId: { err: session({ id: 'err' }), ask: session({ id: 'ask' }) },
   };
   const plan = api.buildSeatPlan({
-    surface: 'tab',
+    surface: 'sidebar',
     list,
     statuses: new Map([['ask', { pendingInteraction: { kind: 'approval' } }]]),
     errors: new Map([['err', { message: 'boom', at: NOW }]]),
@@ -831,13 +832,13 @@ test('plan limit and current session', () => {
   ]);
   const errors = new Map([['err1', { message: 'a', at: NOW }], ['err2', { message: 'b', at: NOW }]]);
   const plan = api.buildSeatPlan({
-    surface: 'tab', list, statuses, errors, completedAt: new Map(), now: NOW, workspaceIds: null, limit: 2,
+    surface: 'sidebar', list, statuses, errors, completedAt: new Map(), now: NOW, workspaceIds: null, limit: 2,
   }, settings);
   assert.deepEqual(plan.map((seat) => seat.category), ['error', 'error', 'pending', 'running', 'running']);
   /** `me` is still inside the idle window, so it is classified but cut by the limit. */
   assert.equal(plan.overflow, 1);
   const withCurrent = api.buildSeatPlan({
-    surface: 'tab', list, statuses, errors, completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5, currentId: 'ask',
+    surface: 'sidebar', list, statuses, errors, completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5, currentId: 'ask',
   }, settings);
   assert.equal(withCurrent.some((seat) => seat.sessionId === 'ask'), false);
 });
@@ -853,7 +854,7 @@ test('urgent overflow hard cap', () => {
     statuses.set(id, { pendingInteraction: { kind: 'approval' } });
   }
   const plan = api.buildSeatPlan({
-    surface: 'tab', list, statuses, errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 1,
+    surface: 'sidebar', list, statuses, errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 1,
   }, settings);
   assert.equal(plan.length, 5);
   assert.equal(plan.overflow, 2);
@@ -863,18 +864,42 @@ test('urgent overflow hard cap', () => {
 // 11. A surface that is off produces no rows; turning `idle.tab` off keeps the sidebar row.
 test('surface gating', () => {
   const settings = api.defaultSettings();
-  settings.categories.idle.surfaces = { tab: false, sidebar: true, topbar: false };
-  const list = { ids: ['idle1', 'run1'], byId: { idle1: session({ id: 'idle1' }), run1: session({ id: 'run1', running: true }) } };
-  const tab = api.buildSeatPlan({
-    surface: 'tab', list, statuses: new Map([['run1', { running: true }]]), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5,
-  }, settings);
-  assert.deepEqual(tab.map((seat) => seat.sessionId), ['run1']);
-  const sidebar = api.classify(settings, {
-    surface: 'sidebar', list, statuses: new Map([['run1', { running: true }]]), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null,
-  });
-  assert.deepEqual(sidebar.map((row) => row.sessionId).sort(), ['idle1', 'run1']);
+  /** The shipped split: the band is the urgent row, the tab row is the background row. */
+  const split = ['pinned', 'error', 'pending', 'completed', 'running', 'idle'].map((category) => [
+    category,
+    settings.categories[category].surfaces.tab,
+    settings.categories[category].surfaces.topbar,
+  ]);
+  assert.deepEqual(split, [
+    ['pinned', true, false],
+    ['error', false, true],
+    ['pending', false, true],
+    ['completed', false, true],
+    ['running', false, false],
+    ['idle', true, false],
+  ]);
+
+  const list = {
+    ids: ['idle1', 'run1', 'err1'],
+    byId: { idle1: session({ id: 'idle1' }), run1: session({ id: 'run1', running: true }), err1: session({ id: 'err1' }) },
+  };
+  const statuses = new Map([['run1', { running: true }]]);
+  const errors = new Map([['err1', { message: 'boom', at: NOW }]]);
+  const input = { list, statuses, errors, completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5 };
+  const tab = api.buildSeatPlan({ ...input, surface: 'tab' }, settings);
+  assert.deepEqual(tab.map((seat) => seat.sessionId), ['idle1'], 'the tab row shows the background classes only');
+  const band = api.buildSeatPlan({ ...input, surface: 'topbar' }, settings);
+  assert.deepEqual(band.map((seat) => seat.sessionId), ['err1'], 'the band shows the urgent classes only');
+  const sidebar = api.classify(settings, { ...input, surface: 'sidebar' });
+  assert.deepEqual(sidebar.map((row) => row.sessionId).sort(), ['err1', 'idle1', 'run1'], 'the sidebar still shows all six');
+
   /** Every surface off is the same as "hide", not a fallback to the tab row. */
-  const off = api.sanitizeSettings({ ...settings, positions: { tab: false, topbar: false, sidebar: false } });
+  const off = api.sanitizeSettings({
+    ...settings,
+    positions: { tab: false, topbar: false, sidebar: false },
+    /** Marked: an unmarked `false` is the v4 factory default and would yield to the v5 default. */
+    choices: { 'positions.topbar': true },
+  });
   assert.equal(api.positionsOf(off).allPositionsOff, true);
   assert.equal(api.positionsOf(off).surfaceVisible, false);
 });
@@ -969,8 +994,8 @@ test('settings sanitizing', () => {
   assert.equal(sanitized.overlay.sizeMin, 260);
   assert.equal(sanitized.overlay.sizeMax, 520);
   assert.equal(sanitized.overlay.side, 'right');
-  /** `pinned` is an ordinary class now: order 15, not a forced 0. */
-  assert.equal(api.sanitizeSettings({ pinLevels: {} }).categories.pinned.order, 15);
+  /** `pinned` is an ordinary class now: order 60, not a forced 0. */
+  assert.equal(api.sanitizeSettings({ pinLevels: {} }).categories.pinned.order, 60);
   const noOverlayEnabled = api.sanitizeSettings({ overlay: { enabled: true } });
   assert.equal('enabled' in noOverlayEnabled.overlay, false);
 });
@@ -1016,16 +1041,8 @@ await testAsync('adapter plan', async () => {
   api.apply(harness.ctx, {});
   await tick();
   const seats = () => orders(harness.entries);
-  assert.deepEqual(seats(), [['s2', 3001], ['s1', 5001]]);
+  assert.deepEqual(seats(), [['s1', 5001]], 'running belongs to the band and the sidebar now, so s2 earns no tab seat');
   const registrations = harness.registrations.length;
-
-  /** A settings write through the public surface recomputes seats immediately. */
-  win.__HOTLIST_SETTINGS__.set({ categories: { running: { surfaces: { tab: false } } } });
-  await tick();
-  assert.deepEqual(seats(), [['s1', 5001]]);
-  win.__HOTLIST_SETTINGS__.set({ categories: { running: { surfaces: { tab: true } } } });
-  await tick();
-  assert.deepEqual(seats(), [['s2', 3001], ['s1', 5001]]);
 
   /** Clicking a seat opens that session and falls back to `chat` on both sides. */
   const entry = harness.entries.get('hotlist-seat-s1');
@@ -1212,7 +1229,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v4.6.5');
+  assert.equal(page.props['data-hotlist-settings'], 'v5.0.0-alpha.1');
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
@@ -1234,7 +1251,7 @@ test('settings page', () => {
 
   const cards = collect(page, (props) => typeof props['data-category'] === 'string')
     .map((node) => node.props['data-category']);
-  assert.deepEqual(cards, ['error', 'pending', 'pinned', 'completed', 'running', 'idle']);
+  assert.deepEqual(cards, ['error', 'pending', 'completed', 'running', 'idle', 'pinned']);
   assert.equal(collect(page, (props) => props['data-hotlist-card-body'] !== undefined).length, 0);
 
   const chips = collect(page, (props) => props.className === 'hl-chip');
@@ -1243,10 +1260,11 @@ test('settings page', () => {
     assert.equal(typeof chip.props['aria-label'], 'string');
     assert.equal(['true', 'false'].includes(chip.props['data-on']), true);
   }
-  /** `topbar` is announced but not implemented: its chip is always off and disabled. */
-  const topbar = chips.filter((chip) => chip.props['data-disabled'] === 'true');
-  assert.equal(topbar.length, 6);
-  assert.equal(topbar.every((chip) => chip.props['data-on'] === 'false'), true);
+  /** The top-bar chip mirrors the per-category switch instead of sitting disabled. */
+  const topbarChips = chips.filter((chip) => chip.props['aria-label'] === 'settings.chip.topbar');
+  assert.equal(topbarChips.length, 6, 'every card announces its top-bar surface');
+  assert.equal(topbarChips.every((chip) => chip.props['data-disabled'] === 'false'), true);
+  assert.equal(topbarChips.filter((chip) => chip.props['data-on'] === 'true').length, 3, 'error, pending and completed ride the band by default');
 
   /** Position chips point at the global block instead of pretending to be clickable. */
   for (const chip of chips.filter((node) => ['Tab', '栏', '顶'].includes(node.props['aria-label']))) {
@@ -1265,9 +1283,10 @@ test('settings page card order', () => {
   const { harness, page } = renderPage();
   const cards = collect(page, (props) => typeof props['data-category'] === 'string')
     .map((node) => node.props['data-category']);
-  /** `error` now asks for 5, so it leads the tie-break group; `pinned` sits at 15, after both. */
-  assert.deepEqual(cards.slice(0, 3), ['error', 'pending', 'pinned']);
-  assert.equal(cards[cards.length - 1], 'idle');
+  /** `error` now asks for 5, so it leads the tie-break group; `pinned` sits at 60, last but idle. */
+  assert.deepEqual(cards.slice(0, 3), ['error', 'pending', 'completed']);
+  assert.equal(cards[cards.length - 1], 'pinned');
+  assert.equal(cards[cards.length - 2], 'idle');
   harness.cleanup();
   api.overrideSettings(null);
 });
@@ -1288,7 +1307,7 @@ test('settings page overflow notice', () => {
   const byId = {};
   for (const id of ids) byId[id] = session({ id });
   const plan = api.buildSeatPlan({
-    surface: 'tab', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 1,
+    surface: 'sidebar', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 1,
   }, api.defaultSettings());
   assert.equal(plan.overflow, 2);
 });
@@ -2383,7 +2402,7 @@ test('plan hard ceiling keeps the priority head', () => {
     byId[id] = session({ id, updatedAt: NOW - 60_000 });
   }
   const crowded = api.buildSeatPlan({
-    surface: 'tab', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(),
+    surface: 'sidebar', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(),
     now: NOW, workspaceIds: null, limit: 40,
   }, settings);
   assert.equal(crowded.length, 37, 'the hard ceiling is 37, whatever the limit says');
@@ -2395,7 +2414,7 @@ test('plan hard ceiling keeps the priority head', () => {
     withError.byId[id] = session({ id, updatedAt: NOW - 60_000 - index * 1000 });
   }
   const plan = api.buildSeatPlan({
-    surface: 'tab', list: withError, statuses: new Map(), errors: new Map([['err', { message: 'boom', at: NOW }]]),
+    surface: 'sidebar', list: withError, statuses: new Map(), errors: new Map([['err', { message: 'boom', at: NOW }]]),
     completedAt: new Map(), now: NOW, workspaceIds: null, limit: 40,
   }, settings);
   assert.equal(plan.length, 37);
@@ -2477,7 +2496,7 @@ test('legacy default order is adopted, real choices are kept', () => {
       running: { order: 40 },
     },
   });
-  assert.equal(settings.categories.pinned.order, 15, 'the old pinned default (1) moves to 15');
+  assert.equal(settings.categories.pinned.order, 60, 'the old pinned default (1) moves to 60');
   assert.equal(settings.categories.pending.order, 10, 'the old pending default (20) moves to 10');
   assert.equal(settings.categories.completed.order, 20, 'the old completed default (30) moves to 20');
   assert.equal(settings.categories.running.order, 30, 'the old running default (40) moves to 30');
@@ -2492,7 +2511,7 @@ test('legacy default order is adopted, real choices are kept', () => {
 
   /** The same rule covers a whole stored blob, which is how an old install actually arrives. */
   const stored = api.sanitizeSettings({ version: 4, categories: { pinned: { order: 0 }, error: { order: 10 } } });
-  assert.equal(stored.categories.pinned.order, 15);
+  assert.equal(stored.categories.pinned.order, 60);
   assert.equal(stored.categories.error.order, 10);
 });
 
@@ -2743,6 +2762,1071 @@ test('user picks survive the preset rule', () => {
   storage.removeItem(preservedKey);
   storage.removeItem(backupKey);
   api.resetSettings();
+});
+
+// 66. The band: one entry in `shell.overlay`, no tab seats, the current pill first.
+/** The band only shows categories switched on for it: these two flip every one of them. */
+const topbarSurfaces = (on) => {
+  const categories = {};
+  for (const id of Object.keys(DEFAULTS.categories)) {
+    categories[id] = { surfaces: { ...DEFAULTS.categories[id].surfaces, topbar: on } };
+  }
+  return { categories };
+};
+
+const enableTopbar = () => api.writeSettings({
+  positions: { ...api.readSettings().positions, topbar: true },
+  topbar: { ...api.readSettings().topbar, mode: 'chips', previewInWeb: true },
+  ...topbarSurfaces(true),
+});
+
+const disableTopbar = () => api.writeSettings({
+  positions: { ...api.readSettings().positions, topbar: false },
+  topbar: { ...api.readSettings().topbar, mode: 'chips', previewInWeb: false },
+  ...topbarSurfaces(false),
+});
+
+test('topbar band coexists with the tab row', () => {
+  const ids = ['band-a', 'band-b'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, retainedBy: id === 'band-a' ? { mainView: 1 } : {} });
+  const healBefore = storage.getItem('dsh.conversation.session-a');
+  assert.equal(healBefore, JSON.stringify({ view: 'chat' }), 'the seat preference was repaired when the module loaded');
+
+  enableTopbar();
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+
+  const seatIds = [...harness.entries.keys()].filter((id) => id.startsWith('hotlist-seat-'));
+  assert.deepEqual(seatIds, ['hotlist-seat-band-b'], 'the tab row keeps its own seats while the band is up');
+  const entry = harness.entries.get('hotlist.topbar');
+  assert.ok(entry, 'the band entry is registered in shell.overlay');
+  assert.equal(entry.order, -10, 'under the toasts, above nothing it needs to cover');
+
+  const reading = win.__HOTLIST__.topbar();
+  assert.equal(reading.mounted, true);
+  assert.equal(reading.mode, 'chips');
+  assert.equal(reading.left, 216, 'a browser has no menu strip: 48 + 160 + 8');
+  assert.equal(reading.measured, null, 'and nothing to measure');
+  assert.equal(reading.reserve, 0, 'the reserve setting defaults to 0: the guard is code, not a value');
+  assert.equal(reading.currentId, 'band-a');
+  assert.deepEqual(reading.chips.map((chip) => chip.id), ['band-b'], 'the band skips the session the tab row already names');
+
+  let band = entry.Component({});
+  if (typeof band.type === 'function') band = band.type(band.props);
+  assert.equal(band.props['data-hotlist-topbar-mode'], 'chips');
+  assert.equal(band.props['data-hotlist-topbar-left'], '216');
+  assert.equal(band.props['data-hotlist-version'], '5.0.0-alpha.1');
+  assert.equal(band.props.style.height, 'var(--dsh-windows-titlebar-height, 40px)');
+  assert.equal(band.props.style.pointerEvents, 'none');
+  assert.equal(band.props.style.background, undefined, 'the band itself never paints');
+  assert.equal(band.props.style.border, undefined);
+  assert.equal(band.props.style.paddingLeft, '216px');
+  assert.equal(band.props.style.paddingRight, '0px');
+
+  const pills = collect(band, (props) => typeof props['data-hotlist-chip'] === 'string');
+  assert.deepEqual(pills.map((pill) => pill.props['data-hotlist-chip']), ['band-b'], 'the session the tab row already names is not a pill');
+  const bandPill = pills.find((pill) => pill.props['data-hotlist-chip'] === 'band-b');
+  assert.ok(bandPill, 'the band renders its one session');
+  assert.ok([undefined, 'none'].includes(bandPill.props.style.background), 'no fill');
+  assert.equal(bandPill.props.style.borderRadius, undefined, 'no radius: it is text, not a pill');
+  assert.equal(bandPill.props.style.padding, '0 6px');
+  assert.equal(bandPill.props.style.cursor, 'pointer', 'the pointer is the only affordance');
+  assert.ok([undefined, '0'].includes(bandPill.props.style.border), 'and no frame: separation is a hairline');
+  assert.equal(bandPill.props.style.width, `${Math.min(140, api.chipWidthOf('会话 band-b') + 18)}px`, 'emoji column + label estimate, capped at the pill maximum');
+  for (const pill of pills) {
+    assert.equal(pill.props.style.pointerEvents, 'auto', 'the gap around it stays draggable');
+    assert.equal(pill.props.style.WebkitAppRegion, 'no-drag');
+    assert.equal(pill.props.style.width, pill.props.style.maxWidth, 'the pill is laid out with the estimate fitChipCount counted with');
+    assert.equal(pill.props.tabIndex, -1, 'the host owns the focus ring; chips are mouse-only');
+  }
+  assert.equal(collect(band, (props) => props['data-hotlist-more'] !== undefined).length, 0, 'everything fits at this width');
+
+  /** The preference repair is unconditional and module level: `topbar: true` must not skip it. */
+  assert.match(source, /\n {4}healViewPreferences\(\);\n/, 'the heal call is still there, unguarded');
+  assert.match(source, /function healViewPreferences\(\)/);
+  assert.equal(storage.getItem('dsh.conversation.session-a'), JSON.stringify({ view: 'chat' }), 'still repaired after the band mounted');
+  assert.equal(storage.getItem('dsh.conversation.session-b'), JSON.stringify({ view: 'chat' }), 'a seat id is repaired too');
+  assert.equal(storage.getItem('dsh.conversation.session-e'), JSON.stringify({ view: 'trajectory' }), 'a preference we do not own is untouched');
+
+  harness.cleanup();
+  disableTopbar();
+  assert.equal(win.__HOTLIST__.topbar().mounted, false, 'turning the band off unmounts it');
+});
+
+// 67. In a browser the band needs an explicit preview; on the desktop the strip alone is enough.
+test('topbar needs the desktop strip or an explicit preview', () => {
+  const settings = api.defaultSettings();
+  assert.equal(settings.positions.topbar, true, 'on by default since v5');
+  assert.equal(settings.topbar.previewInWeb, false, 'a browser draws nothing by default');
+  assert.equal(settings.topbar.mode, 'chips');
+  assert.equal(settings.topbar.rightReservePx, 0);
+
+  const ids = ['web-a', 'web-b'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, retainedBy: id === 'web-a' ? { mainView: 1 } : {} });
+  const open = () => {
+    const harness = createCtx({
+      list: { ids, byId },
+      statuses: new Map(),
+      groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+    });
+    api.apply(harness.ctx, {});
+    return harness;
+  };
+  const seatsOf = (harness) => [...harness.entries.keys()].filter((id) => id.startsWith('hotlist-seat-'));
+
+  /** Defaults: the tab row is the surface. */
+  let harness = open();
+  assert.equal(harness.entries.has('hotlist.topbar'), false, 'previewInWeb is false in a browser');
+  assert.equal(seatsOf(harness).length, 1, 'the tab row keeps its seat');
+  harness.cleanup();
+
+  /** `topbar` on but no preview: the band stays down and the seats stay up. */
+  api.writeSettings({ positions: { ...api.readSettings().positions, topbar: true } });
+  harness = open();
+  assert.equal(harness.entries.has('hotlist.topbar'), false, 'the band needs the desktop strip or an explicit preview');
+  assert.equal(seatsOf(harness).length, 1, 'the tab row is the surface while the band cannot show');
+  harness.cleanup();
+
+  /** The desktop strip alone mounts it; the tab row keeps its own seats either way. */
+  html.setAttribute('data-windows-titlebar', '');
+  harness = open();
+  assert.equal(harness.entries.has('hotlist.topbar'), true, 'the desktop strip is enough without the preview flag');
+  assert.equal(seatsOf(harness).length, 1, 'the tab row is not the band\'s to switch off');
+  harness.cleanup();
+  html.removeAttribute('data-windows-titlebar');
+
+  /** `mode: off` is the kill switch, preview or not. */
+  api.writeSettings({ topbar: { ...api.readSettings().topbar, mode: 'off' } });
+  html.setAttribute('data-windows-titlebar', '');
+  harness = open();
+  assert.equal(harness.entries.has('hotlist.topbar'), false, 'mode off mounts nothing');
+  assert.equal(seatsOf(harness).length, 1, 'and the tab row takes the row back');
+  harness.cleanup();
+  html.removeAttribute('data-windows-titlebar');
+
+  disableTopbar();
+});
+
+// 68. How many pills fit is arithmetic; what is left over becomes `+N`, which walks the tail.
+test('topbar overflow counts pills and +N walks the hidden ones', () => {
+  assert.equal(api.chipWidthOf(''), 72, 'a blank session still gets a pill');
+  assert.equal(api.chipWidthOf('ab'), 72, 'under the minimum');
+  assert.equal(api.chipWidthOf('abcd'), 72, '24 + 4 * 12 = 72 exactly');
+  assert.equal(api.chipWidthOf('abcdefgh'), 120);
+  assert.equal(api.chipWidthOf('😀'.repeat(10)), 140, 'counted in code points, capped at the max');
+  assert.equal(api.chipWidthOf('x'.repeat(40)), 140);
+
+  assert.equal(api.fitChipCount([72, 72], 100), 1, 'one pill; the +N pill would need 44 more');
+  assert.equal(api.fitChipCount([72, 72], 148), 2, 'both fit, so there is no +N pill to reserve for');
+  assert.equal(api.fitChipCount([72, 72, 72, 72, 72], 400), 5);
+  assert.equal(api.fitChipCount([72, 72, 72, 72, 72], 300), 3, 'three pills plus the reserved +N pill');
+  assert.equal(api.fitChipCount([72], 1000), 1);
+  assert.equal(api.fitChipCount([72, 72, 72], 0), 3, 'an unreadable width shows everything instead of blinking');
+  assert.equal(api.fitChipCount([72, 72, 72], Number.NaN), 3);
+  assert.equal(api.fitChipCount([], 400), 0);
+
+  const ids = ['ov-a', 'ov-b', 'ov-c', 'ov-d', 'ov-e', 'ov-f'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, retainedBy: id === 'ov-a' ? { mainView: 1 } : {} });
+  enableTopbar();
+  win.innerWidth = 900;
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  const entry = harness.entries.get('hotlist.topbar');
+  const render = () => {
+    let band = entry.Component({});
+    if (typeof band.type === 'function') band = band.type(band.props);
+    return band;
+  };
+  const reading = win.__HOTLIST__.topbar();
+  assert.equal(reading.chips.length, 5, 'five seats: the current session is never a pill');
+
+  const band = render();
+  const pills = collect(band, (props) => typeof props['data-hotlist-chip'] === 'string');
+  const more = collect(band, (props) => props['data-hotlist-more'] !== undefined);
+  assert.equal(more.length, 1, 'the narrow window leaves a tail behind');
+  const hidden = Number(more[0].props['data-hotlist-more']);
+  assert.equal(pills.length + hidden, reading.chips.length, 'pills + hidden = the whole band');
+  assert.equal(pills.length, 3, '900 - 216 - 0 - 138 - 8 = 538 px of pills');
+  assert.equal(more[0].props.style.width, '40px', 'the +N pill is a fixed width');
+
+  more[0].props.onClick();
+  assert.deepEqual(harness.opened, [reading.chips[pills.length].id], 'the first click takes the first hidden session');
+  collect(render(), (props) => props['data-hotlist-more'] !== undefined)[0].props.onClick();
+  assert.deepEqual(
+    harness.opened,
+    [reading.chips[pills.length].id, reading.chips[pills.length + 1].id],
+    'the next click steps further along the tail',
+  );
+  pills[0].props.onClick();
+  assert.equal(harness.opened.length, 3, 'a pill opens its own session');
+  assert.equal(harness.opened[2], pills[0].props['data-hotlist-chip'], 'its own id, not the hidden tail');
+
+  /** Summary mode: one pill carrying how many sessions the band holds. */
+  api.writeSettings({ topbar: { ...api.readSettings().topbar, mode: 'count' } });
+  const countBand = render();
+  const summary = collect(countBand, (props) => props['data-hotlist-chip-count'] !== undefined);
+  assert.equal(summary.length, 1, 'one pill instead of a row');
+  assert.equal(Number(summary[0].props['data-hotlist-chip-count']), 5, 'every session the band holds is counted');
+  assert.equal(collect(countBand, (props) => typeof props['data-hotlist-chip'] === 'string').length, 0, 'no per-session pills in summary mode');
+  assert.equal(collect(countBand, (props) => props['data-hotlist-more'] !== undefined).length, 0, 'no +N pill either');
+  summary[0].props.onClick();
+  assert.equal(harness.opened.length, 4, 'the summary pill walks the sessions too');
+  assert.equal(harness.opened[3], reading.chips[0].id, 'the cursor is shared: two clicks walked the two-item tail, so it wrapped back to the head');
+
+  harness.cleanup();
+  delete win.innerWidth;
+  disableTopbar();
+});
+
+// 69. The new settings block: defaults, whitelists and clamping, no version bump.
+/** The factory band block: every class starts inside the custom-icon scope. */
+const factoryTopbar = () => ({
+  mode: 'chips',
+  titleMode: 'custom',
+  maxSeats: 6,
+  previewInWeb: false,
+  rightReservePx: 0,
+  chipWidthPct: 0,
+  customScope: { pinned: true, error: true, pending: true, completed: true, running: true, idle: true },
+});
+
+test('topbar settings are clamped', () => {
+  assert.deepEqual(api.defaultSettings().topbar, factoryTopbar());
+  assert.deepEqual(
+    api.sanitizeSettings({ topbar: { mode: 'nope', previewInWeb: 'yes', rightReservePx: 9999 } }).topbar,
+    { ...factoryTopbar(), rightReservePx: 400 },
+    'unknown mode, non-boolean preview and an oversized reserve all fall back',
+  );
+  assert.deepEqual(
+    api.sanitizeSettings({ topbar: { mode: 'count', rightReservePx: -20 } }).topbar,
+    { ...factoryTopbar(), mode: 'count' },
+  );
+  assert.equal(api.sanitizeSettings({ topbar: { rightReservePx: 13.6 } }).topbar.rightReservePx, 14, 'rounded before clamping');
+  assert.equal(api.sanitizeSettings({ topbar: { mode: 'off' } }).topbar.mode, 'off');
+  assert.equal(api.sanitizeSettings({ topbar: { previewInWeb: true } }).topbar.previewInWeb, true);
+  assert.equal(api.readSettings().version, 4, 'SETTINGS_VERSION did not move: no migration was written');
+  assert.equal(DEFAULTS.topbar.rightReservePx, 0);
+  assert.equal(DEFAULTS.topbar.chipWidthPct, 0);
+
+  assert.equal(api.hasWindowsTitlebar(), false, 'a browser never marks the title strip');
+  html.setAttribute('data-windows-titlebar', '');
+  assert.equal(api.hasWindowsTitlebar(), true, 'the desktop shell does');
+  html.removeAttribute('data-windows-titlebar');
+});
+
+
+// 70. The band shows only what its own surface switch allows, and pills carry no frame.
+test('topbar pills have no frame and skip the current session', () => {
+  const ids = ['frame-a', 'frame-b', 'frame-c'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, retainedBy: id === 'frame-a' ? { mainView: 1 } : {} });
+  enableTopbar();
+  win.innerWidth = 900;
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const reading = win.__HOTLIST__.topbar();
+    assert.deepEqual(reading.chips.map((chip) => chip.id), ['frame-b', 'frame-c'], 'the session the tab row already names is not a pill');
+    assert.equal(reading.currentId, 'frame-a', 'the probe still reports which session is open');
+
+    let band = harness.entries.get('hotlist.topbar').Component({});
+    if (typeof band.type === 'function') band = band.type(band.props);
+    const pills = collect(band, (props) => typeof props['data-hotlist-chip'] === 'string');
+    assert.equal(pills.length, 2);
+    for (const pill of pills) {
+      assert.ok([undefined, 'none'].includes(pill.props.style.background), 'a pill paints no fill');
+      assert.ok([undefined, '0'].includes(pill.props.style.border), 'and no frame');
+      assert.equal(pill.props.style.flexShrink, 0, 'it keeps its estimated width');
+    }
+    /** Separation is a standalone hairline, so no pill ever paints one. */
+    for (const pill of pills) {
+      assert.equal(pill.props.style.boxShadow, undefined, 'the item itself carries no separator');
+      assert.equal(pill.props.style.borderRadius, undefined, 'no radius: it is text, not a pill');
+    }
+    const separators = collect(band, (props) => props['data-hotlist-separator'] !== undefined);
+    assert.equal(separators.length, pills.length - 1, 'one hairline between neighbours, none after the last');
+    for (const separator of separators) {
+      assert.equal(separator.props.style.width, '0px');
+      assert.equal(separator.props.style.height, '12px');
+      assert.equal(separator.props.style.margin, '0 2px');
+      assert.ok(String(separator.props.style.borderLeft).includes('1px solid'), 'a hairline, not a box');
+    }
+    assert.equal(band.props.style.background, undefined, 'the band itself never paints');
+    assert.equal(band.props.style.border, undefined);
+  } finally {
+    harness.cleanup();
+    delete win.innerWidth;
+    disableTopbar();
+  }
+});
+
+// 71. A category decides for itself whether it belongs in the band.
+test('category topbar switch decides who shows', () => {
+  const ids = ['gate-a', 'gate-b', 'gate-c'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id, retainedBy: id === 'gate-a' ? { mainView: 1 } : {} });
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  try {
+    enableTopbar();
+    api.apply(harness.ctx, {});
+    assert.equal(harness.entries.has('hotlist.topbar'), true, 'the band does not depend on any category');
+    assert.deepEqual(win.__HOTLIST__.topbar().chips.map((chip) => chip.id), ['gate-b', 'gate-c'], 'the helper switched every category on');
+
+    /** Everything off: the band stays mounted and shows nothing. */
+    api.writeSettings({ categories: topbarSurfaces(false).categories });
+    assert.deepEqual(win.__HOTLIST__.topbar().chips.map((chip) => chip.id), [], 'no category belongs to the bar');
+
+    /** The sessions above are idle, so switching that one category on is enough. */
+    api.writeSettings({ categories: { idle: { surfaces: { ...DEFAULTS.categories.idle.surfaces, topbar: true } } } });
+    assert.deepEqual(win.__HOTLIST__.topbar().chips.map((chip) => chip.id), ['gate-b', 'gate-c']);
+
+    api.writeSettings({ categories: { idle: { surfaces: { ...DEFAULTS.categories.idle.surfaces, topbar: false } } } });
+    assert.deepEqual(win.__HOTLIST__.topbar().chips.map((chip) => chip.id), [], 'the pills leave, the band stays mounted');
+    assert.equal(harness.entries.has('hotlist.topbar'), true);
+  } finally {
+    harness.cleanup();
+    disableTopbar();
+  }
+});
+
+// 72. One setting moves the pill width; out-of-range values clamp.
+test('pill width follows the setting', () => {
+  /** At 0% the bounds are the shipped defaults, so every answer matches the old behaviour. */
+  assert.equal(api.readSettings().topbar.chipWidthPct, 0);
+  assert.equal(api.chipWidthOf(''), 72, 'the default floor stands');
+  assert.equal(api.chipWidthOf('abcd'), 72, '24 + 4 * 12 = 72 exactly');
+  assert.equal(api.chipWidthOf('x'.repeat(40)), 140, 'and so does the default ceiling');
+
+  api.writeSettings({ topbar: { ...api.readSettings().topbar, chipWidthPct: -30 } });
+  assert.equal(api.readSettings().topbar.chipWidthPct, -30);
+  assert.equal(api.chipWidthOf(''), 50, '72 * 0.7 = 50.4, rounded');
+  assert.equal(api.chipWidthOf('x'.repeat(40)), 98, '140 * 0.7 = 98');
+
+  api.writeSettings({ topbar: { ...api.readSettings().topbar, chipWidthPct: 30 } });
+  assert.equal(api.chipWidthOf(''), 94, '72 * 1.3 = 93.6, rounded');
+  assert.equal(api.chipWidthOf('x'.repeat(40)), 182, '140 * 1.3 = 182');
+
+  assert.equal(api.sanitizeSettings({ topbar: { chipWidthPct: 99 } }).topbar.chipWidthPct, 30, 'clamped to the ceiling');
+  assert.equal(api.sanitizeSettings({ topbar: { chipWidthPct: -99 } }).topbar.chipWidthPct, -30, 'and to the floor');
+  assert.equal(api.sanitizeSettings({ topbar: { chipWidthPct: 7 } }).topbar.chipWidthPct, 5, 'snapped to the 5% step');
+  assert.equal(api.sanitizeSettings({ topbar: { chipWidthPct: -7 } }).topbar.chipWidthPct, -5);
+  assert.equal(api.sanitizeSettings({ topbar: { chipWidthPct: 2.4 } }).topbar.chipWidthPct, 0, 'rounded first');
+
+  api.writeSettings({ topbar: { ...api.readSettings().topbar, chipWidthPct: 0 } });
+  assert.equal(api.chipWidthOf('x'.repeat(40)), 140, 'back to the shipped default');
+});
+
+// 73. Segment 1: a marked empty icon, the per-category reset, the two-code-point limit.
+test('icon can be emptied and each category resets on its own', () => {
+  const factory = api.defaultSettings();
+
+  /** Three code points are refused; one and two pass. */
+  api.writeSettings({ categories: { idle: { glyph: { kind: 'emoji', value: '🧊' } } } });
+  assert.equal(api.readSettings().categories.idle.glyph.value, '🧊', 'one code point is fine');
+  api.writeSettings({ categories: { idle: { glyph: { kind: 'emoji', value: 'ab' } } } });
+  assert.equal(api.readSettings().categories.idle.glyph.value, 'ab', 'two code points are fine');
+  api.writeSettings({ categories: { idle: { glyph: { kind: 'emoji', value: 'abc' } } } });
+  assert.equal(api.readSettings().categories.idle.glyph.value, '', 'three are refused');
+
+  /** A marked clear hides the icon wherever it is read. */
+  api.writeSettings({ categories: { idle: { glyph: { kind: 'none', value: '' } } } });
+  const cleared = api.readSettings();
+  assert.equal(cleared.categories.idle.glyph.kind, 'none');
+  assert.equal(cleared.categories.idle.glyph.value, '');
+  assert.equal(cleared.choices['categories.idle.glyph.value'], true, 'clearing it is a choice, so the preset rule leaves it alone');
+  assert.equal(api.emojiOf(cleared, 'idle'), '', 'the tab label drops the emoji');
+  assert.deepEqual(api.resolveStateGlyph(cleared, 'idle', 'seed'), { kind: 'none', value: '' });
+  assert.equal(api.labelOf((key) => DICT[key] ?? key, { title: '会话 x', token: 'idle' }, cleared), '会话 x', 'and the label keeps no leading space');
+
+  /** An unmarked empty value still means "use the default icon" at display time. */
+  const unmarked = api.sanitizeSettings({ categories: { idle: { glyph: { value: '' } } } });
+  assert.equal(unmarked.categories.idle.glyph.kind, 'emoji');
+  assert.equal(api.emojiOf(unmarked, 'idle'), api.CATEGORY_GLYPHS.idle, 'the default comes back');
+
+  /** The per-category reset restores one category and drops only its markers. */
+  api.writeSettings({
+    maxSeats: 9,
+    categories: { idle: { glyph: { kind: 'none', value: '' }, order: 42 }, pending: { order: 77 } },
+  });
+  const marked = api.readSettings();
+  assert.equal(marked.maxSeats, 9);
+  assert.equal(marked.categories.idle.order, 42);
+  const after = api.resetCategory('idle');
+  assert.equal(after.maxSeats, 9, 'the global block is untouched');
+  assert.equal(after.categories.pending.order, 77, 'so is the other category');
+  assert.equal(after.categories.idle.order, factory.categories.idle.order, 'the reset category is factory again');
+  assert.equal(after.categories.idle.glyph.kind, factory.categories.idle.glyph.kind);
+  assert.equal(after.categories.idle.glyph.value, factory.categories.idle.glyph.value);
+  assert.deepEqual(Object.keys(after.choices).filter((key) => key.startsWith('categories.idle.')), [], 'its markers are gone');
+  assert.equal(api.resetCategory('nope').maxSeats, 9, 'an unknown id changes nothing');
+  assert.equal(typeof win.__HOTLIST__.settings.resetCategory, 'function', 'the scripting surface exposes it too');
+
+  /** The page clamps what it writes, and every card carries its own reset row. */
+  globalThis.sessionStorage = new MemoryStorage({ 'dsh.hotlist.open': JSON.stringify(['pinned', 'error', 'pending', 'completed', 'running', 'idle']) });
+  const rendered = renderPage();
+  try {
+    const rows = collect(rendered.page, (props) => typeof props['data-hotlist-reset-category'] === 'string');
+    assert.equal(rows.length, 6, 'one reset row per category card');
+    const inputs = collect(rendered.page, (props) => typeof props.className === 'string' && props.className.includes('hl-emoji'));
+    assert.equal(inputs.length, 7, 'six cards, and the pending card carries a second icon');
+    /** Pick by value: this group moved `pending.order`, so the cards are not in their usual order. */
+    const idleInput = inputs.find((input) => input.props.value === api.readSettings().categories.idle.glyph.value);
+    assert.ok(idleInput, 'the idle card renders an emoji input');
+    idleInput.props.onChange({ target: { value: 'abcd' } });
+    assert.equal(api.readSettings().categories.idle.glyph.value, 'ab', 'the input stops at two code points');
+  } finally {
+    rendered.harness.cleanup();
+    delete globalThis.sessionStorage;
+  }
+
+  api.resetSettings();
+  assert.deepEqual(api.readSettings(), factory, 'left as factory defaults for whatever follows');
+});
+test('four new settings fields default and clamp', () => {
+  const d = api.defaultSettings();
+  assert.equal(d.scope, 'smart');
+  assert.equal(d.positions.topbar, true, 'the band is on by default');
+  assert.equal(d.topbar.titleMode, 'custom');
+  assert.equal(d.topbar.maxSeats, 6);
+  assert.equal(d.version, 4, 'no version bump: the fields ride the default branch');
+
+  assert.equal(api.sanitizeSettings({}).scope, 'smart');
+  assert.equal(api.sanitizeSettings({ scope: 'all' }).scope, 'all');
+  assert.equal(api.sanitizeSettings({ scope: 'workspace' }).scope, 'workspace');
+  assert.equal(api.sanitizeSettings({ scope: 'nope' }).scope, 'smart', 'unknown scope falls back');
+
+  assert.equal(api.sanitizeSettings({ topbar: { maxSeats: 99 } }).topbar.maxSeats, 12, 'clamped to the ceiling');
+  assert.equal(api.sanitizeSettings({ topbar: { maxSeats: 0 } }).topbar.maxSeats, 1, 'clamped to the floor');
+  assert.equal(api.sanitizeSettings({ topbar: { maxSeats: 7 } }).topbar.maxSeats, 7, 'in-range passes through');
+  assert.equal(api.sanitizeSettings({ topbar: { maxSeats: 'auto' } }).topbar.maxSeats, 'auto', 'auto is a legal value');
+
+  assert.equal(api.sanitizeSettings({ topbar: { titleMode: 'icon' } }).topbar.titleMode, 'icon');
+  assert.equal(api.sanitizeSettings({ topbar: { titleMode: 'bogus' } }).topbar.titleMode, 'custom', 'unknown titleMode falls back');
+
+  /**
+   * v4 shipped the band switch disabled (`() => {}, true`), so `false` on disk is that
+   * generation's factory default: it yields to the new default unless the user marked it.
+   */
+  assert.equal(api.sanitizeSettings({ positions: { topbar: false } }).positions.topbar, true, 'an unmarked legacy false follows the new default');
+  assert.equal(api.sanitizeSettings({ positions: { topbar: false }, choices: { 'positions.topbar': true } }).positions.topbar, false, 'a marked false is the user\'s pick and stays');
+  assert.equal(api.sanitizeSettings({}).positions.topbar, true, 'an absent field takes the new default');
+});
+
+test('scope persists across a reload', () => {
+  /** Earlier groups persisted `positions.topbar:false` — a scope write must not touch it. */
+  const bandBefore = api.readSettings().positions.topbar;
+  for (const value of ['all', 'workspace', 'smart']) {
+    api.writeSettings({ scope: value });
+    assert.equal(api.readSettings().scope, value, `${value} reads back from storage`);
+    assert.equal(api.sanitizeSettings(JSON.parse(JSON.stringify(api.readSettings()))).scope, value, `${value} survives a sanitize pass`);
+  }
+  api.writeSettings({ scope: 'smart' });
+  assert.equal(api.readSettings().scope, 'smart', 'left on the shipped default');
+  assert.equal(api.readSettings().positions.topbar, bandBefore, 'scope writes leave the stored band flag alone');
+});
+
+test('scope three-way semantics', () => {
+  const list = {
+    ids: ['in-1', 'in-2', 'out-1'],
+    byId: {
+      'in-1': session({ id: 'in-1' }),
+      'in-2': session({ id: 'in-2', running: true }),
+      'out-1': session({ id: 'out-1' }),
+    },
+  };
+  const statuses = new Map([['in-2', { running: true }]]);
+  const pins = ['out-1', 'in-1'];
+  const plan = (settings, overrides) => api.buildSeatPlan(planInput({
+    list, statuses, pinnedSessionIds: pins, ...overrides,
+  }), settings);
+  const categoryOf = (p, id) => p.find((seat) => seat.sessionId === id)?.category;
+  const ids = (p) => p.map((seat) => seat.sessionId);
+
+  /** `planInput` asks the tab surface, and running rides the band by default: re-enable it for this comparison. */
+  const tabbed = (patch) => api.sanitizeSettings({ ...patch, categories: { running: { surfaces: { tab: true } } } });
+  const workspace = tabbed({ scope: 'workspace' });
+  const wPlan = plan(workspace, { workspaceIds: ['in-1', 'in-2'] });
+  assert.equal(ids(wPlan).includes('out-1'), false, 'workspace scope prunes to the current workspace');
+  assert.equal(categoryOf(wPlan, 'in-1'), 'pinned', 'a pin inside the workspace keeps its row');
+  assert.equal(categoryOf(wPlan, 'in-2'), 'running', 'running is unaffected by scope');
+
+  const all = tabbed({ scope: 'all' });
+  const aPlan = plan(all, { workspaceIds: null });
+  assert.equal(ids(aPlan).includes('out-1'), true, 'all shows every workspace');
+  assert.equal(categoryOf(aPlan, 'out-1'), 'pinned', 'all keeps cross-workspace pins');
+
+  const smart = tabbed({ scope: 'smart' });
+  const sPlan = plan(smart, { workspaceIds: null, scopeWorkspaceIds: ['in-1', 'in-2'] });
+  assert.equal(ids(sPlan).includes('out-1'), true, 'smart still shows the cross-workspace session itself');
+  assert.equal(categoryOf(sPlan, 'out-1'), 'idle', 'smart demotes a cross-workspace pin out of the pinned row');
+  assert.equal(categoryOf(sPlan, 'in-1'), 'pinned', 'a pin inside the workspace keeps its row under smart');
+
+  /** The sidebar reads the same two fields: `workspace` drops the row, `smart` keeps it but never as a pin. */
+  const sidebar = (scope, currentWorkspaceIds, pinned) => api.sidebarStateOf({
+    session: session({ id: 'out-1' }),
+    status: {},
+    error: undefined,
+    completedAt: new Map(),
+    pinned,
+    children: 0,
+    scope,
+    currentWorkspaceIds,
+    settings: smart,
+    now: NOW,
+  });
+  assert.equal(sidebar('workspace', ['in-1', 'in-2'], true), null, 'workspace scope drops a foreign row outright');
+  assert.equal(sidebar('smart', ['in-1', 'in-2'], true), 'idle', 'smart keeps the row but not as a pin');
+  assert.equal(sidebar('all', null, true), 'pinned', 'all shows the foreign pin');
+  assert.equal(sidebar('smart', ['in-1', 'in-2'], false), 'idle', 'an in-workspace row is untouched');
+
+  /**
+   * A fresh install has no workspace ids yet. Every scope must then behave like ll —
+   * treating "unknown workspace" as "foreign" emptied the default view.
+   */
+  for (const scope of ['workspace', 'smart']) {
+    const unknown = plan(tabbed({ scope }), { workspaceIds: null, scopeWorkspaceIds: null });
+    assert.equal(ids(unknown).length, 3, scope + ' with unknown workspace keeps every row');
+    assert.equal(categoryOf(unknown, 'out-1'), 'pinned', scope + ' with unknown workspace keeps the pin');
+  }
+});
+
+test('titleMode reaches the pills', () => {
+  const ids = ['tm-a', 'tm-b'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id });
+  enableTopbar();
+  const harness = createCtx({ list: { ids, byId }, statuses: new Map(), groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] } });
+  api.apply(harness.ctx, {});
+  try {
+    const bandNode = () => {
+      let band = harness.entries.get('hotlist.topbar').Component({});
+      if (typeof band.type === 'function') band = band.type(band.props);
+      return band;
+    };
+    const pills = () => collect(bandNode(), (props) => typeof props['data-hotlist-chip'] === 'string');
+    const emojiCells = () => collect(bandNode(), (props) => 'data-hotlist-chip-emoji' in props).length;
+    const titleCells = () => collect(bandNode(), (props) => 'data-hotlist-chip-title' in props).length;
+
+    assert.equal(pills().length, 2, 'both sessions earn a pill');
+    assert.equal(api.readSettings().topbar.titleMode, 'custom');
+    assert.equal(bandNode().props['data-hotlist-title-mode'], 'custom');
+    assert.equal(emojiCells(), 2, 'custom draws the emoji column on every pill');
+    assert.equal(titleCells(), 2, 'and one title segment per pill');
+
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'icon' } });
+    assert.equal(win.__HOTLIST__.topbar().titleMode, 'icon', 'the probe reports the live titleMode');
+    assert.equal(bandNode().props['data-hotlist-title-mode'], 'icon');
+    assert.equal(emojiCells(), 2, 'icon keeps the emoji column');
+
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'text' } });
+    assert.equal(bandNode().props['data-hotlist-title-mode'], 'text');
+    assert.equal(emojiCells(), 0, 'text drops the emoji column');
+    assert.equal(titleCells(), 2, 'the title segment stays');
+  } finally {
+    harness.cleanup();
+    disableTopbar();
+  }
+});
+
+test('settings page shows the new rows', () => {
+  const page = () => {
+    const harness = createCtx({ list: { ids: [], byId: {} }, statuses: new Map(), groups: { items: [], archivedSessionIds: [] } });
+    api.apply(harness.ctx, {});
+    let node = harness.entries.get('hotlist').Component({ close() {}, t: (key) => DICT[key] ?? key });
+    if (typeof node.type === 'function') node = node.type(node.props);
+    return { node, cleanup: () => harness.cleanup() };
+  };
+  const rowsOf = (node) => collect(node, (props) => typeof props['data-hotlist-row'] === 'string')
+    .map((entry) => entry.props['data-hotlist-row']);
+
+  api.writeSettings({ positions: { ...api.readSettings().positions, topbar: true } });
+  const on = page();
+  try {
+    const rows = rowsOf(on.node);
+    assert.equal(rows.includes('scope'), true, 'the scope row sits in the global block');
+    assert.equal(rows.includes('topbar.titleMode'), true, 'titleMode rides the band section');
+    assert.equal(rows.includes('topbar.maxSeats'), true, 'so does the band seat cap');
+  } finally {
+    on.cleanup();
+  }
+
+  api.writeSettings({ positions: { ...api.readSettings().positions, topbar: false } });
+  const off = page();
+  try {
+    const rows = rowsOf(off.node);
+    assert.equal(rows.includes('scope'), true, 'scope is global: it never leaves');
+    assert.equal(rows.includes('topbar.titleMode'), false, 'band rows hide with the band');
+    assert.equal(rows.includes('topbar.maxSeats'), false);
+  } finally {
+    off.cleanup();
+    api.writeSettings({ positions: { ...api.readSettings().positions, topbar: true } });
+  }
+});
+
+// 85. The console entry point merges the live snapshot under the caller's fields, so an
+// explicit ids still decides the rows and a bare module-level call stays empty by design.
+test('console export defers to explicit ids', () => {
+  const row = { id: 'a', displayTitle: 'Alpha', updatedAt: NOW };
+  const input = {
+    format: 'json', ids: ['a'], byId: { a: row }, list: { ids: ['a'], byId: { a: row } },
+    statuses: new Map(), errors: new Map(), completedAt: new Map(),
+    now: NOW, currentId: null, pinnedSessionIds: [], workspaceIds: null,
+    settings: api.defaultSettings(),
+  };
+  const parsed = JSON.parse(api.exportSessions(input));
+  assert.equal(Array.isArray(parsed), true);
+  assert.equal(parsed.length, 1);
+  assert.equal(parsed[0].displayTitle, 'Alpha');
+  /** Without ids the module-level function is deliberately empty; the console wrapper supplies them. */
+  assert.equal(api.exportSessions({ format: 'json' }), '[]');
+});
+test('session export is deterministic and safe to call bare', () => {
+  /** Bare call — no opts at all must not throw and must come back as Markdown. */
+  const bare = api.exportSessions();
+  assert.equal(typeof bare, 'string');
+  assert.ok(bare.startsWith('\uFEFF'), 'the text formats carry a BOM so Notion keeps the Chinese');
+  assert.ok(bare.startsWith('\uFEFF| displayTitle |'), `header first, got ${JSON.stringify(bare.slice(0, 40))}`);
+
+  const input = {
+    ids: ['err', 'idle', 'wait'],
+    byId: {
+      err: { id: 'err', displayTitle: 'broken | pipe', running: false, updatedAt: 1767000000000, cwd: 'C:/w', origin: 'main' },
+      idle: { id: 'idle', displayTitle: 'quiet\ttab\nnewline', running: false, updatedAt: 1767000060000, cwd: 'C:/w', origin: 'main' },
+      wait: { id: 'wait', displayTitle: 'waiting', running: true, updatedAt: 1767000120000, cwd: '', origin: 'main' },
+    },
+    list: {},
+    statuses: new Map([
+      ['err', { running: false, pendingInteraction: null, completionUnread: false }],
+      ['idle', { running: false, pendingInteraction: null, completionUnread: false }],
+      ['wait', { running: true, pendingInteraction: { kind: 'approval' }, completionUnread: false }],
+    ]),
+    errors: new Map([['err', { at: 1767000290000, message: 'boom' }]]),
+    completedAt: new Map(),
+    currentId: 'wait',
+    pinnedSessionIds: [],
+    workspaceIds: ['err', 'idle', 'wait'],
+    archivedSessionIds: [],
+    now: 1767000300000,
+    settings: api.readSettings(),
+  };
+
+  const first = api.exportSessions({ ...input, format: 'md' });
+  const second = api.exportSessions({ ...input, format: 'md' });
+  assert.equal(first, second, 'two exports of one snapshot must be byte-identical');
+
+  /** The error row is in the file: the plugin's own chain, never a second copy of it. */
+  const rows = first.split('\n').slice(2).map((line) => line.split(' | ')[1]);
+  assert.deepEqual([...rows].sort(), ['approval', 'error', 'idle'], `one row per state, got ${JSON.stringify(rows)}`);
+
+  /** Row order is the plugin's seat order — `sortSeats`, not an ordering of my own. */
+  const CATEGORY_OF = { error: 'error', approval: 'pending', question: 'pending', completed: 'completed', running: 'running', pinned: 'pinned', idle: 'idle' };
+  const seatOrder = api.orderedCategories(api.readSettings());
+  const ranks = rows.map((status) => seatOrder.indexOf(CATEGORY_OF[status]));
+  assert.ok(ranks.every((rank) => rank >= 0), `every state maps to a real category, got ${JSON.stringify(ranks)}`);
+  assert.deepEqual(ranks, [...ranks].sort((a, b) => a - b), `rows follow the seat order, got ${JSON.stringify(rows)}`);
+
+  /** A pipe or a newline must not be able to grow the table by a row. */
+  assert.ok(first.includes('broken \\| pipe'), 'the pipe is escaped');
+  assert.ok(first.includes('quiet tab newline'), 'tabs and newlines collapse');
+
+  /** JSON is bare so `JSON.parse` works unmodified, and carries the same rows. */
+  const json = api.exportSessions({ ...input, format: 'json' });
+  assert.equal(json.startsWith('\uFEFF'), false, 'JSON keeps no BOM');
+  const parsed = JSON.parse(json);
+  assert.equal(parsed.length, 3);
+  const broken = parsed.find((row) => row.id === 'err');
+  const waiting = parsed.find((row) => row.id === 'wait');
+  assert.equal(broken.status, 'error');
+  assert.equal(typeof broken.lastActivityLocal, 'string');
+  assert.match(broken.lastActivityLocal, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/, 'a local time, never "3 hours ago"');
+  assert.equal(broken.isCurrent, false);
+  assert.equal(waiting.isCurrent, true, 'the approval row is the current session');
+  assert.equal(broken.origin, 'main');
+
+  /** An unknown format or scope falls back instead of inventing a fourth value. */
+  assert.equal(typeof api.exportSessions({ ...input, format: 'csv' }), 'string');
+  assert.equal(typeof api.exportSessions({ ...input, scope: 'everywhere' }), 'string');
+
+  /** `smart` keeps another workspace's pin out; `all` puts it back; `workspace` keeps only its own. */
+  const cross = { ...input, pinnedSessionIds: ['idle'], workspaceIds: ['err', 'wait'] };
+  const smart = JSON.parse(api.exportSessions({ ...cross, scope: 'smart', format: 'json' }));
+  const all = JSON.parse(api.exportSessions({ ...cross, scope: 'all', format: 'json' }));
+  const workspace = JSON.parse(api.exportSessions({ ...cross, scope: 'workspace', format: 'json' }));
+  assert.equal(smart.some((row) => row.id === 'idle'), false, 'smart drops the other workspace pin');
+  assert.equal(all.length, 3, 'all keeps every row');
+  assert.equal(workspace.length, 2, 'workspace keeps only its own');
+});
+
+// 80. Every "how many" row is the same `[−] [value] [+]` widget; only maxSeats adds 自动.
+test('every seat count uses the same stepper', () => {
+  const { harness, page } = renderPage();
+  try {
+    const row = (key) => collect(page, (props) => props['data-hotlist-row'] === key)[0];
+    for (const key of ['maxSeats', 'pinned.maxSeats', 'topbar.maxSeats', 'collect.completedTtlMs', 'sound.volume', 'recentWindow']) {
+      const node = row(key);
+      assert.ok(node, `missing row ${key}`);
+      assert.equal(collect(node, (props) => props['data-hotlist-stepper'] !== undefined).length, 1, `${key} uses the shared stepper`);
+      const steps = collect(node, (props) => typeof props['data-hotlist-step'] === 'string').map((btn) => btn.props['data-hotlist-step']);
+      assert.deepEqual(steps, ['minus', 'plus'], `${key} has one minus and one plus`);
+      assert.equal(collect(node, (props) => props.className === 'hl-input hl-num').length, 1, `${key} keeps the same value box`);
+    }
+    const auto = (key) => collect(row(key), (props) => props['aria-pressed'] !== undefined).length;
+    assert.equal(auto('maxSeats'), 1, 'maxSeats alone supports 自动');
+    assert.equal(auto('pinned.maxSeats'), 0, 'a pinned cap has no auto mode');
+    assert.equal(auto('topbar.maxSeats'), 0, 'a band cap has no auto mode');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+// 81. The point of the feature: the band is the urgent row, the tab row is the background row.
+test('the band takes the urgent classes and the tab row the background ones', () => {
+  const ids = ['pin-1', 'err-1', 'ask-1', 'done-1', 'idle-1', 'run-1'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id });
+  const statuses = new Map([['ask-1', { pendingInteraction: { kind: 'approval' } }], ['run-1', { running: true }]]);
+  const errors = new Map([['err-1', { message: 'boom', at: NOW }]]);
+  const completedAt = new Map([['done-1', NOW - 60_000]]);
+  const settings = api.defaultSettings();
+  const input = { list: { ids, byId }, statuses, errors, completedAt, now: NOW, workspaceIds: null, limit: 6, pinnedSessionIds: ['pin-1'] };
+  const band = api.buildSeatPlan({ ...input, surface: 'topbar' }, settings);
+  const tab = api.buildSeatPlan({ ...input, surface: 'tab' }, settings);
+  assert.deepEqual(band.map((seat) => seat.category).sort(), ['completed', 'error', 'pending'], 'three urgent rows ride the band');
+  assert.deepEqual(tab.map((seat) => seat.category).sort(), ['idle', 'pinned'], 'two background rows ride the tab');
+  assert.equal(band.some((seat) => seat.sessionId === 'run-1'), false, 'running rides neither row');
+  assert.equal(tab.some((seat) => seat.sessionId === 'run-1'), false, 'running rides neither row');
+  assert.equal(band.some((seat) => seat.sessionId === 'idle-1'), false, 'the band never takes an idle session');
+  assert.equal(tab.some((seat) => seat.sessionId === 'err-1'), false, 'and the tab row never takes an urgent one');
+});
+
+// 82. Mounted for real: pills appear without touching the per-category switches.
+test('the band mounts with pills next to the tab row', () => {
+  api.resetSettings();
+  api.writeSettings({
+    positions: { ...api.readSettings().positions, topbar: true },
+    topbar: { ...api.readSettings().topbar, mode: 'chips', previewInWeb: true },
+  });
+  const ids = ['pv-ask', 'pv-idle'];
+  const byId = {};
+  for (const id of ids) byId[id] = session({ id });
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map([['pv-ask', { pendingInteraction: { kind: 'approval' } }]]),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const reading = win.__HOTLIST__.topbar();
+    assert.equal(reading.mounted, true, 'the band is mounted');
+    assert.deepEqual(reading.chips.map((chip) => chip.id), ['pv-ask'], 'the pending session is the only pill');
+    const band = harness.entries.get('hotlist.topbar').Component({});
+    const pills = collect(band, (props) => typeof props['data-hotlist-chip'] === 'string');
+    assert.equal(pills.length, 1, 'the band really draws something');
+    const seats = [...harness.entries.keys()].filter((id) => id.startsWith('hotlist-seat-'));
+    assert.deepEqual(seats, ['hotlist-seat-pv-idle'], 'the idle session keeps its tab seat');
+  } finally {
+    harness.cleanup();
+    api.resetSettings();
+  }
+});
+
+// 83. One emoji, never two: the three label modes, and the per-category scope.
+test('label modes draw exactly one emoji', () => {
+  assert.equal(api.leadingEmoji('✏️UI 大师'), '✏️');
+  assert.equal(api.leadingEmoji('UI 大师'), '');
+  assert.equal(api.leadingEmoji(''), '');
+  assert.equal(api.leadingEmoji(undefined), '');
+  assert.equal(api.stripLeadingEmoji('✏️UI 大师'), 'UI 大师');
+  assert.equal(api.stripLeadingEmoji('UI 大师'), 'UI 大师');
+
+  const seat = { sessionId: 'emo-1', title: '✏️UI 大师', token: 'idle' };
+  const build = (titleMode, scope) => api.sanitizeSettings({
+    topbar: scope === undefined ? { titleMode } : { titleMode, customScope: scope },
+    categories: { idle: { glyph: { value: '👑' } } },
+  });
+  assert.equal(api.labelOf((key) => key, seat, build('custom')), '✏️ UI 大师', 'custom: one emoji, the title\'s own');
+  assert.equal(api.labelOf((key) => key, seat, build('custom', { idle: false })), '👑 UI 大师', 'custom outside the scope: the category icon');
+  assert.equal(api.labelOf((key) => key, seat, build('icon')), '👑 UI 大师', 'icon: the category icon, the title emoji stripped');
+  assert.equal(api.labelOf((key) => key, seat, build('text')), 'UI 大师', 'text: no emoji at all');
+
+  const plain = { sessionId: 'emo-2', title: 'UI 大师', token: 'idle' };
+  assert.equal(api.labelOf((key) => key, plain, build('custom')), '👑 UI 大师', 'no title emoji: the category icon is the fallback');
+});
+
+// 84. The three modes speak readable names, and old names still load.
+test('label mode names and their aliases', () => {
+  assert.deepEqual(api.TOPBAR_TITLE_MODES, ['text', 'icon', 'custom']);
+  assert.deepEqual(api.TITLE_MODE_ALIASES, { unified: 'text', two: 'icon', smart: 'custom', auto: 'icon' });
+  const normalized = (titleMode) => api.sanitizeSettings({ topbar: { titleMode } }).topbar.titleMode;
+  assert.equal(normalized('unified'), 'text', 'the v5 name for text only');
+  assert.equal(normalized('two'), 'icon', 'the v5 name for the category icon');
+  assert.equal(normalized('smart'), 'custom', 'the v5 name for the custom icon');
+  assert.equal(normalized('auto'), 'icon', 'a name the user typed once reads as icon');
+  assert.equal(normalized('text'), 'text', 'new names pass through');
+  assert.equal(normalized('icon'), 'icon');
+  assert.equal(normalized('custom'), 'custom');
+  assert.equal(normalized('nope'), 'custom', 'an unknown name falls back to the default');
+  assert.equal(normalized(undefined), 'custom', 'an absent field keeps the default');
+  assert.equal(api.readSettings().version, 4, 'aliases are read, never migrated');
+});
+
+// 85. The scope is per category and only `custom` reads it.
+test('custom scope decides per category', () => {
+  const on = (titleMode, scope) => api.sanitizeSettings({ topbar: { titleMode, customScope: scope } }).topbar;
+  const idle = { sessionId: 'scope-1', title: '🎓 大聪明', token: 'idle' };
+  const pinned = { sessionId: 'scope-2', title: '🎓 大聪明', token: 'pinned' };
+  const scoped = on('custom', { idle: false });
+  assert.equal(scoped.customScope.idle, false, 'the switch lands');
+  assert.equal(scoped.customScope.pinned, true, 'and leaves the others alone');
+  assert.equal(api.labelOf((key) => key, idle, { ...api.readSettings(), topbar: scoped }), '🧊 大聪明', 'idle is out of the scope: category icon');
+  assert.equal(api.labelOf((key) => key, pinned, { ...api.readSettings(), topbar: scoped }), '🎓 大聪明', 'pinned is inside it: the title\'s own emoji');
+  const allOff = on('custom', { idle: false, pinned: false, error: false, pending: false, completed: false, running: false });
+  assert.deepEqual(Object.values(allOff.customScope), [false, false, false, false, false, false], 'every switch can be off at once');
+  const iconMode = on('icon', { idle: true });
+  assert.equal(api.labelOf((key) => key, idle, { ...api.readSettings(), topbar: iconMode }), '🧊 大聪明', 'icon ignores the scope entirely');
+  assert.equal(api.customIconWins({ topbar: scoped }, 'pinned'), true);
+  assert.equal(api.customIconWins({ topbar: scoped }, 'idle'), false);
+  assert.equal(api.customIconWins({ topbar: iconMode }, 'pinned'), false, 'only custom reads the scope');
+  assert.equal(api.customIconWins({ topbar: { titleMode: 'custom' } }, 'idle'), true, 'a missing map means inside the scope');
+});
+
+// 86. The scope row exists only while `custom` is chosen.
+test('the scope row only exists in custom mode', () => {
+  api.writeSettings({ positions: { ...api.readSettings().positions, topbar: true } });
+  const render = () => {
+    const { harness, page } = renderPage();
+    return { harness, rows: collect(page, (props) => typeof props['data-hotlist-scope'] === 'string') };
+  };
+  try {
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom' } });
+    const custom = render();
+    try {
+      assert.equal(custom.rows.length, 6, 'six categories, six switches');
+      assert.deepEqual(custom.rows.map((node) => node.props['data-hotlist-scope']), ['error', 'pending', 'completed', 'running', 'idle', 'pinned'], 'ordered like the cards');
+      const first = custom.rows[0];
+      assert.equal(first.props['data-on'], 'true', 'factory defaults are all on');
+      assert.equal(typeof first.children[0].props.onChange, 'function', 'each switch is a real toggle');
+    } finally {
+      custom.harness.cleanup();
+    }
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'icon' } });
+    const icon = render();
+    try {
+      assert.equal(icon.rows.length, 0, 'icon has nothing to scope');
+    } finally {
+      icon.harness.cleanup();
+    }
+  } finally {
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom' } });
+  }
+});
+
+// 87. Pills strip the title emoji too: the band is not a second styling path.
+test('pills strip the title emoji the same way', () => {
+  const ids = ['pill-1', 'pill-2'];
+  const byId = {};
+  byId['pill-1'] = session({ id: 'pill-1', displayTitle: '🎓 大聪明' });
+  byId['pill-2'] = session({ id: 'pill-2', displayTitle: '🎓 小聪明' });
+  enableTopbar();
+  const harness = createCtx({ list: { ids, byId }, statuses: new Map(), groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] } });
+  api.apply(harness.ctx, {});
+  try {
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'icon' } });
+    const bandNode = () => {
+      let band = harness.entries.get('hotlist.topbar').Component({});
+      if (typeof band.type === 'function') band = band.type(band.props);
+      return band;
+    };
+    const emoji = () => collect(bandNode(), (props) => 'data-hotlist-chip-emoji' in props).map((node) => textOf(node));
+    const titles = () => collect(bandNode(), (props) => 'data-hotlist-chip-title' in props).map((node) => textOf(node));
+    assert.equal(emoji().length, 2, 'icon draws one glyph per pill');
+    assert.deepEqual(emoji(), ['🧊', '🧊'], 'the category icon, not the title\'s own');
+    assert.deepEqual(titles(), ['大聪明', '小聪明'], 'and the title emoji is gone from the text');
+
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom' } });
+    assert.deepEqual(emoji(), [], 'custom lets the title emoji win, so there is no second column');
+    assert.deepEqual(titles(), ['🎓 大聪明', '🎓 小聪明'], 'still one emoji, never two');
+
+    api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom', customScope: { ...api.readSettings().topbar.customScope, idle: false } } });
+    assert.deepEqual(emoji(), ['🧊', '🧊'], 'out of the scope the category icon comes back');
+  } finally {
+    harness.cleanup();
+    disableTopbar();
+  }
+});
+
+// 88. The band never starts under the desktop menu: hit testing, not guessing.
+test('the band never starts under the menu', () => {
+  const restore = document.elementsFromPoint;
+  try {
+    const block = { getBoundingClientRect: () => ({ width: 214, height: 40, left: 48, right: 262, top: 0, bottom: 40 }) };
+    document.elementsFromPoint = (x) => (x < 300 ? [block] : []);
+    assert.equal(api.occupiedLeft(), 270, 'the right edge of what is painted plus the gap');
+    assert.equal(api.bandLeft(), 270, 'and that is what the band uses, not the guess');
+    assert.equal(api.leftSource(), 'occupied', 'the source says where it came from');
+
+    // A full-width layout container also answers the hit test; it must not become the left edge.
+    const wide = { getBoundingClientRect: () => ({ width: 1564, height: 40, left: 280, right: 1844, top: 0, bottom: 40 }) };
+    document.elementsFromPoint = () => [wide];
+    assert.equal(api.occupiedLeft(), null, 'a full-width header is not an occupant');
+    assert.equal(api.bandLeft(), api.fallbackLeft(), 'so the band keeps its documented left edge');
+    const offset = { getBoundingClientRect: () => ({ width: 60, height: 40, left: 600, right: 660, top: 0, bottom: 40 }) };
+    document.elementsFromPoint = () => [offset];
+    assert.equal(api.occupiedLeft(), null, 'and neither is something far from the left edge');
+
+    document.elementsFromPoint = () => [];
+    assert.equal(api.occupiedLeft(), null, 'a free stretch reports nothing');
+    assert.equal(api.bandLeft(), api.fallbackLeft(), 'so the documented fallback takes over');
+    assert.equal(api.leftSource(), 'fallback');
+
+    document.elementsFromPoint = undefined;
+    assert.equal(api.occupiedLeft(), null, 'no hit testing: no measurement, no crash');
+    assert.equal(api.bandLeft(), api.fallbackLeft());
+  } finally {
+    document.elementsFromPoint = restore;
+  }
+  assert.equal(source.includes('topbarProbed'), false, 'the frozen measurement flag is gone');
+  assert.equal(source.includes("'data-hotlist-topbar-left-src': leftSource()"), true, 'the band reports which path it took');
+});
+
+// 89. The three modes say what they draw, one sentence each.
+test('label mode labels name what they draw', () => {
+  assert.ok(source.includes("'settings.topbar.titleMode': '标签显示设置'"), 'the row is called label display');
+  assert.ok(source.includes("'settings.topbar.titleMode.text': '仅显示文本'"));
+  assert.ok(source.includes("'settings.topbar.titleMode.icon': '使用插件图标'"));
+  assert.ok(source.includes("'settings.topbar.titleMode.custom': '自定义显示图标'"));
+  assert.equal(source.includes("'settings.topbar.titleMode.unified'"), false, 'the old keys are gone, not duplicated');
+  assert.equal(source.includes("'settings.topbar.titleMode.two'"), false);
+  assert.equal(source.includes("'settings.topbar.titleMode.smart'"), false);
+  assert.ok(source.includes("'settings.topbar.customScope': '自定义生效范围'"), 'the scope row is named');
+  assert.ok(source.includes('Label display'), 'and so does the English row');
+  assert.ok(source.includes('Text only'));
+  assert.ok(source.includes('Plugin icon'));
+  assert.ok(source.includes('Custom icon'));
+  /** One sentence of general guidance, no wall of per-mode paragraphs. */
+  assert.ok(source.includes('决定会话标签前显示什么：只有文本、这类自己的图标，或会话名开头那颗 emoji。'), 'the hint is one line');
+  assert.ok(source.includes('勾选的类别用会话名开头的 emoji 替换图标'), 'the scope hint explains the switch');
+});
+
+
+// 86. The second pass over the settings page: order, removed rows, one stepper family.
+test('settings page reads as one page', () => {
+  api.writeSettings({ positions: { ...api.readSettings().positions, topbar: true } });
+  const { harness, page } = renderPage();
+  try {
+    const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
+      .map((node) => node.props['data-hotlist-row']);
+    assert.ok(rows.indexOf('scope') >= 0 && rows.indexOf('scope') < rows.indexOf('maxSeats'), 'the scope row sits above the seat cap');
+    assert.equal(rows.includes('topbar.mode'), false, 'the band style row is gone; the field stays for the API');
+    assert.equal(rows.includes('topbar.rightReservePx'), false, 'so is the reserve row; the window-control guard is code');
+    const row = (key) => collect(page, (props) => props['data-hotlist-row'] === key)[0];
+    for (const key of ['collect.completedTtlMs', 'sound.volume', 'recentWindow']) {
+      const node = row(key);
+      assert.ok(node !== undefined, `missing row ${key}`);
+      assert.equal(collect(node, (props) => props['data-hotlist-stepper'] !== undefined).length, 1, `${key} uses the shared stepper`);
+      const steps = collect(node, (props) => typeof props['data-hotlist-step'] === 'string').map((btn) => btn.props['data-hotlist-step']);
+      assert.deepEqual(steps, ['minus', 'plus'], `${key} steps both ways`);
+    }
+    const widthSelect = collect(row('topbar.chipWidthPct'), (props) => props.className === 'hl-select')[0];
+    assert.ok(widthSelect !== undefined, 'the pill width still has its select');
+    let zero = null;
+    walk(widthSelect, (node) => {
+      if (node.type === 'option' && node.props !== undefined && node.props.value === 0) zero = node;
+    });
+    assert.equal(textOf(zero), 'settings.topbar.chipWidthDefault', '0% reads as the default, not as a number');
+    assert.equal(source.includes('const WINDOW_CONTROLS_GUARD = 138;'), true, 'the window buttons keep a hard guard');
+    assert.equal(source.includes('width - model.left - model.reserve - WINDOW_CONTROLS_GUARD - 8'), true, 'and the band width subtracts it');
+    assert.equal(source.includes("'settings.pinnedMaxSeatsHint': '对话区 tab 行最多显示几个已置顶会话（0–12）；0 = 不显示。'"), true, 'the three seat-count hints read as one family');
+    assert.equal(source.includes("'settings.topbar.maxSeatsHint': '顶栏最多显示几个会话（1–12），与对话区 tab 行互不影响。'"), true);
+  } finally {
+    harness.cleanup();
+  }
+});
+/**
+ * A failure must survive the run flag that lags behind it. The old rule deleted
+ * every error whose session was `running === true` at sync time, which wiped an
+ * agent error that fires *during* the failing turn — the ⛔ glyph then never
+ * showed (found on a real instance 2026-11-14). Only a newer user message may
+ * retire a failure, so the activity relay has to be subscribed.
+ */
+test('a failure outlives the running flag', () => {
+  assert.equal(
+    source.includes('snapshot.statuses.get(id)?.running === true) errors.delete(id)'),
+    false,
+    'the eager per-sync wipe is gone',
+  );
+  assert.equal(
+    source.includes("ctx.remote.$on('api-session/activity'"),
+    true,
+    'a newer user message is what retires a failure',
+  );
+  assert.equal(
+    source.includes("'hotlist: clear a failure when a newer run starts'"),
+    true,
+    'and the subscription is named, so it shows up in the effect ledger',
+  );
+});
+
+// 93. The sidebar row is not a second styling path: it strips the host emoji too.
+test('sidebar row titles follow the same label modes', () => {
+  clearSidebarRows();
+  clearStyleBlocks();
+  const row = sidebarRow('session-label', '🎓 大聪明');
+  const settings = api.defaultSettings();
+  settings.topbar.titleMode = 'icon';
+  const adapter = api.createSidebarAdapter({
+    document: globalThis.document,
+    readSettings: () => settings,
+    readSession: (sessionId) => ({
+      session: session({ id: sessionId, displayTitle: '🎓 大聪明' }),
+      status: {},
+      error: undefined,
+      completedAt: undefined,
+      pinned: false,
+      children: 0,
+    }),
+  });
+  adapter.start();
+  try {
+    assert.equal(row.title.textContent, '大聪明', 'icon mode: our glyph stands in, so the host emoji goes');
+
+    settings.topbar.titleMode = 'custom';
+    adapter.refresh();
+    assert.equal(row.title.textContent, '🎓 大聪明', 'custom in scope: the host emoji stays, we draw none');
+
+    settings.topbar.titleMode = 'text';
+    adapter.refresh();
+    assert.equal(row.title.textContent, '大聪明', 'text mode: no emoji at all');
+
+    settings.topbar.titleMode = 'custom';
+    settings.topbar.customScope = { ...settings.topbar.customScope, idle: false };
+    adapter.refresh();
+    assert.equal(row.title.textContent, '大聪明', 'custom outside the scope: our glyph wins, the host emoji goes');
+  } finally {
+    settings.topbar.customScope = { ...settings.topbar.customScope, idle: true };
+    adapter.stop();
+  }
+  assert.equal(row.title.textContent, '🎓 大聪明', 'stopping the adapter gives the host its own text back');
+  clearSidebarRows();
 });
 
 console.log(`PASS — ${groups} groups`);

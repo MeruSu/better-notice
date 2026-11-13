@@ -1,5 +1,19 @@
 # Changelog
 
+## 5.0.0-alpha.1
+
+**Windows 桌面版顶栏（v5 第一版，alpha）。** 在窗口最上沿那条 40px 标题带里画一排会话胶囊，与对话区 tab 行并存、互不顶替。仍是 alpha：只在开发 profile 与网页预览里验过，桌面真机三条红线（`top===0`/`height===40`、不压左侧菜单与右侧窗控、拖拽带空隙可点）尚未实测。
+
+- **顶栏**：`positions.topbar` 默认开；`shell.overlay` 里一条 `pointer-events:none` 的透明带，胶囊自己 `pointer-events:auto` + `-webkit-app-region:no-drag`，所以拖拽带照旧能拖。左边界用命中测试（`elementsFromPoint`）实测，只认「贴左边且宽度 ≤ 480」的元素——全宽容器不算占位，否则网页版会把胶囊推到屏幕外。窗控一侧写死 `WINDOW_CONTROLS_GUARD = 138`，不属于设置项。网页版默认不挂，靠 `topbar.previewInWeb` 预览。
+- **谁出现在哪**：`CATEGORY_SURFACES` 重排——报错/待处理/已完成走顶栏，闲置/置顶走 tab 行，进行中两边都不占；`classify()` 六条分支都过 `categoryVisible()`，类不在本面就整体不出现（不再降级成闲置）。
+- **标签显示设置**（`topbar.titleMode`）：`text` 仅显示文本 / `icon` 使用插件图标 / `custom` 自定义显示图标。三档都会剥掉会话名开头那颗 emoji，避免和图标并排成两个 emoji；旧值 `unified`/`two`/`smart` 与 `auto` 全部别名兼容，`SETTINGS_VERSION` 仍 4、无迁移。
+- **自定义生效范围**（`topbar.customScope`）：按类别勾选是否用会话名开头的 emoji 替换图标，只在 `custom` 档出现；设置页第二行，六颗 chip。
+- **置顶顺序默认 60**（原 15）：`LEGACY_DEFAULTS` 认 `0/1/15` 为老默认，用户自己写过的值照旧保留。
+- **侧栏标题归属**：插件会剥掉行标题开头的 emoji 并记住宿主原文，退出时还原；标题被别的插件改写时只 `console.debug` 一次，不动手。
+- **导出**：`window.__HOTLIST__.export({format})` 裸调用不再返回空数组；`scope` 三档在拿不到当前工作区时退化为不裁剪，默认 `smart` 不会空列表。
+- **失败态修 bug**：原来每次 sync 都按「还在跑」清掉错误标记，而真实 agent 错误恰恰发生在失败那一轮还在跑的时候——真 ⛔ 会被擦掉。改成订阅 `api-session/activity`，只有出现更新的用户消息才清，TTL 兜底。
+- **设置页**：三处座位数统一成同一个 stepper（只有座位上限带「自动」）；删「顶栏样式」与「右侧预留」两行（字段保留，API 可写）；单位统一；胶囊宽度 0% 显示「默认」。
+- **测试**：93 组（4.6.5 是 65 组）。
 ## 4.6.5
 
 **修掉 4.6.4 砸死的控件：被预设覆盖的字段，只要用户自己选过，就不再被覆盖。** 4.6.4 没有发布，

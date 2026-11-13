@@ -9,3 +9,5 @@ tmp/
 .cangku/
 __pycache__/
 *.pyc
+# `npm pack` drops the release tarball in the repo root; it is an artefact, not source.
+*.tgz

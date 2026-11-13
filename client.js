@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '4.6.5';
+    const VERSION = '5.0.0-alpha.1';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -102,6 +102,64 @@ window.__ModuleLoader__.load({
     /** How long a seat that disappeared with its session is kept ready to come back as it was. */
     const RECENT_SEAT_MS = 60 * 1000;
 
+    /**
+     * The top bar (v5, form A): one transparent band along the desktop window's
+     * title strip, one pill per hot session. Only the pills paint — the band
+     * itself has no background, no border and no cursor, so the strip stays
+     * draggable wherever there is no pill (see `docs/ARCHITECTURE.md` §18).
+     */
+    const TOPBAR_SLOT = 'shell.overlay';
+    const TOPBAR_ID = 'hotlist.topbar';
+    /** Built-in overlay entries all use 0; -10 keeps the band under the toasts. */
+    const TOPBAR_ORDER = -10;
+    const TOPBAR_MODES = ['chips', 'count', 'off'];
+    /** What a session label starts with: text only, the category icon, or the session's own leading emoji. */
+    const TOPBAR_TITLE_MODES = ['text', 'icon', 'custom'];
+    /** Stored label modes of earlier builds; read as one of the three names above, never rewritten. */
+    const TITLE_MODE_ALIASES = { unified: 'text', two: 'icon', smart: 'custom', auto: 'icon' };
+    /** Which workspaces feed every surface: current only, all, or all without cross-workspace pins. */
+    const SCOPE_MODES = ['workspace', 'all', 'smart'];
+    /** Right edge: the native window buttons are about 138 px wide and are not in the DOM. */
+    const TOPBAR_RESERVE = { min: 0, max: 400, fallback: 0 };
+    /**
+     * Width the window buttons (minimise / maximise / close) own at the right edge of
+     * the desktop title bar. It is not a setting: the band may never paint a pill under
+     * them, so the width arithmetic always subtracts it.
+     */
+    const WINDOW_CONTROLS_GUARD = 138;
+    /** Height of the desktop title strip; a web page has no strip, so the band is preview only there. */
+    const BAND_FALLBACK = 40;
+    /** The hit test walks the left stretch of the strip in these steps, and stops at this x. */
+    const OCCUPIED_PROBE_STEP = 4;
+    const OCCUPIED_PROBE_TO = 460;
+    /**
+     * Only a narrow element hugging the left edge counts as "somebody is already there". A
+     * full-width header also answers the hit test (the web layout has one across the strip) and
+     * its right edge is the viewport, which would push every pill off screen.
+     */
+    const OCCUPIED_LEFT_SLACK = 64;
+    const OCCUPIED_MAX_WIDTH = 480;
+    /** The desktop menu strip holds two buttons; the measured right edge wins, this is the guess. */
+    const MENU_GUESS = 160;
+    /** Retries after mount: the menu strip can mount a frame after our entry does. */
+    const TOPBAR_PROBES = [0, 60, 250, 700];
+    const CHIP_GAP = 4;
+    /** 24 px of padding plus 12 px per code point (a CJK glyph is 12–13.5 px at 13 px). */
+    const CHIP_PAD = 24;
+    const CHIP_CHAR = 12;
+    const CHIP_MIN = 72;
+    const CHIP_MAX = 140;
+    /** The emoji column of a pill: a 14 px glyph plus the 4 px gap. */
+    const CHIP_GLYPH = 18;
+    /** Width of the `+N` pill; `fitChipCount` reserves it before it decides. */
+    const MORE_WIDTH = 40;
+    /** The only mark between two pills: a hairline drawn as an inset shadow, so it costs no layout width. */
+    const CHIP_SEPARATOR = 'rgba(127,127,127,0.10)';
+    /** The pill-width setting: a percentage both shipped defaults move by. */
+    const CHIP_PCT = { min: -30, max: 30, step: 5, fallback: 0 };
+    /** What the width select offers, so a snapped value always has an option to land on. */
+    const CHIP_PCT_STEPS = [-30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30];
+
     const SETTINGS_KEY = 'dsh.hotlist.settings.v1';
     /** Data a future build wrote: kept verbatim so an update never deletes what we do not understand. */
     const PRESERVED_KEY = 'dsh.betterNotice.preserved.v1';
@@ -120,7 +178,7 @@ window.__ModuleLoader__.load({
      * one category with two glyphs; `subagents` folds into `running`.
      */
     const CATEGORY_IDS = ['pinned', 'error', 'pending', 'completed', 'running', 'idle'];
-    const CATEGORY_ORDER = { error: 10, pending: 10, pinned: 15, completed: 20, running: 30, idle: 50 };
+    const CATEGORY_ORDER = { error: 10, pending: 10, pinned: 60, completed: 20, running: 30, idle: 50 };
     /** Tie-break for equal `order` values: `error` before `pending`, then down the list. */
     const CATEGORY_RANK = { error: 0, pending: 1, pinned: 2, completed: 3, running: 4, idle: 5 };
     /**
@@ -130,7 +188,7 @@ window.__ModuleLoader__.load({
      * below applies the same boundary field by field.
      */
     const LEGACY_DEFAULTS = {
-      'categories.pinned.order': [0, 1],
+      'categories.pinned.order': [0, 1, 15],
       'categories.pending.order': [20],
       'categories.completed.order': [30],
       'categories.running.order': [40],
@@ -156,6 +214,12 @@ window.__ModuleLoader__.load({
       'glyph.frequency': [1],
       'glyphSecondary.motion': ['blink'],
       'sound.enabled': [false],
+      /**
+       * v4 shipped the top-bar switch disabled (`() => {}, true`), so a stored `false` is
+       * the old factory default, not a pick — without this every upgraded profile keeps the
+       * band switched off forever.
+       */
+      'positions.topbar': [false],
     };
     /**
      * Which picks the page can offer, and where their marker lives. Writing one of those fields
@@ -163,15 +227,20 @@ window.__ModuleLoader__.load({
      */
     const CHOICE_SLOTS = ['glyph', 'glyphSecondary'];
     const CHOICE_FIELDS = ['value', 'motion', 'motionTarget', 'frequency'];
-    const CHOICE_KEY = /^categories\.[a-z]+\.[a-zA-Z]+(\.[a-zA-Z]+)?$/;
+    const CHOICE_KEY = /^(?:categories\.[a-z]+\.[a-zA-Z]+(?:\.[a-zA-Z]+)?|positions\.topbar)$/;
     const CHOICE_LIMIT = 256;
-    /** `[tab, sidebar, topbar]` per category: every category reaches the tab and sidebar rows, none the top bar. */
+    /**
+     * Which surface each class belongs to. The split is the point of the feature: the band is
+     * the urgent row (error / pending / completed), the tab row is the background row (pinned /
+     * idle). `running` is deliberately on neither — it is what you are already doing, and the
+     * host draws it in the sidebar. `sidebar` still shows all six.
+     */
     const CATEGORY_SURFACES = {
       pinned: { tab: true, sidebar: true, topbar: false },
-      error: { tab: true, sidebar: true, topbar: false },
-      pending: { tab: true, sidebar: true, topbar: false },
-      completed: { tab: true, sidebar: true, topbar: false },
-      running: { tab: true, sidebar: true, topbar: false },
+      error: { tab: false, sidebar: true, topbar: true },
+      pending: { tab: false, sidebar: true, topbar: true },
+      completed: { tab: false, sidebar: true, topbar: true },
+      running: { tab: false, sidebar: true, topbar: false },
       /** Idle keeps its tab seat: the user asked for a third tier inside the tab row. */
       idle: { tab: true, sidebar: true, topbar: false },
     };
@@ -191,7 +260,7 @@ window.__ModuleLoader__.load({
     const POPOUT_AMBIENTS = ['none', 'breath', 'float'];
     const POPOUT_EXITS = ['drop', 'particles', 'fade', 'slide-out'];
     const POPOUT_DISPLAY_MS = { min: 2000, max: 20000, step: 500, fallback: 7000 };
-    const GLYPH_TEXT_LIMIT = 8;
+    const GLYPH_TEXT_LIMIT = 2;
     /** Uploaded glyphs are data URLs; `svg+xml` is rejected (it can carry script), gif keeps its first frame. */
     const GLYPH_IMAGE_RE = /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/;
     const GLYPH_MAX_BYTES = 16 * 1024;
@@ -307,7 +376,9 @@ window.__ModuleLoader__.load({
       return {
         version: SETTINGS_VERSION,
         maxSeats: 6,
-        positions: { tab: true, topbar: false, sidebar: true },
+        scope: 'smart',
+        positions: { tab: true, topbar: true, sidebar: true },
+        topbar: { mode: 'chips', titleMode: 'custom', maxSeats: 6, previewInWeb: false, rightReservePx: TOPBAR_RESERVE.fallback, chipWidthPct: CHIP_PCT.fallback, customScope: defaultCustomScope() },
         takeOverStatusDot: true,
         hideNativeDot: true,
         /** Bursts are per-category: each one rolls its own `glyph.frequency` on every tick. */
@@ -335,6 +406,69 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** True inside the desktop shell: only it injects the 40 px title strip. */
+    function hasWindowsTitlebar() {
+      const root = typeof document === 'undefined' ? void 0 : document.documentElement;
+      return root !== void 0 && root !== null && typeof root.hasAttribute === 'function' && root.hasAttribute('data-windows-titlebar');
+    }
+
+    /**
+     * Width of one pill, in px, from its label alone. Deliberately an estimate:
+     * the pill is laid out with exactly this width (`chipStyle`), so the number
+     * `fitChipCount` works with is the number the browser renders. One pill too
+     * few is safe, one too many would run under the window buttons.
+     */
+    /**
+     * Pill width bounds come from the settings page: one number, the widest a
+     * pill may get. Below `CHIP_MIN` the floor follows it, so narrowing the
+     * setting narrows the short titles too instead of clamping them back up.
+     */
+    /**
+     * Pill width bounds: the shipped defaults shifted by the user's percentage,
+     * each end on its own, so `0%` reproduces `CHIP_MIN`/`CHIP_MAX` exactly.
+     */
+    function chipBounds() {
+      const factor = 1 + readSettings().topbar.chipWidthPct / 100;
+      return { min: Math.round(CHIP_MIN * factor), max: Math.round(CHIP_MAX * factor) };
+    }
+
+    function chipWidthOf(title) {
+      const text = typeof title === 'string' ? title : '';
+      const chars = Array.from(text).length;
+      const bounds = chipBounds();
+      return clamp(CHIP_PAD + chars * CHIP_CHAR, bounds.min, bounds.max);
+    }
+
+    /**
+     * How many of `widths` fit in `available`, reserving room for the `+N` pill
+     * when something is left over. Pure arithmetic: the band never measures its
+     * own children, so the first paint decides without waiting for layout. An
+     * unreadable width means "show everything" — returning 0 would blink on
+     * every resize.
+     */
+    function fitChipCount(widths, available) {
+      const total = widths.length;
+      if (typeof available !== 'number' || Number.isFinite(available) === false || available <= 0) return total;
+      let count = 0;
+      let used = 0;
+      for (const width of widths) {
+        const step = count === 0 ? width : width + CHIP_GAP;
+        if (used + step > available) break;
+        used += step;
+        count += 1;
+      }
+      /** Everything fits: there is no `+N` pill, so the greedy answer stands. */
+      if (count === total) return count;
+      /** Make room for `+N`, but never drop the row to nothing: the right reserve covers the rest. */
+      while (count > 1) {
+        let sum = 0;
+        for (let index = 0; index < count; index += 1) sum += widths[index] + (index === 0 ? 0 : CHIP_GAP);
+        if (sum + MORE_WIDTH + CHIP_GAP <= available) break;
+        count -= 1;
+      }
+      return count;
+    }
+
     const ZH = {
       'tab.untitled': '未命名会话',
       'tab.placeholder': '正在切换到该会话…',
@@ -344,12 +478,27 @@ window.__ModuleLoader__.load({
       'settings.close': '关闭',
       'settings.title': '热表',
       'settings.subtitle': '控制对话区 tab 行的座位数量、状态图标与显示位置。',
+      'settings.export': '导出会话列表',
+      'settings.exportHint': '一行一个会话，按界面顺序排列；两次导出内容一致，可直接导入 Notion 做对比。',
+      'settings.exportRun': '导出',
+      'settings.export.md': 'Markdown 表格',
+      'settings.export.txt': '文本（TXT）',
+      'settings.export.json': 'JSON 数组',
+      'settings.export.downloaded': '已下载到下载目录',
+      'settings.export.saved': '已保存到 ',
+      'settings.export.cancelled': '已取消',
+      'settings.export.failed': '导出失败',
       'settings.group.motion': '动效',
       'settings.maxSeats': '座位上限',
       'settings.maxSeatsHint': '对话区 tab 行最多显示几个会话（1–12）。',
       'settings.maxSeatsAuto': '自动',
+      'settings.scope': '显示范围',
+      'settings.scopeHint': '哪些工作区的会话进列表（顶栏、tab 行与侧栏一致）。',
+      'settings.scope.workspace': '仅当前工作区',
+      'settings.scope.all': '全部工作区',
+      'settings.scope.smart': '全部工作区，但不显示跨工作区的置顶',
       'settings.pinnedMaxSeats': '置顶最多显示',
-      'settings.pinnedMaxSeatsHint': '最上面显示几个已置顶的会话（0–12）；0 = 不显示。',
+      'settings.pinnedMaxSeatsHint': '对话区 tab 行最多显示几个已置顶会话（0–12）；0 = 不显示。',
       'settings.ttl': '刚完成保持时长（分钟）',
       'settings.ttlHint': '会话跑完后仍留在列表里的时间。',
       'settings.recentWindow': '最近对话展示时间（分钟）',
@@ -367,9 +516,30 @@ window.__ModuleLoader__.load({
       'settings.frequencyHint': '0% 不播；100% 每个节拍都播，越往左越稀。',
       'settings.glyphFollowHint': '跟随',
       'settings.position.tab': '对话区 tab 行',
-      'settings.position.tabHint': '当前实现。',
+      'settings.position.tabHint': '显示在对话区上方；桌面版与网页版都可用。',
       'settings.position.topbar': '窗口顶栏',
-      'settings.position.soon': '即将支持',
+      'settings.position.topbarHint': '显示在窗口最上沿的标题栏里；仅桌面版可用，网页版可在下面打开预览。',
+      'settings.position.webOnly': '显示在窗口最上沿的标题栏里；当前是网页版，可在下面打开预览。',
+      'settings.topbar.previewInWeb': '网页版预览',
+      'settings.topbar.previewInWebHint': '网页版没有窗口顶栏，打开后会在页面顶部画一条预览。',
+      'settings.topbar.chipWidth': '胶囊宽度',
+      'settings.topbar.chipWidthHint': '相对默认宽度的增减百分比，步进 5%。',
+      'settings.topbar.chipWidthDefault': '默认',
+      'settings.topbar.titleMode': '标签显示设置',
+      'settings.topbar.titleMode.text': '仅显示文本',
+      'settings.topbar.titleMode.icon': '使用插件图标',
+      'settings.topbar.titleMode.custom': '自定义显示图标',
+      'settings.topbar.titleModeHint': '决定会话标签前显示什么：只有文本、这类自己的图标，或会话名开头那颗 emoji。',
+      'settings.topbar.customScope': '自定义生效范围',
+      'settings.topbar.customScopeHint': '勾选的类别用会话名开头的 emoji 替换图标；没勾的仍用这类自己的图标。',
+      'settings.topbar.maxSeats': '顶栏最多显示',
+      'settings.topbar.maxSeatsHint': '顶栏最多显示几个会话（1–12），与对话区 tab 行互不影响。',
+      'settings.surface.topbar': '顶栏',
+      'settings.surface.topbarHint': '开启后该类别会出现在窗口顶栏的胶囊行里。',
+      'topbar.count': '另有 {count} 个',
+      'topbar.countHint': '点击切到下一个未显示的会话',
+      'topbar.moreHint': '另有 {count} 个，点击逐个切换',
+      'surface.topbar': '窗口顶栏',
       'settings.position.allOff': '热表当前不可见，可从设置重新打开。',
       'settings.takeOverStatusDot': '接管会话行首标记',
       'settings.takeOverStatusDotHint': '隐藏其它插件在会话行首画的状态点（仅侧栏）。',
@@ -400,7 +570,10 @@ window.__ModuleLoader__.load({
       'settings.card.disabled': '停用',
       'settings.glyphSecondary': '提问样式',
       'settings.glyphPlaceholder': '输入字符',
-      'settings.glyphTextLimit': '最多 8 个字符；留空用默认图标。',
+      'settings.glyphTextLimit': '最多 2 个字符；清空即不显示图标。',
+      'settings.resetCategory': '重置这一类',
+      'settings.resetCategoryHint': '只恢复这一类的出厂设置，并清除它的选择标记。',
+      'settings.resetCategoryGo': '重置',
       'settings.upload.missing': '没有选中文件。',
       'settings.upload.type': '只支持 PNG / JPEG / WebP / GIF（不收 SVG）。',
       'settings.upload.size': '源文件超过 4 MB。',
@@ -441,8 +614,8 @@ window.__ModuleLoader__.load({
       'settings.sound.alert': '提示音',
       'settings.sound.chime1': '铃声一',
       'settings.sound.chime2': '铃声二',
-      'settings.sound.volume': '全局音量',
-      'settings.sound.volumeHint': '0–100；按这个音量播放提示音。',
+      'settings.sound.volume': '全局音量（0–100）',
+      'settings.sound.volumeHint': '按这个音量播放提示音。',
       'settings.sound.enabled': '播放音效',
       'settings.sound.preview': '试听',
       'settings.sound.previewHint': '点一下立刻播一条；浏览器可能拦截自动播放。',
@@ -468,12 +641,27 @@ window.__ModuleLoader__.load({
       'settings.close': 'Close',
       'settings.title': 'Hot List',
       'settings.subtitle': 'Seats, state glyphs and where the list appears.',
+      'settings.export': 'Export session list',
+      'settings.exportHint': 'One row per session, in the order on screen; two exports of the same data match, so Notion can diff them.',
+      'settings.exportRun': 'Export',
+      'settings.export.md': 'Markdown table',
+      'settings.export.txt': 'Text (TXT)',
+      'settings.export.json': 'JSON array',
+      'settings.export.downloaded': 'Downloaded to your downloads folder',
+      'settings.export.saved': 'Saved to ',
+      'settings.export.cancelled': 'Cancelled',
+      'settings.export.failed': 'Export failed',
       'settings.group.motion': 'Motion',
       'settings.maxSeats': 'Maximum seats',
       'settings.maxSeatsHint': 'How many sessions the tab row may show (1–12).',
       'settings.maxSeatsAuto': 'Automatic',
+      'settings.scope': 'Scope',
+      'settings.scopeHint': 'Which workspaces feed the list (top bar, tab row and sidebar alike).',
+      'settings.scope.workspace': 'Current workspace only',
+      'settings.scope.all': 'All workspaces',
+      'settings.scope.smart': 'All workspaces, but no cross-workspace pins',
       'settings.pinnedMaxSeats': 'Pinned shown',
-      'settings.pinnedMaxSeatsHint': 'How many pinned sessions get the top of the row (0–12); 0 = none.',
+      'settings.pinnedMaxSeatsHint': 'How many pinned sessions the conversation tab row may show (0-12); 0 = none.',
       'settings.ttl': 'Keep finished seats for (minutes)',
       'settings.ttlHint': 'How long a finished session stays in the list.',
       'settings.recentWindow': 'Recent conversation window (minutes)',
@@ -491,9 +679,30 @@ window.__ModuleLoader__.load({
       'settings.frequencyHint': '0% never plays; 100% fires every beat. Further left is rarer.',
       'settings.glyphFollowHint': 'Follows',
       'settings.position.tab': 'Conversation tab row',
-      'settings.position.tabHint': 'The current implementation.',
+      'settings.position.tabHint': 'Shown above the conversation area; available in both the desktop app and a web page.',
       'settings.position.topbar': 'Window top bar',
-      'settings.position.soon': 'Coming soon',
+      'settings.position.topbarHint': 'Shown in the title bar at the very top of the window; desktop only, a web page can turn on the preview below.',
+      'settings.position.webOnly': 'Shown in the title bar at the very top of the window; this is a web page, turn on the preview below.',
+      'settings.topbar.previewInWeb': 'Preview in a web page',
+      'settings.topbar.previewInWebHint': 'A web page has no title strip; this draws the band at the top of the page.',
+      'settings.topbar.chipWidth': 'Pill width',
+      'settings.topbar.chipWidthHint': 'Percent added to the default pill width, in steps of 5%.',
+      'settings.topbar.chipWidthDefault': 'Default',
+      'settings.topbar.titleMode': 'Label display',
+      'settings.topbar.titleMode.text': 'Text only',
+      'settings.topbar.titleMode.icon': 'Plugin icon',
+      'settings.topbar.titleMode.custom': 'Custom icon',
+      'settings.topbar.titleModeHint': 'What a session label starts with: text only, this category’s own icon, or the emoji the name starts with.',
+      'settings.topbar.customScope': 'Custom icon scope',
+      'settings.topbar.customScopeHint': 'Ticked categories use the emoji the name starts with instead of their icon; unticked ones keep the icon.',
+      'settings.topbar.maxSeats': 'Top bar max sessions',
+      'settings.topbar.maxSeatsHint': 'How many sessions the top bar may show (1-12), independent of the conversation tab row.',
+      'settings.surface.topbar': 'Top bar',
+      'settings.surface.topbarHint': 'When on, this category appears as pills in the window top bar.',
+      'topbar.count': '{count} more',
+      'topbar.countHint': 'Click to switch to the next hidden session',
+      'topbar.moreHint': '{count} more, click to step through them',
+      'surface.topbar': 'Window top bar',
       'settings.position.allOff': 'The hot list is hidden right now — turn a position back on here.',
       'settings.takeOverStatusDot': 'Take over the row marker',
       'settings.takeOverStatusDotHint': 'Hides state dots drawn by other plugins at the start of a session row (sidebar only).',
@@ -524,7 +733,10 @@ window.__ModuleLoader__.load({
       'settings.card.disabled': 'off',
       'settings.glyphSecondary': 'Question style',
       'settings.glyphPlaceholder': 'Type a character',
-      'settings.glyphTextLimit': 'Up to 8 characters; empty uses the default icon.',
+      'settings.glyphTextLimit': 'Up to 2 code points; clearing it hides the icon.',
+      'settings.resetCategory': 'Reset this category',
+      'settings.resetCategoryHint': 'Restores this one category to its factory shape and drops its markers.',
+      'settings.resetCategoryGo': 'Reset',
       'settings.upload.missing': 'No file selected.',
       'settings.upload.type': 'PNG / JPEG / WebP / GIF only (SVG is rejected).',
       'settings.upload.size': 'The source file is larger than 4 MB.',
@@ -565,8 +777,8 @@ window.__ModuleLoader__.load({
       'settings.sound.alert': 'Alert',
       'settings.sound.chime1': 'Chime 1',
       'settings.sound.chime2': 'Chime 2',
-      'settings.sound.volume': 'Global volume',
-      'settings.sound.volumeHint': '0–100; category sounds play at this volume.',
+      'settings.sound.volume': 'Global volume (0-100)',
+      'settings.sound.volumeHint': 'Category sounds play at this volume.',
       'settings.sound.enabled': 'Play sound',
       'settings.sound.preview': 'Preview',
       'settings.sound.previewHint': 'Clicking plays one now; the browser may still block autoplay.',
@@ -719,6 +931,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     function choicesFromPatch(patch, base) {
       const next = { ...(isPlainObject(base.choices) ? base.choices : {}) };
       if (isPlainObject(patch) === false) return next;
+      if (isPlainObject(patch.positions) && typeof patch.positions.topbar === 'boolean') next['positions.topbar'] = true;
       const categories = isPlainObject(patch.categories) ? patch.categories : {};
       for (const [category, change] of Object.entries(categories)) {
         if (CATEGORY_IDS.includes(category) === false || isPlainObject(change) === false) continue;
@@ -765,6 +978,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         : oldIsChoice ? oldEmoji : fallback.kind === 'emoji' ? fallback.value : '';
       const emoji = emojiSource.replace(/[\u0000-\u001f\u007f]/g, '').trim();
       next.value = [...emoji].length <= GLYPH_TEXT_LIMIT ? emoji : '';
+      /** A marked `kind:'none'` hides the icon; an unmarked empty value still means "use the default". */
+      if (own.kind === 'none' && valueChosen === true && next.uploads.length === 0) {
+        next.kind = 'none';
+        next.value = '';
+      }
       const motionChosen = isChoice('motion');
       const motionValues = legacyValuesOf(sub, 'motion');
       const ownMotionIsChoice = MOTION_NAMES.includes(own.motion) && (motionChosen || isLegacyValue(motionValues, own.motion) === false);
@@ -873,9 +1091,39 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       else if (typeof raw.maxSeats === 'number' && Number.isFinite(raw.maxSeats)) {
         next.maxSeats = clamp(Math.round(raw.maxSeats), MAX_SEATS.min, MAX_SEATS.max);
       }
+      if (SCOPE_MODES.includes(raw.scope)) next.scope = raw.scope;
       if (isPlainObject(raw.positions)) {
         for (const key of ['tab', 'topbar', 'sidebar']) {
-          if (typeof raw.positions[key] === 'boolean') next.positions[key] = raw.positions[key];
+          if (typeof raw.positions[key] !== 'boolean') continue;
+          /** Same boundary as the presets: an unmarked value equal to an old default follows the default. */
+          const stale = isLegacyValue(legacyValuesOf('positions', key), raw.positions[key]);
+          const chosen = next.choices[`positions.${key}`] === true;
+          next.positions[key] = stale === true && chosen === false ? next.positions[key] : raw.positions[key];
+        }
+      }
+      if (isPlainObject(raw.topbar)) {
+        if (TOPBAR_MODES.includes(raw.topbar.mode)) next.topbar.mode = raw.topbar.mode;
+        /** Old names are still on disk: a known alias reads as its new name, an unknown one keeps the default. */
+        const titleMode = TITLE_MODE_ALIASES[raw.topbar.titleMode] ?? raw.topbar.titleMode;
+        if (TOPBAR_TITLE_MODES.includes(titleMode)) next.topbar.titleMode = titleMode;
+        if (isPlainObject(raw.topbar.customScope)) {
+          for (const category of CATEGORY_IDS) {
+            if (typeof raw.topbar.customScope[category] === 'boolean') {
+              next.topbar.customScope[category] = raw.topbar.customScope[category];
+            }
+          }
+        }
+        if (raw.topbar.maxSeats === 'auto') next.topbar.maxSeats = 'auto';
+        else if (typeof raw.topbar.maxSeats === 'number' && Number.isFinite(raw.topbar.maxSeats)) {
+          next.topbar.maxSeats = clamp(Math.round(raw.topbar.maxSeats), MAX_SEATS.min, MAX_SEATS.max);
+        }
+        if (typeof raw.topbar.previewInWeb === 'boolean') next.topbar.previewInWeb = raw.topbar.previewInWeb;
+        if (typeof raw.topbar.rightReservePx === 'number' && Number.isFinite(raw.topbar.rightReservePx)) {
+          next.topbar.rightReservePx = clamp(Math.round(raw.topbar.rightReservePx), TOPBAR_RESERVE.min, TOPBAR_RESERVE.max);
+        }
+        if (typeof raw.topbar.chipWidthPct === 'number' && Number.isFinite(raw.topbar.chipWidthPct)) {
+          const snapped = Math.round(raw.topbar.chipWidthPct / CHIP_PCT.step) * CHIP_PCT.step;
+          next.topbar.chipWidthPct = clamp(snapped, CHIP_PCT.min, CHIP_PCT.max);
         }
       }
       for (const key of ['takeOverStatusDot', 'hideNativeDot']) {
@@ -1083,6 +1331,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const art = pickPopoutArt(settings, category);
         if (art.kind !== 'emoji') return { kind: 'img', value: art.value };
       }
+      if (glyph.kind === 'none') return { kind: 'none', value: '' };
       return { kind: 'emoji', value: glyph.value !== '' ? glyph.value : CATEGORY_GLYPHS[category] };
     }
 
@@ -1095,7 +1344,44 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     function emojiOf(settings, token) {
       const category = CATEGORY_OF_TOKEN[token] ?? 'running';
       const glyph = tokenGlyph(settings, token);
+      /** `kind:'none'` is a deliberate "no icon": the label and the band show the title alone. */
+      if (glyph.kind === 'none') return '';
       return glyph.kind === 'emoji' && glyph.value !== '' ? glyph.value : CATEGORY_GLYPHS[category];
+    }
+
+    /**
+     * The emoji a session title starts with, or `''`. `smart` uses it *instead of* the
+     * category icon: the host prints the title itself, so drawing both would put two
+     * emoji side by side. Deliberately narrow — pictographs and regional indicators,
+     * plus the variation selectors and ZWJ sequences that glue one emoji together.
+     */
+    /** Every class starts inside the custom-icon scope, so a fresh install looks the same in all modes. */
+    function defaultCustomScope() {
+      const scope = {};
+      for (const category of CATEGORY_IDS) scope[category] = true;
+      return scope;
+    }
+
+    /**
+     * Whether a session's own leading emoji beats the category icon. Only `custom` reads the
+     * scope: `text` draws nothing at all and `icon` always draws the category icon.
+     */
+    function customIconWins(settings, category) {
+      if (settings.topbar.titleMode !== 'custom') return false;
+      return settings.topbar.customScope?.[category] !== false;
+    }
+
+    const LEADING_EMOJI_RE = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\uFE0F|\u200D(?:\p{Extended_Pictographic}|\p{Regional_Indicator})|\p{Emoji_Modifier})*/u;
+    function leadingEmoji(title) {
+      if (typeof title !== 'string') return '';
+      const match = LEADING_EMOJI_RE.exec(title.trimStart());
+      return match === null ? '' : match[0];
+    }
+
+    /** The title with the emoji `leadingEmoji` just took removed, so `smart` prints it once. */
+    function stripLeadingEmoji(title) {
+      const emoji = leadingEmoji(title);
+      return emoji === '' ? title : title.trimStart().slice(emoji.length).trimStart();
     }
 
     /** Motion of a token, with its target (glyph-only or glyph + row title). */
@@ -1146,8 +1432,10 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     /** Every path this build can write; anything else came from a version we do not know yet. */
     function knownLeaves() {
       const leaves = new Set([
-        'version', 'maxSeats', 'takeOverStatusDot', 'hideNativeDot', 'pins', 'choices',
+        'version', 'maxSeats', 'scope', 'takeOverStatusDot', 'hideNativeDot', 'pins', 'choices',
         'positions.tab', 'positions.topbar', 'positions.sidebar',
+        'topbar.mode', 'topbar.titleMode', 'topbar.maxSeats', 'topbar.previewInWeb', 'topbar.rightReservePx', 'topbar.chipWidthPct',
+        ...CATEGORY_IDS.map((category) => `topbar.customScope.${category}`),
         'display.reduceMotion', 'display.motionIntervalMs',
         'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.overlayKey',
         'overlay.side', 'overlay.fallbackImage', 'overlay.sizeMin', 'overlay.sizeMax',
@@ -1169,7 +1457,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     }
 
     function knownContainers() {
-      const containers = new Set(['positions', 'display', 'shortcuts', 'overlay', 'collect', 'sound', 'pinned', 'categories']);
+      const containers = new Set(['positions', 'topbar', 'display', 'shortcuts', 'overlay', 'collect', 'sound', 'pinned', 'categories']);
       for (const category of CATEGORY_IDS) {
         containers.add(`categories.${category}`);
         for (const side of ['glyph', 'glyphSecondary', 'popout', 'sound']) containers.add(`categories.${category}.${side}`);
@@ -1180,11 +1468,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     /** Paths a user value can exceed; the same list drives both the record and the revival. */
     function rangeOf(path) {
       if (path === 'maxSeats') return [MAX_SEATS.min, MAX_SEATS.max];
+      if (path === 'topbar.maxSeats') return [MAX_SEATS.min, MAX_SEATS.max];
       if (path === 'collect.completedTtlMs') return [TTL_MINUTES.min * 60000, TTL_MINUTES.max * 60000];
       if (path === 'collect.recentWindowMinutes') return [RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max];
       if (path === 'pinned.maxSeats') return [PINNED_SEATS.min, PINNED_SEATS.max];
       if (path === 'sound.volume') return [0, 100];
       if (path === 'overlay.sizeMin' || path === 'overlay.sizeMax') return [OVERLAY_SIZE.min, OVERLAY_SIZE.max];
+      if (path === 'topbar.rightReservePx') return [TOPBAR_RESERVE.min, TOPBAR_RESERVE.max];
+      if (path === 'topbar.chipWidthPct') return [CHIP_PCT.min, CHIP_PCT.max];
       if (path.endsWith('.order')) return [1, 99];
       if (path.endsWith('.glyph.frequency')) return [0, 1];
       return null;
@@ -1506,6 +1797,25 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       notify();
       return settingsCache;
     }
+    /** Restore one category to its factory shape and drop only that category's markers. */
+    function resetCategory(category) {
+      if (CATEGORY_IDS.includes(category) === false) return settingsCache ?? readSettings();
+      const base = settingsCache ?? readSettings();
+      const prefix = `categories.${category}.`;
+      const choices = {};
+      for (const [key, value] of Object.entries(base.choices ?? {})) {
+        if (key.startsWith(prefix) === false) choices[key] = value;
+      }
+      settingsCache = sanitizeSettings({
+        ...base,
+        choices,
+        categories: { ...base.categories, [category]: defaultCategory(category) },
+      });
+      persist(settingsCache);
+      notify();
+      return settingsCache;
+    }
+
 
     /** Cross-window sync; the writing document broadcasts through `writeSettings` itself. */
     function watchStorage() {
@@ -1615,30 +1925,43 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const within = settings.collect.recentWindowMinutes;
 
         /** One session, one category: a live failure outranks everything, a pin only outranks `idle`. */
-        if (failure !== void 0 && usable.has('error') && categoryVisible(settings, 'error', surface)) {
+        if (failure !== void 0 && usable.has('error')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'error', surface) === false) continue;
           rows.push({ ...base, category: 'error', token: 'error', pinLevel: null, errorMessage: failure.message });
           continue;
         }
-        if ((kind === 'approval' || kind === 'question' || kind === 'plan-review')
-          && usable.has('pending') && categoryVisible(settings, 'pending', surface)) {
+        if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && usable.has('pending')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'pending', surface) === false) continue;
           rows.push({ ...base, category: 'pending', token: kind === 'approval' ? 'approval' : 'question', pinLevel: null });
           continue;
         }
-        if (finishedAt !== void 0 && input.now - finishedAt < settings.collect.completedTtlMs
-          && usable.has('completed') && categoryVisible(settings, 'completed', surface)) {
+        if (finishedAt !== void 0 && input.now - finishedAt < settings.collect.completedTtlMs && usable.has('completed')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'completed', surface) === false) continue;
           rows.push({ ...base, category: 'completed', token: 'completed', pinLevel: null });
           continue;
         }
-        if ((running === true || children > 0) && usable.has('running') && categoryVisible(settings, 'running', surface)) {
+        if ((running === true || children > 0) && usable.has('running')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'running', surface) === false) continue;
           rows.push({ ...base, category: 'running', token: 'running', pinLevel: null });
           continue;
         }
-        if (pinIndex >= 0 && usable.has('pinned') && categoryVisible(settings, 'pinned', surface)) {
+        /** `smart` shows every workspace but never a pin from another one: the pin row is skipped, the session still earns its other categories. */
+        const crossWorkspacePin = settings.scope === 'smart'
+          && input.scopeWorkspaceIds !== null && input.scopeWorkspaceIds !== void 0
+          && Array.isArray(input.scopeWorkspaceIds) && input.scopeWorkspaceIds.includes(id) === false;
+        if (pinIndex >= 0 && !crossWorkspacePin && usable.has('pinned')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'pinned', surface) === false) continue;
           rows.push({ ...base, category: 'pinned', token: 'pinned', pinLevel: pinIndex + 1 });
           continue;
         }
-        if (within > 0 && input.now - updatedAt <= within * 60000
-          && usable.has('idle') && categoryVisible(settings, 'idle', surface)) {
+        if (within > 0 && input.now - updatedAt <= within * 60000 && usable.has('idle')) {
+          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
+          if (categoryVisible(settings, 'idle', surface) === false) continue;
           rows.push({ ...base, category: 'idle', token: 'idle', pinLevel: null });
         }
       }
@@ -1716,12 +2039,215 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return plan;
     }
 
+    // =========================================================================
+    // Session list export. Pure: the same opts in -> the same string out, so two
+    // exports of one snapshot are byte-identical and Notion can diff them.
+    //
+    // The action takes its parameters (`format`, `scope`, `includeArchived`,
+    // `includeSubagents`) as arguments on purpose: an action is not a setting,
+    // so nothing here goes through `defaultSettings` / `knownLeaves` /
+    // `sanitizeSettings` / `rangeOf`, and `SETTINGS_VERSION` stays 4.
+    // =========================================================================
+
+    /** Column order of the export; `id` last so the Markdown table stays narrow. */
+    const EXPORT_COLUMNS = Object.freeze([
+      'displayTitle', 'status', 'workspace', 'lastActivityIso', 'lastActivityLocal',
+      'pinned', 'archived', 'running', 'pendingKind', 'completionUnread',
+      'isCurrent', 'origin', 'id',
+    ]);
+    const EXPORT_FORMATS = Object.freeze(['md', 'txt', 'json']);
+    /** The `scope` vocabulary belongs to the settings field; this action only reads it. */
+    const EXPORT_SCOPES = Object.freeze(['workspace', 'all', 'smart']);
+    /** Windows Notepad needs it or a Chinese title comes back as mojibake. */
+    const EXPORT_BOM = '\uFEFF';
+    /** Set by `apply()`: the settings page cannot reach the session stores by itself. */
+    let exportAction = null;
+
+    /** `2026-11-13 01:47`, derived from the epoch value alone — never from `Date.now()`. */
+    function localStamp(epochMs) {
+      if (typeof epochMs !== 'number' || Number.isFinite(epochMs) === false || epochMs <= 0) return '';
+      const at = new Date(epochMs);
+      const pad = (value) => String(value).padStart(2, '0');
+      return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+    }
+
+    /** `sidebarStateOf` tokens -> the category `sortSeats` orders by. */
+    const EXPORT_CATEGORY_OF = Object.freeze({
+      error: 'error', approval: 'pending', question: 'pending',
+      completed: 'completed', running: 'running', pinned: 'pinned', idle: 'idle',
+    });
+
+    /**
+     * A copy of the settings with every sidebar surface open. `sidebarStateOf`
+     * gates each state on `surfaces.<surface>` because it draws one surface; an
+     * export draws none, so the per-surface switches must not change the answer.
+     * `enabled` is left alone — a state the user switched off entirely stays
+     * off, which keeps the export agreeing with the UI.
+     */
+    function openExportSurfaces(settings) {
+      const categories = {};
+      for (const key of Object.keys(settings?.categories ?? {})) {
+        const entry = settings.categories[key];
+        categories[key] = { ...entry, surfaces: { ...(entry.surfaces ?? {}), sidebar: true } };
+      }
+      return { ...settings, categories };
+    }
+
+    /**
+     * Pure: the exported rows, filtered and then sorted. `input` mirrors
+     * `planFrom()` — `readSnapshot()` carries neither `errors`, `completedAt`
+     * nor the archived ids (it drops archived ids at the source), and must not
+     * be changed to add them, so the caller supplies all three.
+     *
+     * The state chain is `sidebarStateOf`'s, never a second copy of it: another
+     * chain would call one session `error` on screen and `approval` in the file.
+     * When the chain returns `null` (older than the recent window) the row falls
+     * back to `idle`, because every exported session needs one of the states.
+     */
+    function extractExportRows(input) {
+      const settings = openExportSurfaces(input.settings);
+      const now = input.now;
+      const statuses = input.statuses ?? new Map();
+      const errors = input.errors ?? new Map();
+      const completedAt = input.completedAt ?? new Map();
+      const archivedIds = new Set(input.archivedSessionIds ?? []);
+      const pinnedIds = Array.isArray(input.pinnedSessionIds) ? input.pinnedSessionIds : [];
+      const scope = EXPORT_SCOPES.includes(input.scope) ? input.scope : 'smart';
+      const includeArchived = input.includeArchived === true;
+      const includeSubagents = input.includeSubagents === true;
+      const workspaceIds = input.workspaceIds ?? null;
+      const inWorkspace = (id) => workspaceIds === null || workspaceIds.includes(id);
+
+      const rows = [];
+      for (const id of input.ids ?? []) {
+        const session = input.byId?.[id];
+        if (session === void 0 || session.blank === true) continue;
+        /** `classify` skips these too: a session the UI never shows is not exported. */
+        if (session.origin === 'subagent' && includeSubagents !== true) continue;
+        const archived = archivedIds.has(id);
+        if (archived && includeArchived !== true) continue;
+        if (scope === 'workspace' && inWorkspace(id) === false) continue;
+        const pinIndex = pinnedIds.indexOf(id);
+        const pinned = pinIndex >= 0;
+        /** `smart` = every workspace except a pin that belongs to another one. */
+        if (scope === 'smart' && pinned && inWorkspace(id) === false) continue;
+
+        const status = statuses.get(id);
+        const token = sidebarStateOf({
+          session,
+          status,
+          error: errors.get(id),
+          completedAt: completedAt.get(id),
+          settings,
+          now,
+          pinned,
+          children: runningChildren(input.list, statuses, id),
+        }) ?? 'idle';
+
+        rows.push({
+          displayTitle: typeof session.displayTitle === 'string' ? session.displayTitle : '',
+          status: token,
+          workspace: typeof session.cwd === 'string' ? session.cwd : '',
+          lastActivityIso: typeof session.updatedAt === 'number' ? session.updatedAt : 0,
+          lastActivityLocal: localStamp(session.updatedAt),
+          pinned,
+          archived,
+          running: status?.running === undefined ? session.running === true : status.running === true,
+          pendingKind: status?.pendingInteraction?.kind ?? '',
+          completionUnread: status?.completionUnread === true,
+          isCurrent: id === input.currentId,
+          origin: session.origin === 'subagent' ? 'subagent' : 'main',
+          id,
+          /** Sorting keys, not exported: `sortSeats` needs them and the file does not. */
+          category: EXPORT_CATEGORY_OF[token] ?? 'idle',
+          pinLevel: pinned ? pinIndex + 1 : null,
+          /** `sortSeats` tie-breaks on time, then on `sessionId` — `id` is not read there. */
+          updatedAt: typeof session.updatedAt === 'number' ? session.updatedAt : 0,
+          sessionId: id,
+        });
+      }
+      /** The plugin's own sort, so the file's order is the order on screen. */
+      return sortSeats(settings, rows);
+    }
+
+    /** Booleans read as `yes`/`no` in the table and stay booleans in JSON. */
+    function exportCell(row, column) {
+      const value = row[column];
+      if (typeof value === 'boolean') return value ? 'yes' : 'no';
+      return value === void 0 || value === null ? '' : String(value);
+    }
+
+    /** A title may contain `|`, a tab or a newline — all three break a Markdown cell. */
+    function mdCell(text) {
+      return text.replace(/[\t\r\n]+/g, ' ').replace(/\|/g, '\\|');
+    }
+
+    /** Tab-separated, so a literal tab or newline in a title has to go. */
+    function txtCell(text) {
+      return text.replace(/[\t\r\n]+/g, ' ');
+    }
+
+    function exportRowsJson(rows) {
+      return JSON.stringify(rows.map((row) => {
+        const out = {};
+        for (const column of EXPORT_COLUMNS) out[column] = row[column];
+        return out;
+      }), null, 2);
+    }
+
+    function serializeExport(rows, format) {
+      if (format === 'json') return exportRowsJson(rows);
+      const render = (row, escapeCell) => EXPORT_COLUMNS.map((column) => escapeCell(exportCell(row, column)));
+      if (format === 'txt') {
+        return [
+          EXPORT_COLUMNS.join('\t'),
+          ...rows.map((row) => render(row, txtCell).join('\t')),
+        ].join('\n');
+      }
+      return [
+        `| ${EXPORT_COLUMNS.join(' | ')} |`,
+        `| ${EXPORT_COLUMNS.map(() => '---').join(' | ')} |`,
+        ...rows.map((row) => `| ${render(row, mdCell).join(' | ')} |`),
+      ].join('\n');
+    }
+
+    /**
+     * `exportSessions(opts)` — pure, and safe to call bare: with no `ids` it
+     * returns an empty export instead of throwing. `scope` is read from the
+     * settings only when the caller does not pass one, and an unknown value
+     * falls back to `smart` rather than to inventing a fourth one.
+     */
+    function exportSessions(opts = {}) {
+      const format = EXPORT_FORMATS.includes(opts.format) ? opts.format : 'md';
+      let scope = opts.scope;
+      if (EXPORT_SCOPES.includes(scope) === false) {
+        try {
+          scope = readSettings().scope;
+        } catch {
+          scope = void 0;
+        }
+      }
+      if (EXPORT_SCOPES.includes(scope) === false) scope = 'smart';
+      const rows = opts.ids === void 0 ? [] : extractExportRows({ ...opts, scope });
+      /** JSON stays bare so `JSON.parse` works unmodified; the text formats get the BOM. */
+      return format === 'json' ? serializeExport(rows, format) : EXPORT_BOM + serializeExport(rows, format);
+    }
+
     /** Tab label: the token's emoji + title shortened to the tab width. */
     function labelOf(t, seat, settings = snapshot()) {
-      const title = seat.title === '' ? t('tab.untitled') : shortenTitle(seat.title);
+      const mode = settings.topbar.titleMode;
+      const category = CATEGORY_OF_TOKEN[seat.token ?? seat.badge ?? null] ?? 'running';
+      const own = leadingEmoji(seat.title);
+      /** `custom` lets the emoji the user typed into the title win; `icon` and `text` never use it. */
+      const fromTitle = own !== '' && customIconWins(settings, category);
+      /** The label is ours end to end, so the title's own leading emoji never shows up twice. */
+      const raw = stripLeadingEmoji(seat.title);
+      const title = raw === '' ? t('tab.untitled') : shortenTitle(raw);
       const token = seat.token ?? seat.badge ?? null;
-      return token === null ? title : `${emojiOf(settings, token)} ${title}`;
+      const emoji = mode === 'text' ? '' : fromTitle ? own : token === null ? '' : emojiOf(settings, token);
+      return emoji === '' ? title : `${emoji} ${title}`;
     }
+
 
     /** Live failure message of an opened session, `null` when the binding says clean, `undefined` when no binding is retained. */
     function bindingFailure(sessions, sessionId) {
@@ -1915,11 +2441,139 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return sessionId === '' ? null : sessionId;
     }
 
+    /** Height of the desktop title strip, falling back to the documented default. */
+    function bandHeight() {
+      try {
+        if (typeof getComputedStyle !== 'function') return BAND_FALLBACK;
+        const raw = getComputedStyle(document.documentElement).getPropertyValue('--dsh-windows-titlebar-height').trim();
+        const value = Number.parseFloat(raw);
+        return Number.isFinite(value) && value > 0 ? value : BAND_FALLBACK;
+      } catch {
+        return BAND_FALLBACK;
+      }
+    }
+
+    /** Start of the desktop menu strip, or the documented default when the shell sets nothing. */
+    function menuStartValue() {
+      try {
+        if (typeof getComputedStyle !== 'function') return 48;
+        const raw = getComputedStyle(document.documentElement).getPropertyValue('--dsh-windows-menu-start').trim();
+        const value = Number.parseFloat(raw);
+        return Number.isFinite(value) ? value : 48;
+      } catch {
+        return 48;
+      }
+    }
+
+    /** Left edge when nothing can be measured: the menu's start plus two buttons plus a gap. */
+    function fallbackLeft() {
+      return menuStartValue() + MENU_GUESS + 8;
+    }
+
+    /** Right edge of the desktop menu strip, measured; null when it is not mounted (a web page). */
+    function measuredLeft() {
+      try {
+        const menu = document.querySelector('[data-windows-menu]');
+        if (menu === null || menu === void 0 || typeof menu.getBoundingClientRect !== 'function') return null;
+        const rect = menu.getBoundingClientRect();
+        if (rect === null || rect === void 0 || Number.isFinite(rect.right) === false || rect.right <= 0) return null;
+        return rect.right + 8;
+      } catch {
+        return null;
+      }
+    }
+
+    /**
+     * Where the strip stops being somebody else's. The desktop menu lives in a shadow root we
+     * cannot query, so instead of guessing its width we ask the page what is already painted at
+     * the strip's midline: hit testing reaches into shadow trees, a selector never does. Returns
+     * the right edge of everything in the way plus a gap, or null when the left stretch is free.
+     */
+    function occupiedLeft() {
+      try {
+        if (typeof document.elementsFromPoint !== 'function') return null;
+        const y = Math.round(bandHeight() / 2);
+        const menuStart = menuStartValue();
+        let right = menuStart;
+        for (let x = Math.round(menuStart); x <= OCCUPIED_PROBE_TO; x += OCCUPIED_PROBE_STEP) {
+          const hits = document.elementsFromPoint(x, y);
+          for (const el of hits) {
+            if (el === null || el === void 0 || typeof el.getBoundingClientRect !== 'function') continue;
+            if (el === document.documentElement || el === document.body) continue;
+            if (typeof el.closest === 'function' && el.closest('[data-hotlist-topbar]') !== null) continue;
+            const rect = el.getBoundingClientRect();
+            if (rect === null || rect === void 0) continue;
+            if (rect.width <= 0 || rect.height <= 0) continue;
+            if (rect.left > OCCUPIED_LEFT_SLACK) continue;
+            if (rect.width > OCCUPIED_MAX_WIDTH) continue;
+            if (rect.right > right) right = rect.right;
+            break;
+          }
+        }
+        return right > menuStart ? right + 8 : null;
+      } catch {
+        return null;
+      }
+    }
+
+    /**
+     * Left edge of the band, recomputed on every render: hit testing is cheap, and a plugin that
+     * mounts a button after we did must still be respected.
+     */
+    function bandLeft() {
+      return occupiedLeft() ?? measuredLeft() ?? fallbackLeft();
+    }
+
+    /** Which of the three left-edge paths produced the number; the acceptance run reads it. */
+    function leftSource() {
+      if (occupiedLeft() !== null) return 'occupied';
+      if (measuredLeft() !== null) return 'menu';
+      return 'fallback';
+    }
+
     function isForeignTitle(el, ownHost) {
       if (el === ownHost) return true;
       if (typeof el.hasAttribute === 'function' && el.hasAttribute(GLYPH_ATTR)) return true;
       if (typeof el.querySelector !== 'function') return false;
       return el.querySelector('[data-state],[data-slot],[data-context-menu-trigger],button') !== null;
+    }
+
+    /**
+     * Put the host's own title text back. Only our own edit is reverted: a row the host
+     * re-rendered since then already carries its own text and needs no help.
+     */
+    function restoreRowTitle(marker) {
+      const title = marker.title;
+      if (title === null || title === void 0 || marker.hostText === null) return;
+      const current = typeof title.textContent === 'string' ? title.textContent : '';
+      if (current === marker.hostText) return;
+      const known = [marker.hostText.trim(), (marker.writtenText ?? '').trim()];
+      if (known.includes(current.trim()) === false) return;
+      title.textContent = marker.hostText;
+    }
+
+    /**
+     * Align the host's title span with the label we draw. The host prints the title itself,
+     * so when we draw the icon the leading emoji has to leave the text. Only two states are
+     * ours to overwrite: exactly what the host wrote, and exactly what we wrote last. A
+     * third-party rewrite wins and is left alone.
+     */
+    function syncRowTitle(marker, node, displayTitle, desired) {
+      if (node === null || node === void 0) return;
+      if ((node.children?.length ?? 0) > 0) return;
+      const current = typeof node.textContent === 'string' ? node.textContent : '';
+      const known = [displayTitle.trim(), desired.trim(), (marker.writtenText ?? '').trim()];
+      if (current === desired) return;
+      if (known.includes(current.trim()) === false) {
+        /** Somebody else names this row now: step aside and say so once, never fight for the text. */
+        if (marker.foreignWarned !== true) {
+          marker.foreignWarned = true;
+          console.debug('[hotlist] sidebar title is owned by another plugin; leaving it alone');
+        }
+        return;
+      }
+      node.textContent = desired;
+      marker.writtenText = desired;
     }
 
     /**
@@ -1953,6 +2607,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (session === void 0) return null;
       const visible = (category) => settings.categories[category].enabled === true
         && settings.categories[category].surfaces.sidebar === true;
+      /** The scope cut, same words as `classify`: `workspace` only rows of the current workspace. */
+      const scope = SCOPE_MODES.includes(input.scope) ? input.scope : 'smart';
+      const currentWorkspaceIds = Array.isArray(input.currentWorkspaceIds) ? input.currentWorkspaceIds : null;
+      if (scope === 'workspace' && currentWorkspaceIds !== null && currentWorkspaceIds.includes(session.id) === false) return null;
+      const crossWorkspacePin = scope === 'smart' && currentWorkspaceIds !== null && currentWorkspaceIds.includes(session.id) === false;
       /** Same chain as `classify`: a failure, a waiting question, a finish, a run, a pin, then idle. */
       if (error !== void 0 && now - error.at <= SIDEBAR_ERROR_TTL_MS && visible('error')) return 'error';
       const kind = status?.pendingInteraction?.kind;
@@ -1964,7 +2623,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (finished && visible('completed')) return 'completed';
       const running = status?.running === undefined ? session.running === true : status.running === true;
       if ((running === true || (children ?? 0) > 0) && visible('running')) return 'running';
-      if (pinned === true && visible('pinned')) return 'pinned';
+      if (pinned === true && visible('pinned') && !crossWorkspacePin) return 'pinned';
       const within = settings.collect.recentWindowMinutes;
       const updatedAt = typeof session.updatedAt === 'number' ? session.updatedAt : 0;
       if (within > 0 && now - updatedAt <= within * 60000 && visible('idle')) return 'idle';
@@ -1974,6 +2633,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     function createSidebarAdapter(options) {
       const documentRef = options.document;
       const readSession = options.readSession;
+      /** Which scope is on and which workspace is current — read once per refresh, not per row. */
+      const readScope = options.readScope ?? (() => ({ scope: 'smart', currentWorkspaceIds: null }));
       const readSettingsRef = options.readSettings;
       const makeObserver = options.createObserver
         ?? (typeof MutationObserver === 'function' ? (callback) => new MutationObserver(callback) : () => null);
@@ -2057,6 +2718,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         if (marker === void 0) return;
         markers.delete(sessionId);
         restoreTextMotion(marker.title);
+        restoreRowTitle(marker);
         restoreRow(marker.row);
         marker.host.remove?.();
       }
@@ -2068,10 +2730,22 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         /** Without a title anchor the glyph still shows at the end of the row; text motion stays off. */
         if (title === null) row.appendChild(host);
         else row.insertBefore(host, title);
-        return { host, img: null, row, title };
+        return { host, img: null, row, title, hostText: title === null ? null : elementText(title), writtenText: null, foreignWarned: false };
       }
 
       function setGlyph(marker, glyph, state) {
+        if (glyph.kind === 'none') {
+          if (marker.img !== null) {
+            marker.host.removeChild?.(marker.img);
+            marker.img = null;
+          }
+          marker.host.setAttribute(KIND_ATTR, 'none');
+          marker.host.setAttribute(CHAR_ATTR, '');
+          marker.host.style.display = 'none';
+          marker.host.setAttribute(STATE_ATTR, state);
+          return;
+        }
+        marker.host.style.display = '';
         if (glyph.kind === 'img') {
           marker.host.setAttribute(KIND_ATTR, 'img');
           marker.host.setAttribute(CHAR_ATTR, '');
@@ -2192,6 +2866,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const settings = readSettingsRef();
         applyRootMotionFlags(settings);
         ensureTakeover(settings);
+        const scopeInfo = readScope();
         const rows = Array.from(documentRef.querySelectorAll(ROW_SELECTOR));
         const rowsNow = [];
         for (const row of rows) {
@@ -2205,6 +2880,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             completedAt: data.completedAt,
             pinned: data.pinned,
             children: data.children,
+            scope: scopeInfo.scope,
+            currentWorkspaceIds: scopeInfo.currentWorkspaceIds,
             settings,
             now: Date.now(),
           });
@@ -2216,9 +2893,21 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           const category = CATEGORY_OF_TOKEN[state] ?? 'running';
 
 
-          /** Identity, not time: a reload must show the same uploaded glyph (see ARCHITECTURE §17). */
-          const glyph = resolveStateGlyph(settings, state, `${sessionId}|${category}`);
-          const title = findRowTitle(row, data.session?.displayTitle ?? '', existing?.host);
+          /**
+           * One emoji, never two: the host prints the title itself, so either we step aside for the
+           * emoji it already starts with, or we draw our glyph and strip that emoji from its text.
+           * Identity, not time: a reload must show the same uploaded glyph (see ARCHITECTURE §17).
+           */
+          const titleNow = findRowTitle(row, data.session?.displayTitle ?? '', existing?.host);
+          const displayTitle = data.session?.displayTitle ?? '';
+          const ownEmoji = leadingEmoji(displayTitle);
+          const fromTitle = ownEmoji !== '' && customIconWins(settings, category);
+          const wantsOwnGlyph = settings.topbar.titleMode !== 'text' && fromTitle === false;
+          const drawn = wantsOwnGlyph === true ? resolveStateGlyph(settings, state, `${sessionId}|${category}`) : { kind: 'none', value: '' };
+          const glyph = drawn;
+          const title = titleNow;
+          const hostEmojiGoes = settings.topbar.titleMode === 'text' || (wantsOwnGlyph === true && drawn.kind !== 'none');
+          const desiredTitle = hostEmojiGoes === true ? stripLeadingEmoji(displayTitle) : displayTitle;
           if (title === null) {
             /** A restyled row costs a counted miss, but the glyph itself stays reachable. */
             misses += 1;
@@ -2235,7 +2924,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             /** The host re-rendered its title span: move the text motion to the new node. */
             restoreTextMotion(marker.title);
             marker.title = title;
+            marker.hostText = elementText(title);
+            marker.writtenText = null;
+            marker.foreignWarned = false;
           }
+          syncRowTitle(marker, title, displayTitle, desiredTitle);
           setGlyph(marker, glyph, state);
           if (settings.hideNativeDot === true) row.setAttribute(HIDE_NATIVE_ATTR, '');
           else row.removeAttribute(HIDE_NATIVE_ATTR);
@@ -2457,6 +3150,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       '.hl-chip{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:18px;padding:0 4px;border-radius:4px;border:.5px solid var(--dsw-alias-border-l2);background:transparent;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary)}',
       '.hl-chip[data-on=true]{background:var(--dsw-alias-state-business-primary);border-color:transparent;color:#fff}',
       '.hl-chip[data-disabled=true]{opacity:.5}',
+      '.hl-rowWrap{flex-wrap:wrap}',
+      '.hl-scopeToggles{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;width:100%;padding:2px 0 3px}',
+      '.hl-scope{display:inline-flex;align-items:center;gap:4px;max-width:96px;height:24px;padding:0 7px;border-radius:6px;border:1px solid var(--dsw-alias-border-l4);background:transparent;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary);cursor:pointer}',
+      '.hl-scope[data-on=true]{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
+      '.hl-scope input{margin:0;flex:none}',
+      '.hl-scopeGlyph{flex:none;line-height:1}',
+      '.hl-scopeName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.hl-caret{flex:0 0 18px;width:18px;height:18px;line-height:18px;text-align:center;color:var(--dsw-alias-label-tertiary);transition:transform .12s linear}',
       '.hl-card[data-open=true] .hl-caret{transform:rotate(90deg)}',
       '.hl-cardBody{display:flex;flex-direction:column;gap:0;padding:0 10px 5px;border-top:.5px dashed var(--dsw-alias-border-l2)}',
@@ -2671,6 +3371,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const [settings, setSettings] = React.useState(() => snapshot());
       const [openCards, setOpenCards] = React.useState(() => readOpenCards());
       const [uploadError, setUploadError] = React.useState(null);
+      /** Export is an action, not a setting: the format lives here, not in storage. */
+      const [exportFormat, setExportFormat] = React.useState('md');
+      const [exportStatus, setExportStatus] = React.useState(null);
 
       React.useEffect(() => onSettingsChange(setSettings), []);
       React.useEffect(() => {
@@ -2695,6 +3398,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       };
 
       const glyphText = (category, secondary, glyph) => {
+        if (glyph.kind === 'none') return '';
         if (glyph.kind === 'img' && glyph.value !== '') return '';
         if (glyph.kind === 'emoji' && glyph.value !== '') return glyph.value;
         return secondary === true ? '❓' : CATEGORY_GLYPHS[category];
@@ -2712,7 +3416,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           key: `glyph-${category}-${secondary === true ? 'secondary' : 'primary'}`,
           className: size >= 20 ? 'hl-preview' : 'hl-cardGlyph',
           'data-hotlist-glyph': '',
-          'data-hotlist-glyph-kind': hasImage ? 'img' : 'emoji',
+          'data-hotlist-glyph-kind': hasImage ? 'img' : glyph.kind === 'none' ? 'none' : 'emoji',
           'data-hotlist-char': hasImage ? '' : glyphText(category, secondary, glyph),
           'aria-hidden': 'true',
           style,
@@ -2724,7 +3428,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         value,
         placeholder: t('settings.glyphPlaceholder'),
         disabled: disabled === true,
-        onChange: (event) => onChange(event.target.value),
+        onChange: (event) => onChange([...event.target.value].slice(0, GLYPH_TEXT_LIMIT).join('')),
       });
       const segmented = (values, current, onPick, format, disabled) => h('div', { className: 'hl-segmented' }, values.map((value) => h('button', {
         key: String(value),
@@ -2755,6 +3459,33 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           if (Number.isFinite(next)) onChange(next);
         },
       });
+      /**
+       * Every "how many" field uses this one widget: `[−] [value] [+]`, plus an
+       * optional trailing button. Only `maxSeats` has one, its `自动` toggle.
+       */
+      const numberStepper = (value, min, max, onChange, extra, disabled) => h('div', {
+        className: 'hl-stepper',
+        'data-hotlist-stepper': '',
+      }, [
+        h('button', {
+          key: 'minus',
+          type: 'button',
+          className: 'hl-step',
+          'data-hotlist-step': 'minus',
+          disabled: disabled === true || value <= min,
+          onClick: () => onChange(Math.max(min, value - 1)),
+        }, '−'),
+        numberInput(value, min, max, 1, onChange, disabled),
+        h('button', {
+          key: 'plus',
+          type: 'button',
+          className: 'hl-step',
+          'data-hotlist-step': 'plus',
+          disabled: disabled === true || value >= max,
+          onClick: () => onChange(Math.min(max, value + 1)),
+        }, '＋'),
+        extra ?? null,
+      ]);
       /** Playback frequency slider: one step is 5%, so the preview loop always matches the value. */
       const rangeInput = (value, onChange, disabled) => h('input', {
         className: 'hl-range',
@@ -2865,7 +3596,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           ], 2),
           field(t('settings.glyphValue'), [
             glyphNode(category, false, glyph, 20),
-            emojiInput(glyphText(category, false, glyph), (value) => patchGlyph(category, false, { value }), glyph.source !== 'emoji'),
+            emojiInput(glyphText(category, false, glyph), (value) => patchGlyph(category, false, value === '' ? { kind: 'none', value: '' } : { kind: 'emoji', value }), glyph.source !== 'emoji'),
           ], t('settings.glyphTextLimit')),
         ];
         if (category === 'pending') {
@@ -2972,17 +3703,31 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           h('span', { key: 'chips', className: 'hl-chips' }, [
             chip('tab', t('settings.chip.tab'), enabled && entry.surfaces.tab, false, t('settings.chip.positionHint')),
             chip('sidebar', t('settings.chip.sidebar'), enabled && entry.surfaces.sidebar, false, t('settings.chip.positionHint')),
-            chip('topbar', t('settings.chip.topbar'), false, true, t('settings.chip.positionHint')),
+            chip('topbar', t('settings.chip.topbar'), enabled && entry.surfaces.topbar, false, t('settings.chip.positionHint')),
             chip('popout', t('settings.chip.popout'), enabled && entry.popout.enabled),
             chip('sound', t('settings.chip.sound'), enabled && entry.sound.enabled),
           ]),
           h('span', { key: 'caret', className: 'hl-caret', 'aria-hidden': 'true' }, '▸'),
         ]);
         const body = open === false ? null : h('div', { key: 'body', className: 'hl-cardBody', 'data-hotlist-card-body': category }, [
+          switchRow(`categories.${category}.surfaces.topbar`, t('settings.surface.topbar'), t('settings.surface.topbarHint'), entry.surfaces.topbar === true, () => patchCategory(category, { surfaces: { ...entry.surfaces, topbar: entry.surfaces.topbar !== true } })),
           iconRows(category),
           motionRows(category),
           popoutRows(category),
           soundRows(category),
+          h('div', { key: 'reset', className: 'hl-row', 'data-hotlist-row': `categories.${category}.reset` }, [
+            h('div', { key: 'main', className: 'hl-rowMain' }, [
+              h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.resetCategory')),
+              h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.resetCategoryHint')),
+            ]),
+            h('div', { key: 'control', className: 'hl-fieldControl' }, h('button', {
+              key: 'button',
+              type: 'button',
+              className: 'hl-link',
+              'data-hotlist-reset-category': category,
+              onClick: () => resetCategory(category),
+            }, t('settings.resetCategoryGo'))),
+          ]),
           orderRows(category),
         ]);
         return h('section', {
@@ -3011,29 +3756,67 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         }
       };
 
+      /**
+       * The export row. `exportAction` is installed by `apply()` because the
+       * session stores live in that closure — until it lands the button is
+       * disabled instead of quietly doing nothing.
+       */
+      const runExport = async () => {
+        if (exportAction === null) return;
+        setExportStatus(null);
+        try {
+          const result = await exportAction(exportFormat);
+          if (result === void 0 || result === null) setExportStatus(t('settings.export.failed'));
+          else if (result.status === 'saved') setExportStatus(`${t('settings.export.saved')}${result.path}`);
+          else if (result.status === 'cancelled') setExportStatus(t('settings.export.cancelled'));
+          else setExportStatus(t('settings.export.downloaded'));
+        } catch {
+          setExportStatus(t('settings.export.failed'));
+        }
+      };
+
+      const exportSection = () => h('section', { key: 'export', className: 'hl-global', 'data-hotlist-export': '' }, [
+        h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.export')),
+        h('div', { key: 'row', className: 'hl-row', 'data-hotlist-row': 'export' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.exportHint')),
+            exportStatus === null ? null : h('span', { key: 'status', className: 'hl-rowHint' }, exportStatus),
+          ]),
+          h('div', {
+            key: 'actions',
+            style: { display: 'flex', alignItems: 'center', gap: '8px', flex: 'none' },
+          }, [
+            select(EXPORT_FORMATS, exportFormat, setExportFormat, (value) => t(`settings.export.${value}`)),
+            h('button', {
+              key: 'run',
+              type: 'button',
+              className: 'hl-step',
+              disabled: exportAction === null,
+              onClick: runExport,
+            }, t('settings.exportRun')),
+          ]),
+        ]),
+      ]);
+
       const globalSection = () => h('section', { key: 'global', className: 'hl-global', 'data-hotlist-global': '' }, [
         h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.group.global')),
+        h('div', { key: 'scope', className: 'hl-row', 'data-hotlist-row': 'scope' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.scope')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.scopeHint')),
+          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, select(SCOPE_MODES, settings.scope, (value) => patch({ scope: value }), (value) => t(`settings.scope.${value}`))),
+        ]),
         h('div', { key: 'seats', className: 'hl-row', 'data-hotlist-row': 'maxSeats' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.maxSeats')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.maxSeatsHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, [
-            h('button', {
-              key: 'minus',
-              type: 'button',
-              className: 'hl-step',
-              disabled: settings.maxSeats === 'auto' || settings.maxSeats <= MAX_SEATS.min,
-              onClick: () => patch({ maxSeats: Math.max(MAX_SEATS.min, (settings.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.maxSeats) - 1) }),
-            }, '−'),
-            numberInput(settings.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.maxSeats, MAX_SEATS.min, MAX_SEATS.max, 1, (value) => patch({ maxSeats: value })),
-            h('button', {
-              key: 'plus',
-              type: 'button',
-              className: 'hl-step',
-              disabled: settings.maxSeats === 'auto' || settings.maxSeats >= MAX_SEATS.max,
-              onClick: () => patch({ maxSeats: Math.min(MAX_SEATS.max, (settings.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.maxSeats) + 1) }),
-            }, '＋'),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(
+            settings.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.maxSeats,
+            MAX_SEATS.min,
+            MAX_SEATS.max,
+            (value) => patch({ maxSeats: value }),
             h('button', {
               key: 'auto',
               type: 'button',
@@ -3041,38 +3824,83 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
               'aria-pressed': settings.maxSeats === 'auto' ? 'true' : 'false',
               onClick: () => patch({ maxSeats: settings.maxSeats === 'auto' ? MAX_SEATS.fallback : 'auto' }),
             }, t('settings.maxSeatsAuto')),
-          ]),
+            settings.maxSeats === 'auto',
+          )),
         ]),
         h('div', { key: 'pinnedSeats', className: 'hl-row', 'data-hotlist-row': 'pinned.maxSeats' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.pinnedMaxSeats')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.pinnedMaxSeatsHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.pinned.maxSeats, PINNED_SEATS.min, PINNED_SEATS.max, 1, (value) => patch({ pinned: { ...settings.pinned, maxSeats: value } }))),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(settings.pinned.maxSeats, PINNED_SEATS.min, PINNED_SEATS.max, (value) => patch({ pinned: { ...settings.pinned, maxSeats: value } }))),
         ]),
         h('div', { key: 'ttl', className: 'hl-row', 'data-hotlist-row': 'collect.completedTtlMs' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.ttl')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.ttlHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(Math.round(settings.collect.completedTtlMs / 60000), TTL_MINUTES.min, TTL_MINUTES.max, 1, (value) => patch({ collect: { ...settings.collect, completedTtlMs: value * 60000 } }))),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(Math.round(settings.collect.completedTtlMs / 60000), TTL_MINUTES.min, TTL_MINUTES.max, (value) => patch({ collect: { ...settings.collect, completedTtlMs: value * 60000 } }))),
         ]),
         h('div', { key: 'volume', className: 'hl-row', 'data-hotlist-row': 'sound.volume' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.sound.volume')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.sound.volumeHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.sound.volume, 0, 100, 5, (value) => patch({ sound: { ...settings.sound, volume: value } }))),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(settings.sound.volume, 0, 100, (value) => patch({ sound: { ...settings.sound, volume: value } }))),
         ]),
         h('div', { key: 'recent', className: 'hl-row', 'data-hotlist-row': 'recentWindow' }, [
           h('div', { key: 'main', className: 'hl-rowMain' }, [
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.recentWindow')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.recentWindowHint')),
           ]),
-          h('div', { key: 'control', className: 'hl-fieldControl' }, numberInput(settings.collect.recentWindowMinutes, RECENT_WINDOW_UI.min, RECENT_WINDOW_UI.max, 1, (value) => patch({ collect: { ...settings.collect, recentWindowMinutes: value } }))),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(settings.collect.recentWindowMinutes, RECENT_WINDOW_UI.min, RECENT_WINDOW_UI.max, (value) => patch({ collect: { ...settings.collect, recentWindowMinutes: value } }))),
         ]),
         switchRow('positions.tab', t('settings.position.tab'), t('settings.position.tabHint'), settings.positions.tab, () => toggled('positions.tab', settings.positions.tab !== true)),
-        switchRow('positions.topbar', t('settings.position.topbar'), t('settings.position.soon'), settings.positions.topbar, () => {}, true),
+        switchRow('positions.topbar', t('settings.position.topbar'), hasWindowsTitlebar() === true ? t('settings.position.topbarHint') : t('settings.position.webOnly'), settings.positions.topbar === true, () => toggled('positions.topbar', settings.positions.topbar !== true)),
+        settings.positions.topbar === true ? h('div', { key: 'chipWidthPct', className: 'hl-row', 'data-hotlist-row': 'topbar.chipWidthPct' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.topbar.chipWidth')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.topbar.chipWidthHint')),
+          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, select(CHIP_PCT_STEPS, settings.topbar.chipWidthPct, (value) => patch({ topbar: { ...settings.topbar, chipWidthPct: value } }), (value) => (value === 0 ? t('settings.topbar.chipWidthDefault') : value > 0 ? `+${value}%` : `${value}%`))),
+        ]) : null,
+        settings.positions.topbar === true ? h('div', { key: 'topbarTitleMode', className: 'hl-row', 'data-hotlist-row': 'topbar.titleMode' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.topbar.titleMode')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.topbar.titleModeHint')),
+          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, select(TOPBAR_TITLE_MODES, settings.topbar.titleMode, (value) => patch({ topbar: { ...settings.topbar, titleMode: value } }), (value) => t(`settings.topbar.titleMode.${value}`))),
+        ]) : null,
+        settings.positions.topbar === true && settings.topbar.titleMode === 'custom'
+          ? h('div', { key: 'topbarCustomScope', className: 'hl-row hl-rowWrap', 'data-hotlist-row': 'topbar.customScope' }, [
+            h('div', { key: 'main', className: 'hl-rowMain' }, [
+              h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.topbar.customScope')),
+              h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.topbar.customScopeHint')),
+            ]),
+            h('div', { key: 'control', className: 'hl-scopeToggles' }, orderedCategories(settings).map((category) => h('label', {
+              key: category,
+              className: 'hl-scope',
+              'data-hotlist-scope': category,
+              'data-on': settings.topbar.customScope[category] !== false ? 'true' : 'false',
+            }, [
+              h('input', {
+                key: 'input',
+                type: 'checkbox',
+                checked: settings.topbar.customScope[category] !== false,
+                onChange: () => patch({ topbar: { ...settings.topbar, customScope: { ...settings.topbar.customScope, [category]: settings.topbar.customScope[category] === false } } }),
+              }),
+              h('span', { key: 'glyph', className: 'hl-scopeGlyph' }, CATEGORY_GLYPHS[category]),
+              h('span', { key: 'name', className: 'hl-scopeName' }, t(`settings.category.${category}`)),
+            ]))),
+          ]) : null,
+        settings.positions.topbar === true ? h('div', { key: 'topbarMaxSeats', className: 'hl-row', 'data-hotlist-row': 'topbar.maxSeats' }, [
+          h('div', { key: 'main', className: 'hl-rowMain' }, [
+            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.topbar.maxSeats')),
+            h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.topbar.maxSeatsHint')),
+          ]),
+          h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(settings.topbar.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.topbar.maxSeats, MAX_SEATS.min, MAX_SEATS.max, (value) => patch({ topbar: { ...settings.topbar, maxSeats: value } }))),
+        ]) : null,
+        settings.positions.topbar === true ? switchRow('topbar.previewInWeb', t('settings.topbar.previewInWeb'), t('settings.topbar.previewInWebHint'), settings.topbar.previewInWeb === true, () => patch({ topbar: { ...settings.topbar, previewInWeb: settings.topbar.previewInWeb !== true } })) : null,
         switchRow('takeOverStatusDot', t('settings.takeOverStatusDot'), settings.takeOverStatusDot === true ? t('settings.takeOverStatusDotHint') : t('settings.takeOverStatusDotOff'), settings.takeOverStatusDot, () => patch({ takeOverStatusDot: settings.takeOverStatusDot !== true })),
       ]);
 
@@ -3090,6 +3918,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         ]),
         ...notices,
         globalSection(),
+        exportSection(),
         h('div', { key: 'cards', className: 'hl-cards' }, cardOrder.map(card)),
         h('div', { key: 'foot', className: 'hl-foot' }, [
           h('button', { key: 'close', type: 'button', className: 'hl-step', onClick: close }, t('settings.close')),
@@ -3923,6 +4752,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           get: () => options.getSettings(),
           set: (patch) => options.writeSettings(isPlainObject(patch) ? patch : {}),
           reset: () => options.resetSettings(),
+          /** Restore one category; drops that category's markers and leaves the rest alone. */
+          resetCategory: (category) => options.resetCategory(category),
           subscribe: (fn) => options.onSettingsChange(fn),
           /** Rolling copies of earlier writes, newest first: `{at, version}` only. */
           backups: () => readBackups().map((item) => ({ at: item.at, version: item.settings.version })),
@@ -4007,6 +4838,103 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       ctx.effect(() => watchStorage(), 'hotlist: settings storage');
       /** Switch the main view; the hotkeys and the seats share this one call. */
       const openSession = (sessionId) => ctx.get('uiWorkspace').openSession(sessionId);
+
+      /**
+       * Everything `exportSessions` needs that lives in this closure. Mirrors
+       * `planFrom()`: `readSnapshot()` is reused for the stores, and the three
+       * things it deliberately does not carry (`errors`, `completedAt`, the
+       * archived ids — it drops archived ids at the source) are added here
+       * rather than by changing `readSnapshot()`, which is not this task's area.
+       */
+      function liveExportInput() {
+        const snap = readSnapshot();
+        const groups = ctx.get('uiWorkspace')?.workspaces.list.getSnapshot();
+        const raw = ctx.get('sessions').list.getSnapshot();
+        return {
+          /** The unfiltered ids, so `includeArchived` can still reach archived rows. */
+          ids: raw.ids,
+          byId: snap.list.byId,
+          list: snap.list,
+          statuses: snap.statuses,
+          errors,
+          completedAt,
+          currentId: snap.currentId,
+          pinnedSessionIds: snap.pinnedSessionIds,
+          workspaceIds: snap.workspaceIds,
+          archivedSessionIds: groups?.archivedSessionIds ?? [],
+          now: Date.now(),
+          settings: readSettings(),
+        };
+      }
+
+      /** One blob source for both modes: the service builds and revokes the URL itself. */
+      const exportSource = (text, filename, mediaType) => ({
+        name: filename,
+        mediaType,
+        read: async () => new Blob([text], { type: mediaType }),
+      });
+
+      /** Last resort, only when the `fileActions` service is not there at all. */
+      function anchorDownload(text, filename, mediaType) {
+        const url = URL.createObjectURL(new Blob([text], { type: mediaType }));
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 30000);
+        return { status: 'requested', path: void 0 };
+      }
+
+      /**
+       * A first, B second — and only a throw moves from A to B. `requested`
+       * means the download already happened (`dsh-client-ui-file-actions`
+       * `:1778-1784` clicks the anchor before returning it), `cancelled` means
+       * the user dismissed the dialog; saving again on either would hand the
+       * user a second file or override a decision they just made.
+       */
+      async function saveExport(text, filename, mediaType) {
+        const source = exportSource(text, filename, mediaType);
+        const actions = ctx.get('fileActions');
+        if (actions !== void 0 && typeof actions.save === 'function') {
+          try {
+            const result = await actions.save(source, 'saveAs');
+            if (result?.status === 'cancelled') return { status: 'cancelled', path: void 0 };
+            if (result?.status === 'saved') return { status: 'saved', path: result.path };
+            /** `requested`, or a shape we do not know: the service took responsibility. */
+            return { status: 'requested', path: void 0 };
+          } catch {
+            /** Web rejects `saveAs` without reading the source — that is normal there. */
+          }
+          try {
+            const result = await actions.save(source, 'download');
+            if (result?.status === 'cancelled') return { status: 'cancelled', path: void 0 };
+            return { status: 'requested', path: void 0 };
+          } catch {
+            /** fall through to the hand-rolled anchor */
+          }
+        }
+        return anchorDownload(text, filename, mediaType);
+      }
+
+      const EXPORT_MEDIA = {
+        md: ['text/markdown;charset=utf-8', 'md'],
+        txt: ['text/plain;charset=utf-8', 'txt'],
+        json: ['application/json', 'json'],
+      };
+
+      ctx.effect(() => {
+        exportAction = async (format) => {
+          const chosen = EXPORT_FORMATS.includes(format) ? format : 'md';
+          const text = exportSessions({ ...liveExportInput(), format: chosen });
+          const [mediaType, extension] = EXPORT_MEDIA[chosen];
+          return saveExport(text, `hotlist-sessions-${localStamp(Date.now()).replace(/[-: ]/g, '')}.${extension}`, mediaType);
+        };
+        return () => {
+          exportAction = null;
+        };
+      }, 'hotlist: export action');
       /** sessionId -> {message, at}: run failures kept until that session reaches the main view. */
       const errors = new Map();
       /**
@@ -4148,63 +5076,77 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
        * preventDefault so the tab still selects itself; `openSession` is
        * idempotent, so whichever path arrives first wins and repeats are free.
        */
+      /**
+       * One switch, shared by a tab seat, a band pill and the `+N` walk: the seat
+       * body, the pill and the overflow button must not disagree about how a
+       * session is opened. `openSession` is idempotent, and the activation passes
+       * exist because the host reveals the target view asynchronously.
+       */
+      function switchTo(targetId, currentId, fail) {
+        if (currentId === targetId) return;
+        const workspace = ctx.get('uiWorkspace');
+        if (workspace === void 0 || typeof workspace.openSession !== 'function') {
+          fail(t('tab.error'));
+          return;
+        }
+        const known = typeof currentId === 'string';
+        /** `binding` throws for a session that is not retained yet (dsh-client-ui-conversation lib/client.js:4138-4139). */
+        const activateChat = (target) => {
+          try {
+            ctx.get('uiConversation')?.binding?.(target)?.activate?.('chat');
+          } catch (thrown) {
+            console.debug('[hotlist] activate skipped', target, thrown instanceof Error ? thrown.message : String(thrown));
+          }
+        };
+        const repair = (target) => {
+          if (typeof target === 'string') repairSourcePreference(target);
+        };
+        const settle = () => {
+          /** The switch resolved: the source's preference may already hold the target's seat id. */
+          repair(currentId);
+          activateChat(targetId);
+          if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => activateChat(targetId));
+          else setTimeout(() => activateChat(targetId), 0);
+          /** In the first correction the target's binding may still be missing: the host retains it asynchronously. */
+          setTimeout(() => activateChat(targetId), 250);
+          /**
+           * Late pass, once the host has settled the reveal: activate the target
+           * again, and both activate plus repair the source, whose preference the
+           * host rewrote while selecting the tab.
+           */
+          setTimeout(() => {
+            activateChat(targetId);
+            if (known === true) {
+              activateChat(currentId);
+              repair(currentId);
+            }
+          }, 1200);
+        };
+        if (known === true) activateChat(currentId);
+        const failed = (thrown) => fail(thrown instanceof Error ? thrown.message : String(thrown));
+        let pending;
+        try {
+          pending = workspace.openSession(targetId);
+        } catch (thrown) {
+          failed(thrown);
+          return;
+        }
+        if (pending && typeof pending.then === 'function') {
+          pending.then(() => {
+            fail(null);
+            settle();
+          }, failed);
+        } else {
+          fail(null);
+          settle();
+        }
+      }
+
       function seatComponent(sessionId, title, errorMessage) {
         return function SessionSeat(props) {
           const currentId = props.sessionId;
           const [failure, setFailure] = React.useState(null);
-          const switchSession = () => {
-            if (currentId === sessionId) return;
-            const workspace = ctx.get('uiWorkspace');
-            if (workspace === void 0 || typeof workspace.openSession !== 'function') {
-              setFailure(t('tab.error'));
-              return;
-            }
-            /** `binding` throws for a session that is not retained yet (dsh-client-ui-conversation lib/client.js:4138-4139). */
-            const activateChat = (target) => {
-              try {
-                ctx.get('uiConversation')?.binding?.(target)?.activate?.('chat');
-              } catch (thrown) {
-                console.debug('[hotlist] activate skipped', target, thrown instanceof Error ? thrown.message : String(thrown));
-              }
-            };
-            const settle = () => {
-              /** The switch resolved: the source's preference may already hold the target's seat id. */
-              repairSourcePreference(currentId);
-              activateChat(sessionId);
-              if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => activateChat(sessionId));
-              else setTimeout(() => activateChat(sessionId), 0);
-              /** In the first correction the target's binding may still be missing: the host retains it asynchronously. */
-              setTimeout(() => activateChat(sessionId), 250);
-              /**
-               * Late pass, once the host has settled the reveal: activate the
-               * target again, and both activate plus repair the source, whose
-               * preference the host rewrote while selecting the tab.
-               */
-              setTimeout(() => {
-                activateChat(sessionId);
-                activateChat(currentId);
-                repairSourcePreference(currentId);
-              }, 1200);
-            };
-            activateChat(currentId);
-            const failed = (thrown) => setFailure(thrown instanceof Error ? thrown.message : String(thrown));
-            let pending;
-            try {
-              pending = workspace.openSession(sessionId);
-            } catch (thrown) {
-              failed(thrown);
-              return;
-            }
-            if (pending && typeof pending.then === 'function') {
-              pending.then(() => {
-                setFailure(null);
-                settle();
-              }, failed);
-            } else {
-              setFailure(null);
-              settle();
-            }
-          };
+          const switchSession = () => switchTo(sessionId, currentId, setFailure);
           React.useEffect(() => {
             switchSession();
           }, [currentId]);
@@ -4379,12 +5321,28 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           if (failure === null) errors.delete(id);
           else if (failure !== void 0) errors.set(id, { message: failure, at: Date.now() });
         }
+        const settings = readSettings();
+        /**
+         * `workspace` keeps the old cut (current workspace only); `all` and `smart`
+         * stop pruning here and every consumer below simply sees every session.
+         * `smart` still needs the current workspace on its own — it hides only the
+         * pins that belong to another workspace — so the two never share one field.
+         */
+        const scope = SCOPE_MODES.includes(settings.scope) ? settings.scope : 'smart';
+        const currentWorkspaceIds = group?.sessionIds ?? null;
         return {
           list: { ...list, ids },
           statuses,
           currentId,
           pinnedSessionIds: pinnedIdsOf(),
-          workspaceIds: group?.sessionIds ?? null,
+          /**
+           * A null currentWorkspaceIds means the workspace group has not landed yet (or
+           * this host has no workspace service). Treating that as "every session is foreign"
+           * made smart — the default — return an empty list on a fresh install, so both
+           * cuts fall back to "no cut" until the ids arrive.
+           */
+          workspaceIds: scope === 'workspace' && currentWorkspaceIds !== null ? currentWorkspaceIds : null,
+          scopeWorkspaceIds: scope === 'smart' && currentWorkspaceIds !== null ? currentWorkspaceIds : null,
         };
       }
 
@@ -4424,8 +5382,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         return false;
       }
 
-      const planFrom = (snapshot, settings, limit, now) => buildSeatPlan({
-        surface: 'tab',
+      const planFrom = (snapshot, settings, limit, now, surface = 'tab') => buildSeatPlan({
+        surface,
         list: snapshot.list,
         statuses: snapshot.statuses,
         errors,
@@ -4433,16 +5391,303 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         currentId: snapshot.currentId,
         pinnedSessionIds: snapshot.pinnedSessionIds,
         workspaceIds: snapshot.workspaceIds,
+        scopeWorkspaceIds: snapshot.scopeWorkspaceIds ?? null,
         now,
         limit,
       }, settings);
+
+      /**
+       * The band's model. One object, one subscription: `TopbarBar` re-renders
+       * from a snapshot instead of reading five module variables, and the probes
+       * below only ever replace the whole object.
+       */
+      let topbarModel = { chips: [], mode: 'chips', titleMode: 'custom', reserve: TOPBAR_RESERVE.fallback, left: 0, currentId: void 0 };
+      /** How many pills the band's own width actually fits; the only number `topbar.maxSeats: 'auto'` reads. */
+      let topbarCapacity = MAX_SEATS.fallback;
+      const topbarListeners = new Set();
+      let topbarEntry = null;
+
+      let topbarCursor = 0;
+      const topbarProbeTimers = new Set();
+
+      /** `--dsh-windows-menu-start`, or 48 (the strip's own fallback) when unreadable. */
+
+      function notifyTopbar() {
+        for (const listener of [...topbarListeners]) listener();
+      }
+
+      /** Re-run the left-edge chain. It always yields a number, so the last real edge survives a miss. */
+      function probeTopbarLeft() {
+        if (topbarEntry === null) return;
+        topbarModel = { ...topbarModel, left: bandLeft() };
+        notifyTopbar();
+      }
+
+      function clearTopbarProbes() {
+        for (const timer of [...topbarProbeTimers]) clearTimeout(timer);
+        topbarProbeTimers.clear();
+      }
+
+      /** The menu strip can mount a frame or two after our entry does: retry a few times, then stop. */
+      function startTopbarProbe() {
+        clearTopbarProbes();
+        for (const delay of TOPBAR_PROBES) {
+          const timer = setTimeout(() => {
+            topbarProbeTimers.delete(timer);
+            probeTopbarLeft();
+          }, delay);
+          topbarProbeTimers.add(timer);
+        }
+      }
+
+      /** The band exists only where it can be seen: the desktop strip, or an explicit web preview. */
+      function topbarMountable(settings) {
+        if (settings.positions.topbar !== true) return false;
+        if (settings.topbar.mode === 'off') return false;
+        return hasWindowsTitlebar() === true || settings.topbar.previewInWeb === true;
+      }
+
+      /**
+       * `[current, ...seats]`. The current session always leads and never takes a
+       * seat slot, so a band with `maxSeats` 6 shows at most 7 pills.
+       */
+      /**
+       * The band shows only what its own surface switch allows: `plan` comes
+       * from `planFrom(..., 'topbar')`, so a category that is off for the tab
+       * row can still be on here. The session the tab row already names is not
+       * a pill either — the user reads it there, not up here.
+       */
+      function topbarChips(settings, plan) {
+        const mode = settings.topbar.titleMode;
+        const chips = [];
+        for (const seat of plan) {
+          const category = CATEGORY_OF_TOKEN[seat.token] ?? 'running';
+          const own = leadingEmoji(seat.title);
+          /** The title's own emoji only wins inside the custom scope; then we draw none. */
+          const keepHostEmoji = own !== '' && customIconWins(settings, category);
+          const token = seat.token ?? null;
+          chips.push({
+            id: seat.sessionId,
+            title: keepHostEmoji === true ? seat.title : stripLeadingEmoji(seat.title),
+            emoji: keepHostEmoji === true || mode === 'text' ? '' : token === null ? '' : emojiOf(settings, token),
+          });
+        }
+        return chips;
+      }
+
+      function publishTopbar(snapshot, settings, plan) {
+        topbarModel = {
+          chips: topbarChips(settings, plan),
+          mode: settings.topbar.mode,
+          titleMode: settings.topbar.titleMode,
+          reserve: settings.topbar.rightReservePx,
+          left: bandLeft(),
+          currentId: snapshot.currentId,
+        };
+        notifyTopbar();
+      }
+
+      /** `+N`: walk the sessions the band could not show, one click per step, wrapping around. */
+      function openHidden(chips) {
+        if (chips.length === 0) return;
+        const index = topbarCursor % chips.length;
+        topbarCursor = (index + 1) % chips.length;
+        switchTo(chips[index].id, topbarModel.currentId, () => {});
+      }
+
+      /**
+       * A band item is plain text, not a pill: no fill, no frame, no radius.
+       * The width is still fixed so `fitChipCount` can do its arithmetic without
+       * measuring anything; the label truncates inside it.
+       */
+      function chipStyle(width) {
+        return {
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '4px',
+          width: `${width}px`,
+          maxWidth: `${width}px`,
+          height: '24px',
+          boxSizing: 'border-box',
+          padding: '0 6px',
+          fontSize: '13px',
+          lineHeight: '24px',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          flexShrink: 0,
+          cursor: 'pointer',
+          pointerEvents: 'auto',
+          WebkitAppRegion: 'no-drag',
+          color: 'inherit',
+          /**
+           * The pill is a `<button>`: without this reset the browser paints its own grey
+           * face and 2px border on the title strip, which reads as a boxed chip — exactly
+           * what the band must not look like.
+           */
+          background: 'none',
+          border: '0',
+          margin: '0',
+          font: 'inherit',
+          appearance: 'none',
+          WebkitAppearance: 'none',
+        };
+      }
+
+      function chipLabelOf(chip) {
+        return chip.title === '' || chip.title === void 0 ? t('tab.untitled') : chip.title;
+      }
+
+      /** Estimated width of a session pill: its label plus the emoji column when it has one. */
+      function chipWidthFor(chip) {
+        const extra = chip.emoji === '' || chip.emoji === void 0 ? 0 : CHIP_GLYPH;
+        return Math.min(chipBounds().max, chipWidthOf(chipLabelOf(chip)) + extra);
+      }
+
+      function topbarChipNode(chip) {
+        return h('button', {
+          key: chip.id,
+          type: 'button',
+          'data-hotlist-chip': chip.id,
+          title: chipLabelOf(chip),
+          tabIndex: -1,
+          onClick: () => switchTo(chip.id, topbarModel.currentId, () => {}),
+          style: chipStyle(chipWidthFor(chip)),
+        }, [
+          chip.emoji === '' || chip.emoji === void 0
+            ? null
+            : h('span', { key: 'glyph', 'data-hotlist-chip-emoji': '', style: { fontSize: '14px', lineHeight: '24px' } }, chip.emoji),
+          h('span', { key: 'title', 'data-hotlist-chip-title': '', style: { minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis' } }, chipLabelOf(chip)),
+        ]);
+      }
+
+      /**
+       * The only mark between two items: a 1 px hairline that costs exactly
+       * `CHIP_GAP` of layout (2 px margin each side, zero width plus a border),
+       * so the band width arithmetic stays honest without measuring.
+       */
+      function chipSeparator(key) {
+        return h('span', {
+          key,
+          'data-hotlist-separator': '',
+          style: {
+            width: '0px',
+            height: '12px',
+            borderLeft: `1px solid ${CHIP_SEPARATOR}`,
+            margin: '0 2px',
+            flexShrink: 0,
+          },
+        });
+      }
+
+      function TopbarBar() {
+        const [model, setModel] = React.useState(topbarModel);
+        React.useEffect(() => {
+          const listener = () => setModel(topbarModel);
+          topbarListeners.add(listener);
+          listener();
+          return () => {
+            topbarListeners.delete(listener);
+          };
+        }, []);
+        const chips = model.chips;
+        const width = typeof window === 'undefined' || typeof window.innerWidth !== 'number' ? 0 : window.innerWidth;
+        const available = width - model.left - model.reserve - WINDOW_CONTROLS_GUARD - 8;
+        const nodes = [];
+        if (model.mode === 'count') {
+          const first = chips[0];
+          const emoji = first === void 0 || first.emoji === void 0 ? '' : first.emoji;
+          const label = `${emoji} ${t('topbar.count', { count: chips.length })}`.trim();
+          nodes.push(h('button', {
+            key: 'count',
+            type: 'button',
+            'data-hotlist-chip-count': chips.length,
+            title: t('topbar.countHint'),
+            tabIndex: -1,
+            onClick: () => openHidden(chips),
+            style: chipStyle(chipWidthOf(label)),
+          }, label));
+        } else if (model.mode === 'chips') {
+          const capacity = Math.max(1, fitChipCount(chips.map(chipWidthFor), available));
+          topbarCapacity = capacity;
+          const shown = Math.min(chips.length, capacity);
+          for (let index = 0; index < shown; index += 1) {
+            if (index > 0) nodes.push(chipSeparator(`sep-${index}`));
+            nodes.push(topbarChipNode(chips[index]));
+          }
+          const hidden = chips.slice(shown);
+          if (hidden.length > 0) {
+            if (shown > 0) nodes.push(chipSeparator('sep-more'));
+            nodes.push(h('button', {
+              key: 'more',
+              type: 'button',
+              'data-hotlist-more': hidden.length,
+              title: t('topbar.moreHint', { count: hidden.length }),
+              tabIndex: -1,
+              onClick: () => openHidden(hidden),
+              style: chipStyle(MORE_WIDTH),
+            }, `+${hidden.length}`));
+          }
+        }
+        return h('div', {
+          'data-hotlist-topbar': '',
+          'data-hotlist-topbar-mode': model.mode,
+          'data-hotlist-title-mode': model.titleMode ?? 'custom',
+          'data-hotlist-topbar-left': String(Math.round(model.left)),
+          'data-hotlist-topbar-left-src': leftSource(),
+          'data-hotlist-version': VERSION,
+          style: {
+            position: 'absolute',
+            top: '0',
+            left: '0',
+            right: '0',
+            height: `var(--dsh-windows-titlebar-height, ${BAND_FALLBACK}px)`,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0px',
+            paddingLeft: `${model.left}px`,
+            paddingRight: `${model.reserve}px`,
+            boxSizing: 'border-box',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          },
+        }, nodes);
+      }
+
+      function mountTopbar() {
+        if (topbarEntry !== null) return;
+        const dispose = ctx.slots.register({
+          name: TOPBAR_SLOT,
+          id: TOPBAR_ID,
+          order: TOPBAR_ORDER,
+          locale: NS,
+          label: () => t('surface.topbar'),
+        }, TopbarBar);
+        topbarEntry = { dispose };
+        startTopbarProbe();
+      }
+
+      function disposeTopbar() {
+        clearTopbarProbes();
+        if (topbarEntry === null) return;
+        const entry = topbarEntry;
+        topbarEntry = null;
+        entry.dispose();
+      }
 
       const sync = () => {
         const now = Date.now();
         const snapshot = readSnapshot();
         observeCompletion(snapshot, now);
-        /** A fresh run makes the previous failure history; the sidebar glyph clears with it. */
-        for (const id of snapshot.list.ids) if (snapshot.statuses.get(id)?.running === true) errors.delete(id);
+        /**
+         * A failure is kept while the run flag still lags behind it. The old rule
+         * ("any session that is running has no failure") wiped a failure that
+         * arrived during the very turn that failed — a real agent error fires
+         * before the status flips back to idle, so the glyph never showed. Only a
+         * newer user message makes the previous failure history; see the
+         * `api-session/activity` subscription below. The TTL above still bounds it.
+         */
         /** Sounds follow the same entries: one per transition, never per repaint. */
         sound?.observe({
           list: snapshot.list,
@@ -4463,19 +5708,30 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         }, now);
         const settings = readSettings();
         /** A position that is off does not exist: all three off means "hidden", never a fallback. */
+        const topbarOn = topbarMountable(settings);
+        /**
+         * The two surfaces are independent: each one filters by its own
+         * `CATEGORY_SURFACES[*].tab` / `[*].topbar`, so turning the band on never
+         * takes the tab row away. Both plans are built below, from the same snapshot.
+         */
         const tabOn = settings.positions.tab === true;
         if (settings.positions.sidebar === true) sidebar?.start();
         else sidebar?.stop();
-        if (!tabOn) {
+        if (!tabOn && !topbarOn) {
           cycleIds = [];
           cycleRing = [];
           cycleCurrent = snapshot.currentId ?? null;
           disposeTabSeats();
+          disposeTopbar();
           sidebar?.refresh();
           return;
         }
         const measured = seatLimit();
         const limit = settings.maxSeats === 'auto' ? measured : Math.min(settings.maxSeats, measured);
+        /** The band has its own cap: the tab row's width-derived `measured` never feeds it. */
+        const topbarLimit = settings.topbar.maxSeats === 'auto'
+          ? Math.max(1, Math.min(MAX_SEATS.max, topbarCapacity))
+          : Math.max(MAX_SEATS.min, Math.min(settings.topbar.maxSeats, MAX_SEATS.max));
         const plan = planFrom(snapshot, settings, limit, now);
         cycleIds = plan.map((seat) => seat.sessionId);
         const kept = cycleRing.filter((id) => cycleIds.includes(id) || id === snapshot.currentId);
@@ -4484,6 +5740,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         cycleCurrent = snapshot.currentId ?? null;
         const present = new Set(snapshot.list.ids);
         restoreRecentSeats(plan, snapshot, limit, now);
+        /** The band has its own eligibility: a category off for the tab row may still be on here. */
+        publishTopbar(snapshot, settings, topbarOn === true ? planFrom(snapshot, settings, topbarLimit, now, 'topbar') : plan);
+        if (topbarOn) mountTopbar();
+        else disposeTopbar();
+        /** The band is the row now: the seats are gone, and the shrink guard below is tab-only. */
+        if (!tabOn) {
+          disposeTabSeats();
+          sidebar?.refresh();
+          return;
+        }
         /**
          * A short snapshot must not cost seats: when a session vanished from the
          * list, reread once after `SHRINK_CONFIRM_MS` and only remove its seat
@@ -4528,6 +5794,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         sidebar = createSidebarAdapter({
           document,
           readSettings,
+          readScope: () => {
+            const scope = readSettings().scope;
+            if (scope === 'workspace' || scope === 'smart') {
+              const groups = ctx.get('uiWorkspace')?.workspaces.list.getSnapshot();
+              const list = ctx.get('sessions').list.getSnapshot();
+              const current = Object.values(list.byId).find((session) => (session.retainedBy?.mainView ?? 0) > 0);
+              const group = groups?.items.find((item) => current?.id !== void 0 && item.sessionIds.includes(current.id));
+              return { scope, currentWorkspaceIds: group?.sessionIds ?? null };
+            }
+            return { scope, currentWorkspaceIds: null };
+          },
           readSession: (sessionId) => {
             const list = ctx.get('sessions').list.getSnapshot();
             const statuses = ctx.get('uiSession').sessionStatus.getSnapshot();
@@ -4553,6 +5830,19 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         errors.set(sessionId, { message: String(message), at: Date.now() });
         sync();
       }), 'hotlist: run failures');
+
+      /**
+       * A newer user message retires the previous failure: that is what "a fresh
+       * run makes it history" actually means. Reading the run flag instead wiped
+       * failures that arrive during the failing turn itself (see `sync`).
+       */
+      ctx.effect(() => ctx.remote.$on('api-session/activity', (sessionId, updatedAt) => {
+        const failure = errors.get(sessionId);
+        if (failure === void 0 || typeof updatedAt !== 'number') return;
+        if (updatedAt <= failure.at) return;
+        errors.delete(sessionId);
+        sync();
+      }), 'hotlist: clear a failure when a newer run starts');
 
       /**
        * The popout overlay: one controller for the whole window, driven by the
@@ -4667,13 +5957,36 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
 
       /** The entry other assistants script against; see `docs/EXTENDING.md`. */
       try {
-        window.__HOTLIST__ = createHotlistApi({
-          getSettings: readSettings,
-          writeSettings,
-          resetSettings,
-          onSettingsChange,
-          preview: (category) => soundPreview(category),
-        });
+        window.__HOTLIST__ = {
+          ...createHotlistApi({
+            getSettings: readSettings,
+            writeSettings,
+            resetSettings,
+            resetCategory,
+            onSettingsChange,
+            preview: (category) => soundPreview(category),
+          }),
+          /** Read-only probe for the acceptance run; see `docs/ARCHITECTURE.md` §18. */
+          topbar: () => ({
+            mounted: topbarEntry !== null,
+            mode: topbarModel.mode,
+            titleMode: topbarModel.titleMode,
+            left: topbarModel.left,
+            leftSource: leftSource(),
+            measured: measuredLeft(),
+            reserve: topbarModel.reserve,
+            currentId: topbarModel.currentId,
+            capacity: topbarCapacity,
+            chips: topbarModel.chips.map((chip) => ({ id: chip.id })),
+          }),
+          /** Read-only probe: run the exporter from the console without the settings page. */
+          /**
+           * The console entry point: without liveExportInput() a bare call has no ids and
+           * returns an empty array, which reads as "the exporter is broken". Merge order keeps
+           * the caller's explicit fields (ids, scope, …) in charge.
+           */
+          export: (opts = {}) => exportSessions({ ...liveExportInput(), ...opts }),
+        };
       } catch {
         // a locked-down window keeps the settings surface only
       }
@@ -4707,6 +6020,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           flushCompletedAt();
         };
       });
+
+      /**
+       * The band lives in `shell.overlay`: absolute, full-window, z-index 20. Its
+       * `order` is -10 so toasts still paint above it; the entry itself never paints.
+       */
+      ctx.slots.inject(TOPBAR_SLOT, () => {
+        sync();
+        return () => {
+          disposeTopbar();
+        };
+      }, 'hotlist: top bar');
     }
 
     return {
@@ -4715,6 +6039,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       classify,
       sortSeats,
       buildSeatPlan,
+      exportSessions,
       orderedCategories,
       categoryAllOff,
       CATEGORY_GLYPHS,
@@ -4727,6 +6052,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       migrateFromV3,
       migrateSettings,
       positionsOf,
+      hasWindowsTitlebar,
+      chipWidthOf,
+      fitChipCount,
+      TOPBAR_SLOT,
+      TOPBAR_ID,
+      TOPBAR_ORDER,
+      TOPBAR_MODES,
+      TOPBAR_RESERVE,
       tokenGlyph,
       tokenMotion,
       tokenPriority,
@@ -4736,6 +6069,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       readSettings,
       writeSettings,
       resetSettings,
+      resetCategory,
       overrideSettings,
       sidebarStateOf,
       findRowTitle,
@@ -4777,6 +6111,18 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       createPopoutController,
       POPOUT_PRIORITY,
       POPOUT_COOLDOWN_MS,
+      leadingEmoji,
+      stripLeadingEmoji,
+      customIconWins,
+      TITLE_MODE_ALIASES,
+      TOPBAR_TITLE_MODES,
+      bandHeight,
+      menuStartValue,
+      fallbackLeft,
+      measuredLeft,
+      occupiedLeft,
+      bandLeft,
+      leftSource,
     };
   },
 });
