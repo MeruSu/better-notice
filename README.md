@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - Package: `dsh-better-notice` (module id is the same string)
-- Version: `5.1.7` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `5.1.8` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -93,7 +93,7 @@ Only those three states ship raster art (4 tiers each: 64 / 320 / 780 / 1560 px,
 | 🔐 `pending` | Waiting for your approval / answer / plan review (secondary glyph ❓) | — | ✅ | ✅ | ✅ | 🔈 |
 | ✅ `completed` | This plugin saw it finish, within the last 7 min | — | ✅ | ✅ | ✅ | 🔈 |
 | ⏳ `running` | Working (includes “a subagent is running, parent idle”) | — | — | ✅ | — | — |
-| 🧊 `idle` | Idle, and last activity is inside the *recent window* (default 5 min) | ✅ | — | ✅ | — | — |
+| 🧊 `idle` | Idle, and last activity is inside the *recent window* (default 17 min) | ✅ | — | ✅ | — | — |
 
 ✅ = on by default · — = off by default · 🔈 = a bundled sound exists but **stays silent until you enable that category** in settings.
 
@@ -125,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.7`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.7.tgz` gives the same result and the same restart.
+- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.8`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.8.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -150,7 +150,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.7'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.8'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -258,9 +258,9 @@ Per-category placement is a second layer: `categories.<id>.surfaces.{tab,sidebar
 | I want… | Field | Values | Default |
 |---|---|---|---|
 | Keep a just-finished session in ✅ longer | `collect.completedTtlMs` | `1`–`1440` **minutes** | `7` |
-| Decide how stale a session may be and still count as `idle` | `collect.recentWindowMinutes` | **minutes**; settings exposes `1`–`36`, the API accepts `0`–`120` (`0` = never show idle) | `5` |
+| Decide how stale a session may be and still count as `idle` | `collect.recentWindowMinutes` | **minutes**; settings offers `1`–`120`, the API also accepts `0` (= never show idle) | `17` |
 
-> The recent window has **two layers on purpose**: storage clamps `0`–`120` (so scripts can set 90), the settings control only offers `1`–`36`. Don't mistake the UI bound for the data bound.
+> The recent window has **two layers on purpose**: the settings control offers `1`–`120`; storage clamps `0`–`120` and keeps `0` for a caller that wants "never show idle". Don't mistake the UI bound for the data bound.
 
 ### The six categories — each one is configured separately
 
@@ -313,7 +313,7 @@ Field-name-level documentation for people writing scripts.
 
 - **Collapsed card:** glyph preview, category name, `· order N`, five read-only chips (Tab / Bar / Top / Pop / Snd — highlighted = on), caret. Click the row to expand; **several cards may be open at once**. Open state lives in `sessionStorage` (`dsh.hotlist.open`), never in settings.
 - **Expanded area** (compact multi-column): ① glyph (source / upload / value / frequency slider); ② motion (`motion` + target `glyph`/`row`); ③ popout (enabled / image / entrance·ambient·exit / side·display time); ④ sound (enabled / source / preview); ⑤ order.
-- **Global block:** scope (workspace / all / smart), seat limit (with “auto”), **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar`, `positions.sidebar` (API only), `takeOverStatusDot`. The band block (style / label display / pill count / pill width / web preview) only exists while `positions.topbar` is on.
+- **Global block:** scope (workspace / all / smart), seat limit, **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar`, `positions.sidebar` (API only), `takeOverStatusDot`. The band block (style / label display / pill count / pill width / web preview) only exists while `positions.topbar` is on.
 - Out-of-range writes are clamped. A failed write (localStorage quota) is reported in the page footer and through `window.__HOTLIST_SETTINGS__.lastError()`.
 
 ### Global defaults
@@ -336,7 +336,7 @@ Field-name-level documentation for people writing scripts.
 | `takeOverStatusDot` | `true` | take over the status dot drawn by other plugins (`dsh-sessions-manager`) |
 | `hideNativeDot` | `true` | hide the host's native status slot (no settings row since 4.4; field kept) |
 | `collect.completedTtlMs` | `420000` (7 min) | 1–1440 minutes |
-| `collect.recentWindowMinutes` | `5` | **minutes**. Settings offers `1`–`36`; API accepts `0`–`120` (`0` = hide `idle`) |
+| `collect.recentWindowMinutes` | `17` | **minutes**. Settings offers `1`–`120`; API also accepts `0` (= hide `idle`) |
 | `sound.volume` | `60` | 0–100, global |
 | `overlay.side` | `'auto'` | `auto` / `left` / `right` |
 | `overlay.sizeMin` / `sizeMax` | `260` / `520` | 120–900 px (no settings row since 4.5; midpoint, narrowed to the viewport) |
@@ -500,7 +500,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '5.1.7'
+api.version                                        // '5.1.8'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }

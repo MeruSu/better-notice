@@ -3,7 +3,7 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `dsh-better-notice` · version `5.1.7` · MIT
+- Package: `dsh-better-notice` · version `5.1.8` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
 - One command to install: `dsh plugin --profile <profile> add dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
@@ -125,7 +125,7 @@ authenticated** — publish public assets only, never user data.
 
 ```js
 window.__HOTLIST__ = {
-  version,                                              // "5.1.7"
+  version,                                              // "5.1.8"
   settings: { get, set, reset, subscribe, backups, restore },
   assets:   { add, list, clear, preview },
 };
@@ -151,9 +151,9 @@ window.__HOTLIST__ = {
 - There is **no** `settings.defaults` on this object (`window.__HOTLIST_SETTINGS__`
   is the one that has `defaults()`).
 
-Global settings keys: `maxSeats` (1–12), `pinned.maxSeats` (0–12, default 3),
+Global settings keys: `maxSeats` (1–12, no auto mode in the UI), `pinned.maxSeats` (0–12, default 3),
 `collect.completedTtlMs` (1–1440 min), `collect.recentWindowMinutes`
-(UI 1–36, storage/API 0–120), `sound.volume` (0–100),
+(UI 1–120, storage/API 0–120, default 17), `sound.volume` (0–100),
 `positions.{tab,sidebar,topbar}` (all three are real now; `topbar` defaults to
 `true` and only draws on Windows), `scope` (`workspace` | `all` | `smart`),
 `takeOverStatusDot`.

@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '5.1.7';
+    const VERSION = '5.1.8';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -224,6 +224,11 @@ window.__ModuleLoader__.load({
        * band switched off forever.
        */
       'positions.topbar': [false],
+      /**
+       * v4.6 shipped 5 minutes as the window default. A stored 5 with no marker is that default,
+       * not a pick, so the current 17 replaces it; anyone who typed 5 gets a marker and keeps it.
+       */
+      'collect.recentWindowMinutes': [5],
     };
     /**
      * Which picks the page can offer, and where their marker lives. Writing one of those fields
@@ -231,7 +236,7 @@ window.__ModuleLoader__.load({
      */
     const CHOICE_SLOTS = ['glyph', 'glyphSecondary'];
     const CHOICE_FIELDS = ['value', 'motion', 'motionTarget', 'frequency'];
-    const CHOICE_KEY = /^(?:categories\.[a-z]+\.[a-zA-Z]+(?:\.[a-zA-Z]+)?|positions\.topbar)$/;
+    const CHOICE_KEY = /^(?:categories\.[a-z]+\.[a-zA-Z]+(?:\.[a-zA-Z]+)?|positions\.topbar|collect\.recentWindowMinutes)$/;
     const CHOICE_LIMIT = 256;
     /**
      * Which surface each class belongs to. The split is the point of the feature: the band is
@@ -278,13 +283,12 @@ window.__ModuleLoader__.load({
     const ALWAYS_OVERFLOW = 4;
     const TTL_MINUTES = { min: 1, max: 1440 };
     /** One global window: how recently a session moved to enter the idle tier. */
-    const RECENT_WINDOW_MINUTES = { min: 0, max: 120, fallback: 5 };
+    const RECENT_WINDOW_MINUTES = { min: 0, max: 120, fallback: 17 };
     /**
-     * What the settings page offers for that window. Storage and the API stay on
-     * `RECENT_WINDOW_MINUTES` (0–120), so a caller may still ask for a wider window; the row only
-     * shows the range a person actually wants, and 0 is not one of them.
+     * What the settings page offers for that window: the same 1–120 a person may want. Storage and
+     * the API keep 0 as "no window" for a caller that asks for it explicitly; the row never shows 0.
      */
-    const RECENT_WINDOW_UI = { min: 1, max: 36 };
+    const RECENT_WINDOW_UI = { min: 1, max: 120 };
     /** One-slot animation bursts: never more than this many glyphs animating at once. */
     // four titles moving at once is the readability ceiling; frequency decides how often.
     const MOTION_CONCURRENCY = 4;
@@ -485,7 +489,6 @@ window.__ModuleLoader__.load({
       'settings.group.motion': '动效',
       'settings.maxSeats': '座位上限',
       'settings.maxSeatsHint': '对话区 tab 行最多显示几个会话（1–12）。',
-      'settings.maxSeatsAuto': '自动',
       'settings.scope': '显示范围',
       'settings.scopeHint': '哪些工作区的会话进列表（顶栏、tab 行与侧栏一致）。',
       'settings.scope.workspace': '仅当前工作区',
@@ -496,7 +499,7 @@ window.__ModuleLoader__.load({
       'settings.ttl': '刚完成保持时长（分钟）',
       'settings.ttlHint': '会话跑完后仍留在列表里的时间。',
       'settings.recentWindow': '最近对话展示时间（分钟）',
-      'settings.recentWindowHint': '1–36 分钟。最后活动在这个时间内的会话会进第 3 级（闲置）并出现在对话区 tab 行。API 可写 0–120。',
+      'settings.recentWindowHint': '1–120 分钟。最后活动在这个时间内的会话会进第 3 级（闲置）并出现在对话区 tab 行。',
       'settings.motion': '动效',
       'settings.motion.none': '不动',
       'settings.motion.spin': '旋转',
@@ -677,7 +680,6 @@ window.__ModuleLoader__.load({
       'settings.group.motion': 'Motion',
       'settings.maxSeats': 'Maximum seats',
       'settings.maxSeatsHint': 'How many sessions the tab row may show (1–12).',
-      'settings.maxSeatsAuto': 'Automatic',
       'settings.scope': 'Scope',
       'settings.scopeHint': 'Which workspaces feed the list (top bar, tab row and sidebar alike).',
       'settings.scope.workspace': 'Current workspace only',
@@ -688,7 +690,7 @@ window.__ModuleLoader__.load({
       'settings.ttl': 'Keep finished seats for (minutes)',
       'settings.ttlHint': 'How long a finished session stays in the list.',
       'settings.recentWindow': 'Recent conversation window (minutes)',
-      'settings.recentWindowHint': '1–36 minutes. Sessions active within this window enter the third tier (idle) and show in the conversation tab row. The API accepts 0–120.',
+      'settings.recentWindowHint': '1–120 minutes. Sessions active within this window enter the third tier (idle) and show in the conversation tab row.',
       'settings.motion': 'Motion',
       'settings.motion.none': 'Still',
       'settings.motion.spin': 'Spin',
@@ -992,6 +994,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const next = { ...(isPlainObject(base.choices) ? base.choices : {}) };
       if (isPlainObject(patch) === false) return next;
       if (isPlainObject(patch.positions) && typeof patch.positions.topbar === 'boolean') next['positions.topbar'] = true;
+      if (isPlainObject(patch.collect) && typeof patch.collect.recentWindowMinutes === 'number') {
+        next['collect.recentWindowMinutes'] = true;
+      }
       const categories = isPlainObject(patch.categories) ? patch.categories : {};
       for (const [category, change] of Object.entries(categories)) {
         if (CATEGORY_IDS.includes(category) === false || isPlainObject(change) === false) continue;
@@ -1234,9 +1239,16 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         ? clamp(Math.round(legacyIdle.within), RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max)
         : null;
       if (isPlainObject(raw.collect) && typeof raw.collect.recentWindowMinutes === 'number' && Number.isFinite(raw.collect.recentWindowMinutes)) {
-        next.collect.recentWindowMinutes = clamp(Math.round(raw.collect.recentWindowMinutes), RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max);
+        const minutes = clamp(Math.round(raw.collect.recentWindowMinutes), RECENT_WINDOW_MINUTES.min, RECENT_WINDOW_MINUTES.max);
+        /** Same boundary as the presets: an unmarked value equal to the old default follows the default. */
+        const stale = isLegacyValue(legacyValuesOf('collect', 'recentWindowMinutes'), minutes);
+        const chosen = next.choices['collect.recentWindowMinutes'] === true;
+        next.collect.recentWindowMinutes = stale === true && chosen === false ? next.collect.recentWindowMinutes : minutes;
       } else if (legacyWithin !== null) {
-        next.collect.recentWindowMinutes = legacyWithin;
+        /** The class field had the same 5-minute factory default, so an unmarked 5 follows the default too. */
+        const stale = isLegacyValue(legacyValuesOf('collect', 'recentWindowMinutes'), legacyWithin);
+        const chosen = next.choices['collect.recentWindowMinutes'] === true;
+        if (stale === false || chosen === true) next.collect.recentWindowMinutes = legacyWithin;
       }
       /** v4.6 dropped the hand-written pin list: pins live in the workspace store, this only caps the row. */
       if (isPlainObject(raw.pinned) && typeof raw.pinned.maxSeats === 'number' && Number.isFinite(raw.pinned.maxSeats)) {
@@ -4083,19 +4095,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.maxSeats')),
             h('span', { key: 'hint', className: 'hl-rowHint' }, t('settings.maxSeatsHint')),
           ]),
+          /**
+           * No "automatic" option: it was a second, differently-shaped control on a row that is
+           * otherwise a plain stepper, and every other seat count here is a plain stepper too. A
+           * stored `'auto'` is still honoured (`buildSeatPlan` reads it), the stepper just starts
+           * from the fallback and the first click writes a number.
+           */
           h('div', { key: 'control', className: 'hl-fieldControl' }, numberStepper(
             settings.maxSeats === 'auto' ? MAX_SEATS.fallback : settings.maxSeats,
             MAX_SEATS.min,
             MAX_SEATS.max,
             (value) => patch({ maxSeats: value }),
-            h('button', {
-              key: 'auto',
-              type: 'button',
-              className: 'hl-link',
-              'aria-pressed': settings.maxSeats === 'auto' ? 'true' : 'false',
-              onClick: () => patch({ maxSeats: settings.maxSeats === 'auto' ? MAX_SEATS.fallback : 'auto' }),
-            }, t('settings.maxSeatsAuto')),
-            settings.maxSeats === 'auto',
           )),
         ]),
         h('div', { key: 'pinnedSeats', className: 'hl-row', 'data-hotlist-row': 'pinned.maxSeats' }, [

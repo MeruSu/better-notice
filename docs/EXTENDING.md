@@ -34,7 +34,7 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
-插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.7'`）。
+插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.8'`）。
 
 写设置后不需要刷新页面：tab、侧栏、设置页都在同一个 store 上重算。
 
@@ -129,7 +129,7 @@ window.__HOTLIST__.topbar();
   display: { reduceMotion: 'auto' },   // 'auto' | 'on' | 'off'（API 可写，设置页没有行）
   shortcuts: { jumpEnabled: true, overlayEnabled: false, overlayKey: 'Alt+Shift+S' }, // overlayEnabled 生效；jumpEnabled 恒灰
   overlay: { side: 'auto', sizeMin: 260, sizeMax: 520, fallbackImage: '' },
-  collect: { completedTtlMs: 420000, recentWindowMinutes: 5 },  // 前者「刚完成」保持时长 1–1440 分钟；后者「最近对话展示时间」单位分钟，存储范围 0–120、设置页 UI 只给 1–36
+  collect: { completedTtlMs: 420000, recentWindowMinutes: 17 },  // 前者「刚完成」保持时长 1–1440 分钟；后者「最近对话展示时间」单位分钟，存储范围 0–120、设置页 UI 只给 1–36
   sound: { volume: 60 },        // 全局音量 0–100
   pins: { '<sessionId>': 1 },   // 【v4.6.0 起废弃】置顶改读宿主原生 pinnedSessionIds，此字段不再参与判定，旧盘上读时丢弃
   pinned: { maxSeats: 3 },      // v4.6.0 新增：置顶最多占几个座位，0–12，0 = 不显示置顶
@@ -192,7 +192,7 @@ window.__HOTLIST__.topbar();
 
 全局区里那个窗口现在是 `collect.recentWindowMinutes`（默认 5）：最后活动在这个时间内的普通会话进 `idle`，也就进 tab 的第三级；0 表示完全不显示第三级。
 
-**单位是分钟。范围有两层，别混**：存储层（`sanitizeSettings` 的夹取）是 `0`–`120`，`0` 合法且表示不显示；**设置页那一行只给 `1`–`36`**（默认 5），超出 36 的值不会被夹掉，只是没有界面能输——用 `window.__HOTLIST_SETTINGS__.set({ collect: { recentWindowMinutes: 90 } })` 写进去照样生效并保留。改代码时别把 UI 的上限当成数据上限。
+**单位是分钟。范围有两层，别混**：存储层（`sanitizeSettings` 的夹取）是 `0`–`120`，`0` 合法且表示不显示；**设置页那一行给 `1`–`120`**（默认 17），`0` 没有界面能输，只能走 API——用 `window.__HOTLIST_SETTINGS__.set({ collect: { recentWindowMinutes: 90 } })` 写进去照样生效并保留。改代码时别把 UI 的上限当成数据上限。
 
 ## 3. 随机规则（为什么图标不会闪）
 

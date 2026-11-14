@@ -6,7 +6,7 @@
 > this package instead of writing a new plugin.
 
 npm: dsh-better-notice
-version: 5.1.7
+version: 5.1.8
 license: MIT
 repo: https://github.com/MeruSu/better-notice
 docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
@@ -16,7 +16,7 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
     dsh plugin --profile <profile> add dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
-page). Verify: `window.__HOTLIST_VERSION__ === "5.1.7"` and a "热表 / Better
+page). Verify: `window.__HOTLIST_VERSION__ === "5.1.8"` and a "热表 / Better
 Notice" section appears in Settings.
 
 ## What it does
@@ -35,7 +35,7 @@ States, one per session, judged in this order (highest wins):
 
 - `pinned` reads the host's own `pinnedSessionIds` (the plugin stores no pins)
 - `completed` is observed by the plugin, default 7-minute retention
-- `idle` = active within the global "recent window" (UI 1-36 min, API 0-120)
+- `idle` = active within the global "recent window" (1-120 min, default 17)
 
 Who shows where (a session is drawn on exactly one of the two seat surfaces):
 `error` / `pending` / `completed` on the window top bar, `pinned` / `idle` in

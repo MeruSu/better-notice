@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - 包名：`dsh-better-notice`（模块 id 与包名相同）
-- 版本：`5.1.7`（见 [CHANGELOG.md](CHANGELOG.md)）
+- 版本：`5.1.8`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
 
@@ -125,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `5.1.7`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/dsh-better-notice-5.1.7.tgz`，效果一样，同样要重启。
+- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `5.1.8`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/dsh-better-notice-5.1.8.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -150,7 +150,7 @@ host 路由在进程启动时创建，只刷新页面不够。
 
 在 GUI 的浏览器控制台里依次确认：
 
-1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'5.1.7'`；
+1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'5.1.8'`；
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
 3. 打开设置，左导航有**「热表」**，页面里是一块全局区 + **6** 张可折叠的类别卡；
 4. 侧栏的会话行前面出现了状态图标；
@@ -258,9 +258,9 @@ Windows 上的 GUI 顶部有一条 40px 标题带。插件可以往里面画一�
 | 我想… | 字段 | 取值 | 默认 |
 |---|---|---|---|
 | 让刚跑完的会话在 ✅ 里多待一会儿 | `collect.completedTtlMs` | `1`–`1440` **分钟** | `7` |
-| 决定多久没动过的会话还算 `idle` | `collect.recentWindowMinutes` | **分钟**；设置页给 `1`–`36`，走 API 可写 `0`–`120`（`0` = 不显示闲置） | `5` |
+| 决定多久没动过的会话还算 `idle` | `collect.recentWindowMinutes` | **分钟**；设置页给 `1`–`120`，走 API 也可写 `0`（= 不显示闲置） | `17` |
 
-> 最近窗口**故意分两层**：存储层夹 `0`–`120`（所以脚本能写 90），设置页控件只给 `1`–`36`。别把界面上的上限当成数据上限。
+> 最近窗口**故意分两层**：设置页控件给 `1`–`120`；存储层夹 `0`–`120`，`0` 只留给 API 表示「不显示闲置」。别把界面上的范围当成全部。
 
 ### 六个类别：每一类都能单独设
 
@@ -313,7 +313,7 @@ Windows 上的 GUI 顶部有一条 40px 标题带。插件可以往里面画一�
 
 - **折叠卡**：图标预览、类别名、`· 顺序 N`、五个只读小标签（Tab / 栏 / 顶 / 弹 / 音，高亮 = 开）、右端 caret。点整行展开，**可以同时开多张卡**。展开状态存 `sessionStorage`（`dsh.hotlist.open`），不写进设置。
 - **展开区**（紧凑多列）：① 图标（来源 / 上传 / 图标值 / 频率滑块）；② 动效（`motion` + 作用于 `glyph`/`row`）；③ 弹出（开关 / 弹出图 / 入场·待机·退出 / 出现侧·停留时长）；④ 音效（启用 / 来源 / 试听）；⑤ 顺序。
-- **全局区**：范围（当前工作区 / 全部 / 智能）、座位上限（含「自动」）、**置顶最多显示**、刚完成保持时长（分钟）、全局音量、**最近窗口**（分钟）、`positions.tab`、`positions.topbar`、`positions.sidebar`（仅 API）、`takeOverStatusDot`。顶栏那一段（样式 / 标签显示 / 胶囊数 / 胶囊宽度 / 网页预览）只在 `positions.topbar` 打开时才存在。
+- **全局区**：范围（当前工作区 / 全部 / 智能）、座位上限、**置顶最多显示**、刚完成保持时长（分钟）、全局音量、**最近窗口**（分钟）、`positions.tab`、`positions.topbar`、`positions.sidebar`（仅 API）、`takeOverStatusDot`。顶栏那一段（样式 / 标签显示 / 胶囊数 / 胶囊宽度 / 网页预览）只在 `positions.topbar` 打开时才存在。
 - 越界写入会被夹回范围。写盘失败（localStorage 配额满）会在页脚提示，也能从 `window.__HOTLIST_SETTINGS__.lastError()` 拿到原因。
 
 ### 全局默认值
@@ -500,7 +500,7 @@ s.lastError()      // 最近一次写盘错误（字符串或 null）
 
 // 设置 + 三个素材池
 const api = window.__HOTLIST__;
-api.version                                        // '5.1.7'
+api.version                                        // '5.1.8'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }

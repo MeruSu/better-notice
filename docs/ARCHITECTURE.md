@@ -2,7 +2,7 @@
 
 目标读者：下一个要改这份代码的人。看完应该能回答三件事——状态从哪来、三种显示位置各自怎么挂、哪些地方看起来"脏"但**换干净写法会更糟**。
 
-所有行号对 `client.js`（6853 行，v5.1.7）。**行号是起点不是真理**：文件一改就漂，按符号名搜（`grep -n 'function classify' client.js`）才准。全文 `client.js:N` 引用在 v5.0.0-alpha.1 已整体重映射到 **6128 行**版本；v5.1.7 起文件长到 6853 行（新增热表页、未进入名单分组、图标动效），**这批引用按 6128 行版本钉的是符号、不是位置**——一律以符号名 `grep -n` 为准，下一次文档整理会整体重钉：以 4.6.5（4782 行）作旧基准，逐条找到旧行号所属的定义符号、映射到新文件的同名定义、再按原偏移平移（区间同法定起止），所以每一条都落在同一个符号内，而不是「大致位置」。`test:N` 的 **105 条**按测试名从源码行号重新对齐（`docs/TESTING.md` §1.2 的行号就是真值）。**核对方式**：拿符号名 `grep -n` 一遍，行号应当紧挨着那个符号的定义。
+所有行号对 `client.js`（6863 行，v5.1.8）。**行号是起点不是真理**：文件一改就漂，按符号名搜（`grep -n 'function classify' client.js`）才准。全文 `client.js:N` 引用在 v5.0.0-alpha.1 已整体重映射到 **6128 行**版本；v5.1.8 起文件长到 6853 行（新增热表页、未进入名单分组、图标动效），**这批引用按 6128 行版本钉的是符号、不是位置**——一律以符号名 `grep -n` 为准，下一次文档整理会整体重钉：以 4.6.5（4782 行）作旧基准，逐条找到旧行号所属的定义符号、映射到新文件的同名定义、再按原偏移平移（区间同法定起止），所以每一条都落在同一个符号内，而不是「大致位置」。`test:N` 的 **105 条**按测试名从源码行号重新对齐（`docs/TESTING.md` §1.2 的行号就是真值）。**核对方式**：拿符号名 `grep -n` 一遍，行号应当紧挨着那个符号的定义。
 
 ## 1. 分层与真实名字
 
@@ -205,7 +205,7 @@ api-session/error│ sidebarStateOf          client.js:2605 │
 
 ## 12. 版本与标记（验收脚本依赖）
 
-- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:4799`，旧名别名 `client.js:4800`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:5159-5160`）、设置页根 `data-hotlist-settings="v5.1.7"`（`client.js:3914`）。
+- `VERSION`（`client.js:82`）→ `window.__HOTLIST_VERSION__`（`client.js:4799`，旧名别名 `client.js:4800`）、座位 body 的 `data-hotlist-seat` / `data-hotlist-version`（`client.js:5159-5160`）、设置页根 `data-hotlist-settings="v5.1.8"`（`client.js:3914`）。
 - 设置页行选择器 `[data-hotlist-row]`；侧栏 marker `span[data-hotlist-glyph]`；我们注入的样式都带 `data-hotlist-style`（`sidebar` / `takeover` / `page`）。浮层 kit 的样式块是唯一例外：`id="hotlist-popout-kit-style"` + `data-hotlist-kit="style"`（`injectKitStyle`，`client.js:4061-4068`），见 §14。
 
 ## 13. v4.6 已落地与还没接的行为

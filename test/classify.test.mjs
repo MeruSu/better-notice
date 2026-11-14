@@ -758,10 +758,11 @@ test('seven categories', () => {
   assert.equal(found['session-running'], 'running:running');
   assert.equal(found['session-idle'], 'idle:idle');
 
-  /** Idle is a window, not a flag: five minutes in, yes; one second later, no. */
+  /** Idle is a window, not a flag: at the boundary yes, one second later no. */
+  const windowMs = settings.collect.recentWindowMinutes * 60_000;
   const inside = api.classify(settings, {
     surface: 'sidebar',
-    list: { ids: ['session-idle-at'], byId: { 'session-idle-at': session({ id: 'session-idle-at', updatedAt: NOW - 5 * 60_000 }) } },
+    list: { ids: ['session-idle-at'], byId: { 'session-idle-at': session({ id: 'session-idle-at', updatedAt: NOW - windowMs }) } },
     statuses: new Map(),
     errors: new Map(),
     completedAt: new Map(),
@@ -771,7 +772,7 @@ test('seven categories', () => {
   assert.deepEqual(inside.map((row) => row.category), ['idle']);
   const outside = api.classify(settings, {
     surface: 'sidebar',
-    list: { ids: ['session-idle-at'], byId: { 'session-idle-at': session({ id: 'session-idle-at', updatedAt: NOW - 5 * 60_000 - 1 }) } },
+    list: { ids: ['session-idle-at'], byId: { 'session-idle-at': session({ id: 'session-idle-at', updatedAt: NOW - windowMs - 1 }) } },
     statuses: new Map(),
     errors: new Map(),
     completedAt: new Map(),
@@ -963,7 +964,7 @@ test('surface gating', () => {
 test('idle third tier on the tab row', () => {
   const settings = api.defaultSettings();
   assert.equal(settings.categories.idle.surfaces.tab, true);
-  assert.equal(settings.collect.recentWindowMinutes, 5);
+  assert.equal(settings.collect.recentWindowMinutes, 17);
   const list = { ids: ['plain'], byId: { plain: session({ id: 'plain' }) } };
   const input = {
     surface: 'tab', list, statuses: new Map(), errors: new Map(), completedAt: new Map(), now: NOW, workspaceIds: null, limit: 5,
@@ -1008,7 +1009,7 @@ test('sidebar priority', () => {
   assert.equal(api.sidebarStateOf({ ...base, settings: cheapPin, session: row, status: undefined, pinned: true }), 'pinned');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { completionUnread: true } }), 'completed');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined }), 'idle');
-  const old = session({ id: 'y', updatedAt: NOW - 5 * 60_000 - 1 });
+  const old = session({ id: 'y', updatedAt: NOW - settings.collect.recentWindowMinutes * 60_000 - 1 });
   assert.equal(api.sidebarStateOf({ ...base, session: old, status: undefined }), null);
   /** Visible on the tab row only: the class still wins, but this surface cannot draw it. */
   settings.categories.running.surfaces = { tab: true, sidebar: false, topbar: false };
@@ -2308,9 +2309,9 @@ test('recent window migration and clamping', () => {
   assert.equal(fromClass.collect.recentWindowMinutes, 30, 'a custom class window migrates into the global value');
   assert.equal('within' in fromClass.categories.idle, false, 'the class field is gone after sanitising');
 
-  /** The old default is indistinguishable from "nothing set", so it falls back to the same default. */
+  /** The old default is indistinguishable from "nothing set", so it follows the current default. */
   const oldDefault = api.sanitizeSettings({ categories: { idle: { within: 5 } } });
-  assert.equal(oldDefault.collect.recentWindowMinutes, 5);
+  assert.equal(oldDefault.collect.recentWindowMinutes, 17, 'an unmarked 5 was the old default, not a pick');
 
   const stored = api.sanitizeSettings({ collect: { recentWindowMinutes: 500 }, categories: { idle: { within: 30 } } });
   assert.equal(stored.collect.recentWindowMinutes, 120, 'the explicit value wins and clamps to the maximum');
@@ -2584,8 +2585,8 @@ test('legacy default order is adopted, real choices are kept', () => {
   assert.equal(stored.categories.error.order, 10);
 });
 
-// 63. The page offers 1-36 minutes; the store still accepts the whole 0-120 range an API caller may want.
-test('recent window UI bounds are narrower than the API', () => {
+// 63. The page offers the same 1-120 range the store does; only zero stays out of the UI.
+test('recent window UI bounds match the API', () => {
   const rendered = renderPage();
   try {
     const row = collect(rendered.page, (props) => props['data-hotlist-row'] === 'recentWindow')[0];
@@ -2595,7 +2596,7 @@ test('recent window UI bounds are narrower than the API', () => {
     });
     assert.ok(control !== null, 'the recent window row has a number input');
     assert.equal(control.props.min, 1, 'the page starts at one minute: zero is not a human choice');
-    assert.equal(control.props.max, 36, 'the page stops at 36 minutes');
+    assert.equal(control.props.max, 120, 'the page reaches the store maximum');
   } finally {
     rendered.harness.cleanup();
   }
@@ -3568,7 +3569,7 @@ test('session export is deterministic and safe to call bare', () => {
   assert.equal(workspace.some((row) => row.id === 'idle'), false, 'workspace drops the foreign row');
 });
 
-// 80. Every "how many" row is the same `[−] [value] [+]` widget; only maxSeats adds 自动.
+// 80. Every "how many" row is the same `[−] [value] [+]` widget, with no second control beside it.
 test('every seat count uses the same stepper', () => {
   const { harness, page } = renderPage();
   try {
@@ -3581,10 +3582,11 @@ test('every seat count uses the same stepper', () => {
       assert.deepEqual(steps, ['minus', 'plus'], `${key} has one minus and one plus`);
       assert.equal(collect(node, (props) => props.className === 'hl-input hl-num').length, 1, `${key} keeps the same value box`);
     }
-    const auto = (key) => collect(row(key), (props) => props['aria-pressed'] !== undefined).length;
-    assert.equal(auto('maxSeats'), 1, 'maxSeats alone supports 自动');
-    assert.equal(auto('pinned.maxSeats'), 0, 'a pinned cap has no auto mode');
-    assert.equal(auto('topbar.maxSeats'), 0, 'a band cap has no auto mode');
+    /** 自动 is gone everywhere: a stored `'auto'` still works, but no row offers a second control. */
+    const extra = (key) => collect(row(key), (props) => props['aria-pressed'] !== undefined).length;
+    for (const key of ['maxSeats', 'pinned.maxSeats', 'topbar.maxSeats']) {
+      assert.equal(extra(key), 0, `${key} carries no 自动 button`);
+    }
   } finally {
     harness.cleanup();
   }
@@ -4324,6 +4326,45 @@ test('rows left out are grouped by reason, not dumped', () => {
     harness.cleanup();
     api.overrideSettings(null);
   }
+});
+
+// 106. The seat cap is a plain stepper now, and an unmarked 5-minute window follows the new 17.
+test('the cap has no auto mode and the window default replaces the old one', () => {
+  const rendered = renderPage();
+  try {
+    const row = collect(rendered.page, (props) => props['data-hotlist-row'] === 'maxSeats')[0];
+    assert.ok(row, 'the seat row is there');
+    assert.equal(collect(row, (props) => props['aria-pressed'] !== undefined).length, 0, 'no second control beside the stepper');
+    const steps = collect(row, (props) => typeof props['data-hotlist-step'] === 'string').map((btn) => btn.props['data-hotlist-step']);
+    assert.deepEqual(steps, ['minus', 'plus'], 'one minus, one plus, nothing else');
+  } finally {
+    rendered.harness.cleanup();
+  }
+
+  /** A profile that stored the old default keeps working, but lands on the new default. */
+  const unmarked = api.sanitizeSettings({ maxSeats: 6, collect: { recentWindowMinutes: 5 } });
+  assert.equal(unmarked.collect.recentWindowMinutes, 17, 'an unmarked 5 is the old factory default');
+  /** Typing 5 through the page brands it as a choice, so the preset rule never touches it again. */
+  api.writeSettings({ collect: { recentWindowMinutes: 5 } });
+  try {
+    assert.equal(api.readSettings().collect.recentWindowMinutes, 5, 'a picked 5 sticks');
+    assert.equal(api.sanitizeSettings(JSON.parse(storage.getItem('dsh.hotlist.settings.v1'))).collect.recentWindowMinutes, 5, 'and survives a reload');
+  } finally {
+    api.writeSettings({ collect: { recentWindowMinutes: 17 } });
+  }
+
+  /** A stored `'auto'` still means "as many as fit": only the row's button was removed. */
+  const auto = api.sanitizeSettings({ maxSeats: 'auto' });
+  assert.equal(auto.maxSeats, 'auto', 'the value is still legal');
+  const settings = api.defaultSettings();
+  settings.maxSeats = 'auto';
+  const ids = ['a', 'b'];
+  const byId = { a: session({ id: 'a' }), b: session({ id: 'b' }) };
+  const plan = api.buildSeatPlan({
+    surface: 'tab', list: { ids, byId }, statuses: new Map(), errors: new Map(), completedAt: new Map(),
+    now: NOW, workspaceIds: null, limit: 1,
+  }, settings);
+  assert.equal(plan.length, 1, 'the plan is bounded by the width-derived limit it is handed');
 });
 
 console.log(`PASS — ${groups} groups`);
