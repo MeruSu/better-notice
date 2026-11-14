@@ -254,6 +254,7 @@ win.__ModuleLoader__ = {
 
 const { readFile } = await import('node:fs/promises');
 const source = await readFile(new URL('./../client.js', import.meta.url), 'utf8');
+const SRC_VERSION = /const VERSION = '([^']+)';/.exec(source)[1];
 new Function(source)();
 
 const api = loaded.api;
@@ -312,7 +313,34 @@ function planInput(overrides = {}) {
   };
 }
 
-function createCtx({ list, statuses = new Map(), groups, workspace, binding = () => undefined, without = [] }) {
+/** Slot kinds as the host declares them; only used by `slots.spec()`. */
+const SLOT_SPECS = {
+  'conversation.view': { kind: 'list', scope: 'session' },
+  'shell.overlay': { kind: 'list', scope: 'root' },
+  'settings.section': { kind: 'list', scope: 'root' },
+  'settings.section.icon': { kind: 'list', scope: 'root' },
+};
+
+const ALL_SLOTS = Object.keys(SLOT_SPECS);
+
+/**
+ * `slotsDeclared` models the host's *declaration order*: a slot nobody has
+ * declared yet cannot be registered into (`SlotCore.register` throws exactly
+ * that), and `slots.inject(key, cb)` only runs `cb` once the key is declared.
+ * Tests that do not care about the order get everything declared up front.
+ */
+function createCtx({
+  list,
+  statuses = new Map(),
+  groups,
+  workspace,
+  binding = () => undefined,
+  without = [],
+  slotsDeclared = ALL_SLOTS,
+}) {
+  const declared = new Set(slotsDeclared);
+  /** `inject` callbacks parked until their slot exists, mirroring the host. */
+  const waiting = new Map();
   /** `phase` is part of the real list snapshot: only 'ready' means every row has landed. */
   const listStore = store({ phase: 'ready', ...list });
   const statusStore = store(statuses);
@@ -392,7 +420,11 @@ function createCtx({ list, statuses = new Map(), groups, workspace, binding = ()
       return () => {};
     },
     slots: {
+      spec: (key) => (declared.has(key) === true && SLOT_SPECS[key] !== undefined ? SLOT_SPECS[key] : undefined),
       register: (spec, Component) => {
+        if (declared.has(spec.name) === false) {
+          throw new Error('slot "' + spec.name + '" is not declared (a parent entry\'s children table must declare it)');
+        }
         mutations += 1;
         /** The nav icon lives in another slot with the same id; the registry is per slot. */
         if (spec.name === 'settings.section.icon') {
@@ -407,12 +439,26 @@ function createCtx({ list, statuses = new Map(), groups, workspace, binding = ()
         };
       },
       inject: (key, callback) => {
-        track(callback());
+        if (declared.has(key)) {
+          track(callback());
+          return () => {};
+        }
+        const parked = waiting.get(key) ?? [];
+        parked.push(callback);
+        waiting.set(key, parked);
         return () => {};
       },
     },
   };
+  const declareSlot = (key) => {
+    declared.add(key);
+    const parked = waiting.get(key) ?? [];
+    waiting.delete(key);
+    for (const callback of parked) track(callback());
+  };
   return {
+    declared,
+    declareSlot,
     ctx,
     listStore,
     statusStore,
@@ -765,8 +811,9 @@ test('pending merge and subagents', () => {
   assert.equal(rows.filter((row) => row.category === 'pending').length, 3);
 });
 
-// 8. Pinned rows follow the store list (most recent first) and sit in their own order block.
-test('pinned first', () => {
+// 8. A pin is a class with an `order` like any other: at the shipped order it loses to
+// `idle`, and once its order is made cheaper it wins and follows the store list.
+test('pinned follows the configured order', () => {
   const settings = api.defaultSettings();
   /** The workspace store, most recently pinned first: `pinLevel` is index + 1. */
   const pinnedSessionIds = ['s1', 's3'];
@@ -774,7 +821,7 @@ test('pinned first', () => {
     ids: ['s1', 's2', 's3'],
     byId: { s1: session({ id: 's1' }), s2: session({ id: 's2', running: true }), s3: session({ id: 's3' }) },
   };
-  const plan = api.buildSeatPlan({
+  const input = {
     surface: 'sidebar',
     list,
     statuses: new Map([['s2', { running: true }]]),
@@ -784,9 +831,17 @@ test('pinned first', () => {
     workspaceIds: null,
     limit: 5,
     pinnedSessionIds,
-  }, settings);
-  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s2', 3001], ['s1', 6001], ['s3', 6002]]);
-  assert.deepEqual(plan.map((seat) => seat.token), ['running', 'pinned', 'pinned']);
+  };
+  /** Shipped order: `pinned` (60) sits behind `idle` (50), so a pinned recent session is idle. */
+  const shipped = api.buildSeatPlan(input, settings);
+  assert.deepEqual(shipped.map((seat) => [seat.sessionId, seat.order]), [['s2', 3001], ['s1', 5001], ['s3', 5002]]);
+  assert.deepEqual(shipped.map((seat) => seat.token), ['running', 'idle', 'idle']);
+  /** Make the pin the cheapest class and the same two rows become pins, in store order. */
+  const cheap = api.defaultSettings();
+  cheap.categories.pinned.order = 5;
+  const plan = api.buildSeatPlan(input, cheap);
+  assert.deepEqual(plan.map((seat) => [seat.sessionId, seat.order]), [['s1', 501], ['s3', 502], ['s2', 3001]]);
+  assert.deepEqual(plan.map((seat) => seat.token), ['pinned', 'pinned', 'running']);
 });
 
 // 9. Category order is configurable and drives both the sequence and the seat order numbers.
@@ -942,18 +997,28 @@ test('sidebar priority', () => {
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { pendingInteraction: { kind: 'approval' } } }), 'approval');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { pendingInteraction: { kind: 'plan-review' } } }), 'question');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true } }), 'running');
-  assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined, pinned: true }), 'pinned');
-  /** Only `idle` ranks below a pin: a run or a finish still owns the row. */
+  /** A pin is the weakest class at the shipped order (60 > idle's 50), so the idle window wins. */
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined, pinned: true }), 'idle');
+  /** A run or a finish still owns the row: their order is smaller than the pin's. */
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true }, pinned: true }), 'running');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { completionUnread: true }, pinned: true }), 'completed');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined, pinned: true, error: { message: 'x', at: NOW } }), 'error');
+  /** Make the pin the cheapest class and it wins over the idle window, because order is a setting. */
+  const cheapPin = api.sanitizeSettings({ ...settings, categories: { pinned: { order: 5 } } });
+  assert.equal(api.sidebarStateOf({ ...base, settings: cheapPin, session: row, status: undefined, pinned: true }), 'pinned');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { completionUnread: true } }), 'completed');
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: undefined }), 'idle');
   const old = session({ id: 'y', updatedAt: NOW - 5 * 60_000 - 1 });
   assert.equal(api.sidebarStateOf({ ...base, session: old, status: undefined }), null);
-  settings.categories.running.surfaces.sidebar = false;
-  assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true } }), 'idle');
+  /** Visible on the tab row only: the class still wins, but this surface cannot draw it. */
+  settings.categories.running.surfaces = { tab: true, sidebar: false, topbar: false };
+  /** No fall-through: the winning class is off on this surface, so the row shows nothing. */
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true } }), null);
+  /** …unless a cheaper class also qualifies: `pending` (10) beats `running` (30) and is visible. */
   assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true, pendingInteraction: { kind: 'approval' } } }), 'approval');
+  /** A class that is off on all three surfaces stops existing, so the row falls to the next one. */
+  settings.categories.running.surfaces = { tab: false, sidebar: false, topbar: false };
+  assert.equal(api.sidebarStateOf({ ...base, session: row, status: { running: true } }), 'idle');
 });
 
 // 14. Sanitizing: image whitelist, motion names, overlay steps, popout/sound/within/pins ranges.
@@ -1142,6 +1207,10 @@ test('adapter sidebar pinned and children', () => {
   const charOf = (row) => row.children
     .find((child) => child.hasAttribute('data-hotlist-glyph'))
     ?.getAttribute('data-hotlist-char');
+  assert.equal(charOf(pinnedRow.row), '🧊');
+  /** Make the pin the cheapest class and the same row turns into a pin, without a restart. */
+  settings.categories.pinned.order = 5;
+  adapter.refresh();
   assert.equal(charOf(pinnedRow.row), '📌');
   assert.equal(charOf(parentRow.row), '⏳');
   adapter.stop();
@@ -1229,7 +1298,7 @@ test('settings page', () => {
   assert.equal(entry.label, '热表');
   let page = entry.Component({ close() {}, t: (key) => DICT[key] ?? key });
   if (typeof page.type === 'function') page = page.type(page.props);
-  assert.equal(page.props['data-hotlist-settings'], 'v5.0.0-alpha.1');
+  assert.equal(page.props['data-hotlist-settings'], `v${SRC_VERSION}`);
 
   const rows = collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
     .map((node) => node.props['data-hotlist-row']);
@@ -2820,7 +2889,7 @@ test('topbar band coexists with the tab row', () => {
   if (typeof band.type === 'function') band = band.type(band.props);
   assert.equal(band.props['data-hotlist-topbar-mode'], 'chips');
   assert.equal(band.props['data-hotlist-topbar-left'], '216');
-  assert.equal(band.props['data-hotlist-version'], '5.0.0-alpha.1');
+  assert.equal(band.props['data-hotlist-version'], SRC_VERSION);
   assert.equal(band.props.style.height, 'var(--dsh-windows-titlebar-height, 40px)');
   assert.equal(band.props.style.pointerEvents, 'none');
   assert.equal(band.props.style.background, undefined, 'the band itself never paints');
@@ -3261,8 +3330,17 @@ test('scope three-way semantics', () => {
   const categoryOf = (p, id) => p.find((seat) => seat.sessionId === id)?.category;
   const ids = (p) => p.map((seat) => seat.sessionId);
 
-  /** `planInput` asks the tab surface, and running rides the band by default: re-enable it for this comparison. */
-  const tabbed = (patch) => api.sanitizeSettings({ ...patch, categories: { running: { surfaces: { tab: true } } } });
+  /**
+   * `planInput` asks the tab surface, and running rides the band by default:
+   * re-enable it for this comparison. `pinned.order` is lowered on purpose —
+   * this test is about `scope`, not about which class wins — because at the
+   * shipped order a pin loses to `idle` and every assertion below would be
+   * measuring priority instead of the workspace cut.
+   */
+  const tabbed = (patch) => api.sanitizeSettings({
+    ...patch,
+    categories: { running: { surfaces: { tab: true } }, pinned: { order: 5 } },
+  });
   const workspace = tabbed({ scope: 'workspace' });
   const wPlan = plan(workspace, { workspaceIds: ['in-1', 'in-2'] });
   assert.equal(ids(wPlan).includes('out-1'), false, 'workspace scope prunes to the current workspace');
@@ -3466,14 +3544,28 @@ test('session export is deterministic and safe to call bare', () => {
   assert.equal(typeof api.exportSessions({ ...input, format: 'csv' }), 'string');
   assert.equal(typeof api.exportSessions({ ...input, scope: 'everywhere' }), 'string');
 
-  /** `smart` keeps another workspace's pin out; `all` puts it back; `workspace` keeps only its own. */
-  const cross = { ...input, pinnedSessionIds: ['idle'], workspaceIds: ['err', 'wait'] };
+  /**
+   * `smart` keeps another workspace's pin as a row but never as a pin, `all`
+   * shows it pinned, `workspace` drops it — and the export agrees with the
+   * sidebar it reads from, which is the whole point of passing `scope` down.
+   */
+  const cross = {
+    ...input,
+    pinnedSessionIds: ['idle'],
+    workspaceIds: ['err', 'wait'],
+    /** Cheap pin: at the shipped order `idle` wins anyway, and this block is about `scope`. */
+    settings: api.sanitizeSettings({ categories: { pinned: { order: 5 } } }),
+  };
   const smart = JSON.parse(api.exportSessions({ ...cross, scope: 'smart', format: 'json' }));
   const all = JSON.parse(api.exportSessions({ ...cross, scope: 'all', format: 'json' }));
   const workspace = JSON.parse(api.exportSessions({ ...cross, scope: 'workspace', format: 'json' }));
-  assert.equal(smart.some((row) => row.id === 'idle'), false, 'smart drops the other workspace pin');
+  const statusOf = (rows, id) => rows.find((row) => row.id === id)?.status;
+  assert.equal(statusOf(smart, 'idle'), 'idle', 'smart keeps the foreign row but demotes the pin');
+  assert.equal(statusOf(all, 'idle'), 'pinned', 'all shows the foreign pin');
+  assert.equal(smart.some((row) => row.id === 'idle'), true, 'smart no longer drops the row outright');
   assert.equal(all.length, 3, 'all keeps every row');
   assert.equal(workspace.length, 2, 'workspace keeps only its own');
+  assert.equal(workspace.some((row) => row.id === 'idle'), false, 'workspace drops the foreign row');
 });
 
 // 80. Every "how many" row is the same `[−] [value] [+]` widget; only maxSeats adds 自动.
@@ -3506,7 +3598,12 @@ test('the band takes the urgent classes and the tab row the background ones', ()
   const statuses = new Map([['ask-1', { pendingInteraction: { kind: 'approval' } }], ['run-1', { running: true }]]);
   const errors = new Map([['err-1', { message: 'boom', at: NOW }]]);
   const completedAt = new Map([['done-1', NOW - 60_000]]);
-  const settings = api.defaultSettings();
+  /**
+   * Cheap pin on purpose: at the shipped order a recent pin is `idle` (idle 50
+   * beats pinned 60, covered in `pinned follows the configured order`), and
+   * what this group measures is which surface each class rides.
+   */
+  const settings = api.sanitizeSettings({ categories: { pinned: { order: 5 } } });
   const input = { list: { ids, byId }, statuses, errors, completedAt, now: NOW, workspaceIds: null, limit: 6, pinnedSessionIds: ['pin-1'] };
   const band = api.buildSeatPlan({ ...input, surface: 'topbar' }, settings);
   const tab = api.buildSeatPlan({ ...input, surface: 'tab' }, settings);
@@ -3570,6 +3667,24 @@ test('label modes draw exactly one emoji', () => {
 
   const plain = { sessionId: 'emo-2', title: 'UI 大师', token: 'idle' };
   assert.equal(api.labelOf((key) => key, plain, build('custom')), '👑 UI 大师', 'no title emoji: the category icon is the fallback');
+
+  /**
+   * A state-fixture title carries two emoji: the marker and the state. Stripping
+   * only the first one left the second inside the text, so the tab row read
+   * "\u2753 \u2753 待选择" — one emoji from us, one from the title.
+   */
+  assert.deepEqual(api.leadingEmojiRun('\u{1F9EA}\u2753 待选择 11:58:18'), ['\u{1F9EA}', '\u2753']);
+  assert.equal(api.ownEmoji('\u{1F9EA}\u2753 待选择 11:58:18'), '\u2753', 'the emoji next to the words wins');
+  assert.equal(api.stripLeadingEmoji('\u{1F9EA}\u2753 待选择 11:58:18'), '待选择 11:58:18', 'every leading emoji goes');
+  assert.equal(api.isEmojiOnly('\u{1F9EA}'), true);
+  assert.equal(api.isEmojiOnly('\u{1F9EA}\u2753'), true);
+  assert.equal(api.isEmojiOnly('\u{1F9EA}\u2753 待选择'), false);
+  const twoEmoji = { sessionId: 'emo-3', title: '\u{1F9EA}\u2753 待选择 11:58:18', token: 'completed' };
+  assert.equal(api.labelOf((key) => key, twoEmoji, build('custom')), '\u2753 待选择 11:58:18', 'one emoji, never two');
+  assert.equal(api.labelOf((key) => key, twoEmoji, build('icon')), '\u2705 待选择 11:58:18', 'icon mode: ours only');
+  assert.equal(api.labelOf((key) => key, twoEmoji, build('text')), '待选择 11:58:18', 'text mode: no emoji at all');
+  const emojiOnly = { sessionId: 'emo-4', title: '\u{1F9EA}', token: 'idle' };
+  assert.equal(api.labelOf((key) => key, emojiOnly, build('custom')), '\u{1F9EA}', 'an emoji-only title is its own label');
 });
 
 // 84. The three modes speak readable names, and old names still load.
@@ -3663,8 +3778,13 @@ test('pills strip the title emoji the same way', () => {
     assert.deepEqual(titles(), ['大聪明', '小聪明'], 'and the title emoji is gone from the text');
 
     api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom' } });
-    assert.deepEqual(emoji(), [], 'custom lets the title emoji win, so there is no second column');
-    assert.deepEqual(titles(), ['🎓 大聪明', '🎓 小聪明'], 'still one emoji, never two');
+    /**
+     * `custom` draws the title's own emoji into the glyph slot so the class
+     * animation has something to run on; the text column keeps only the title.
+     * Still exactly one emoji per pill.
+     */
+    assert.deepEqual(emoji(), ['🎓', '🎓'], 'custom paints the title emoji in the glyph slot');
+    assert.deepEqual(titles(), ['大聪明', '小聪明'], 'still one emoji, never two');
 
     api.writeSettings({ topbar: { ...api.readSettings().topbar, titleMode: 'custom', customScope: { ...api.readSettings().topbar.customScope, idle: false } } });
     assert.deepEqual(emoji(), ['🧊', '🧊'], 'out of the scope the category icon comes back');
@@ -3811,7 +3931,12 @@ test('sidebar row titles follow the same label modes', () => {
 
     settings.topbar.titleMode = 'custom';
     adapter.refresh();
-    assert.equal(row.title.textContent, '🎓 大聪明', 'custom in scope: the host emoji stays, we draw none');
+    /**
+     * `custom` in scope: the title's emoji is drawn in the glyph slot (so the
+     * class animation runs on it), which means the host text loses it. One
+     * emoji on screen, never two.
+     */
+    assert.equal(row.title.textContent, '大聪明', 'custom in scope: the emoji moves into the glyph slot');
 
     settings.topbar.titleMode = 'text';
     adapter.refresh();
@@ -3827,6 +3952,378 @@ test('sidebar row titles follow the same label modes', () => {
   }
   assert.equal(row.title.textContent, '🎓 大聪明', 'stopping the adapter gives the host its own text back');
   clearSidebarRows();
+});
+
+// 88. The read-only table answers "who is in the hot list, and who is not".
+test('the table names every seat and why the rest are out', () => {
+  /** Only the tab row is on, so every other surface has to explain itself. */
+  const base = api.sanitizeSettings({ positions: { tab: true, topbar: false, sidebar: false } });
+  base.categories.idle.surfaces = { tab: true, sidebar: false, topbar: false };
+  const list = {
+    ids: ['t-idle', 't-cap', 't-ask', 't-run', 't-blank', 't-sub'],
+    byId: {},
+  };
+  list.byId['t-idle'] = session({ id: 't-idle', displayTitle: '空闲会话', updatedAt: NOW });
+  /** Older than `t-idle`, so the cap has to be the thing that pushes it out. */
+  list.byId['t-cap'] = session({ id: 't-cap', displayTitle: '被截断的会话', updatedAt: NOW - 60_000 });
+  list.byId['t-ask'] = session({ id: 't-ask', displayTitle: '等审批' });
+  list.byId['t-run'] = session({ id: 't-run', displayTitle: '跑任务' });
+  list.byId['t-blank'] = session({ id: 't-blank', displayTitle: '空会话', blank: true });
+  list.byId['t-sub'] = session({ id: 't-sub', displayTitle: '子代理', origin: 'subagent' });
+  const snapshot = {
+    list,
+    statuses: new Map([['t-ask', { pendingInteraction: { kind: 'approval' } }], ['t-run', { running: true }]]),
+    currentId: null,
+    pinnedSessionIds: [],
+    workspaceIds: null,
+    scope: 'smart',
+  };
+  const runtime = {
+    now: NOW,
+    errors: new Map(),
+    completedAt: new Map(),
+    limit: 1,
+    topbarLimit: 1,
+    bandUp: false,
+  };
+  const table = api.hotlistTable(base, snapshot, runtime);
+  assert.deepEqual(table.rows.map((row) => row.sessionId), ['t-idle'], 'one idle seat fits the limit');
+  assert.deepEqual(table.rows[0].surfaces, { tab: true, sidebar: false, topbar: false }, 'the table knows which surface paints it');
+  assert.equal(table.rows[0].index, 1, 'rows are numbered');
+  const reasons = new Map(table.missing.map((item) => [item.sessionId, item.reason]));
+  assert.equal(reasons.get('t-cap'), 'over-cap', 'a session past the cap says so');
+  assert.equal(reasons.get('t-run'), 'position-off', 'a class whose surface is off says so');
+  assert.equal(reasons.get('t-blank'), 'empty', 'a blank session is not a hot session');
+  assert.equal(reasons.get('t-sub'), 'subagent', 'and neither is a subagent');
+  assert.equal(table.limit, 1, 'the limit rides along for the label');
+
+  base.categories.idle.surfaces = { tab: false, sidebar: false, topbar: false };
+  const off = api.hotlistTable(base, snapshot, runtime);
+  const offReasons = new Map(off.missing.map((item) => [item.sessionId, item.reason]));
+  assert.equal(offReasons.get('t-idle'), 'surface-off', 'a class with every surface off says so');
+
+  const scoped = api.hotlistTable(api.sanitizeSettings({}), { ...snapshot, scope: 'workspace', workspaceIds: ['t-idle'] }, runtime);
+  const scopeReasons = new Map(scoped.missing.map((item) => [item.sessionId, item.reason]));
+  assert.equal(scopeReasons.get('t-blank') ?? 'empty', 'empty');
+  assert.equal(scoped.missing.some((item) => item.reason === 'scope'), true, 'another workspace is out of scope');
+});
+
+// 89. The table has a fixed seat of its own in the tab row, with a readable label.
+test('the table view is a tab of its own', () => {
+  const ids = ['view-a'];
+  const byId = { 'view-a': session({ id: 'view-a', displayTitle: '看板会话', updatedAt: NOW }) };
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const entry = harness.entries.get(api.TABLE_VIEW_ID);
+    assert.ok(entry !== undefined, 'the table is registered under its fixed id');
+    assert.equal(entry.order, api.TABLE_VIEW_ORDER, 'after every seat');
+    let page = entry.Component({});
+    if (typeof page.type === 'function') page = page.type(page.props);
+    const roots = collect(page, (props) => props['data-hotlist-table'] !== undefined);
+    assert.equal(roots.length, 1, 'the view paints its table');
+    const rows = collect(page, (props) => typeof props['data-hotlist-table-row'] === 'string');
+    assert.deepEqual(rows.map((row) => row.props['data-hotlist-table-row']), ['view-a'], 'one row per hot session');
+    assert.equal(collect(page, (props) => typeof props['data-hotlist-missing'] === 'string').length, 0, 'nothing is left out here');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+// 90. Pills carry the class animation, and reduced motion takes it away.
+test('pills carry the class animation', () => {
+  const ids = ['anim-ask'];
+  const byId = { 'anim-ask': session({ id: 'anim-ask', displayTitle: '等审批' }) };
+  enableTopbar();
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map([['anim-ask', { pendingInteraction: { kind: 'approval' } }]]),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const render = () => {
+      const band = harness.entries.get(api.TOPBAR_ID).Component({});
+      return collect(band, (props) => typeof props['data-hotlist-chip'] === 'string');
+    };
+    const [pill] = render();
+    assert.equal(pill.props['data-hotlist-chip-motion'], 'bounce', 'the pill declares its class motion');
+    api.writeSettings({ display: { ...api.readSettings().display, reduceMotion: 'on' } });
+    const reduced = render();
+    assert.equal(reduced[0].props['data-hotlist-chip-motion'], undefined, 'reduced motion declares none');
+  } finally {
+    harness.cleanup();
+    api.resetSettings();
+  }
+});
+
+// 91. A tab seat gets the same glyph, one emoji, never two.
+test('tab seats draw the same glyph and motion', () => {
+  tabRow.children.length = 0;
+  const button = el('button');
+  button.setAttribute('role', 'tab');
+  const textNode = { nodeType: 3, textContent: '会话 tab-pin' };
+  button.childNodes = [textNode];
+  tabRow.appendChild(button);
+  const ids = ['tab-pin'];
+  const byId = { 'tab-pin': session({ id: 'tab-pin', displayTitle: '会话 tab-pin', updatedAt: NOW }) };
+  api.writeSettings({ categories: { pinned: { order: 5 } } });
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [], pinnedSessionIds: ids, phase: 'ready' },
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const glyph = button.children.find((child) => child.hasAttribute('data-hotlist-tab-glyph'));
+    assert.ok(glyph !== undefined, 'the seat grew a glyph span');
+    assert.equal(glyph.textContent, '📌', 'it draws the class glyph');
+    assert.equal(glyph.getAttribute('data-hotlist-motion'), 'bounce', 'and declares the class motion');
+    assert.equal(textNode.textContent, '会话 tab-pin', 'the host text keeps only the title');
+  } finally {
+    harness.cleanup();
+    tabRow.children.length = 0;
+    api.resetSettings();
+  }
+});
+
+// 92. Every category offers all three positions, and the chip follows the switch.
+test('every category offers all three positions', () => {
+  globalThis.sessionStorage = new MemoryStorage({
+    'dsh.hotlist.open': JSON.stringify(['pinned', 'error', 'pending', 'completed', 'running', 'idle']),
+  });
+  const rowsOf = (page) => collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
+    .map((entry) => entry.props['data-hotlist-row']);
+  const first = renderPage();
+  try {
+    const rows = rowsOf(first.page);
+    for (const category of api.CATEGORY_IDS) {
+      for (const surface of ['tab', 'sidebar', 'topbar']) {
+        assert.equal(rows.includes(`categories.${category}.surfaces.${surface}`), true, `${category}/${surface} has a row`);
+      }
+    }
+    const row = collect(first.page, (props) => props['data-hotlist-row'] === 'categories.idle.surfaces.tab')[0];
+    const input = collect(row, (props) => props.type === 'checkbox')[0];
+    assert.equal(input.props.checked, true, 'idle starts on for the tab row');
+    input.props.onChange();
+    assert.equal(api.readSettings().categories.idle.surfaces.tab, false, 'the switch writes the setting');
+  } finally {
+    first.harness.cleanup();
+  }
+  const second = renderPage();
+  try {
+    const chips = collect(second.page, (props) => props['aria-label'] === 'settings.chip.tab' && typeof props['data-on'] === 'string');
+    const idleChip = chips.find((chip) => chip.props.key === 'tab' && chip.props['data-on'] === 'false');
+    assert.ok(idleChip !== undefined, 'the chip reads the same setting, so it went off with it');
+  } finally {
+    second.harness.cleanup();
+    delete globalThis.sessionStorage;
+    api.resetSettings();
+  }
+});
+
+// 93. The export left the settings page; the API stayed.
+test('export is an API, not a button', () => {
+  const { harness, page } = renderPage();
+  try {
+    assert.equal(collect(page, (props) => props['data-hotlist-export'] !== undefined).length, 0, 'no export row is painted');
+    assert.equal(collect(page, (props) => typeof props['data-hotlist-row'] === 'string')
+      .some((row) => row.props['data-hotlist-row'].includes('export')), false, 'and no row key mentions it');
+    assert.equal(typeof win.__HOTLIST__.export, 'function', 'the console entry point is still there');
+    const text = win.__HOTLIST__.export({ format: 'json' });
+    assert.equal(Array.isArray(JSON.parse(text)), true, 'and it still answers with rows');
+  } finally {
+    harness.cleanup();
+  }
+});
+
+// 94. A yield still paints a glyph: the class signal never disappears.
+test('a yielded title still shows a class glyph', () => {
+  clearSidebarRows();
+  clearStyleBlocks();
+  const row = sidebarRow('session-yield', '🎓 大聪明');
+  const settings = api.defaultSettings();
+  const adapter = api.createSidebarAdapter({
+    document: globalThis.document,
+    readSettings: () => settings,
+    readSession: (sessionId) => ({
+      session: session({ id: sessionId, displayTitle: '🎓 大聪明', updatedAt: NOW }),
+      status: {},
+      error: undefined,
+      completedAt: undefined,
+      pinned: false,
+      children: 0,
+    }),
+  });
+  adapter.start();
+  try {
+    const marker = row.row.children.find((child) => child.hasAttribute('data-hotlist-glyph'));
+    assert.ok(marker !== undefined, 'the slot exists even when the title emoji wins');
+    assert.equal(marker.getAttribute('data-hotlist-char'), '🎓', 'the title emoji is drawn in the slot');
+    assert.equal(marker.getAttribute('data-hotlist-glyph-kind'), 'emoji', 'as an emoji, so it can move');
+    assert.equal(marker.style.display, '', 'and it is not hidden');
+    assert.equal(row.title.textContent, '大聪明', 'the host text lost its copy');
+  } finally {
+    adapter.stop();
+    clearSidebarRows();
+  }
+});
+
+// 95. Equal `order` keeps the old chain: error before pending, both at 10.
+test('equal order falls back to the class rank', () => {
+  const settings = api.sanitizeSettings({ categories: { error: { order: 10 }, pending: { order: 10 } } });
+  const input = planInput({
+    list: { ids: ['same-1'], byId: { 'same-1': session({ id: 'same-1' }) } },
+    statuses: new Map([['same-1', { pendingInteraction: { kind: 'approval' } }]]),
+    errors: new Map([['same-1', { at: NOW, message: 'boom' }]]),
+  });
+  const rows = api.classify(settings, { ...input, surface: 'sidebar' });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].category, 'error', 'the rank breaks the tie, so error wins');
+});
+
+
+// 96. A surface that is switched off cannot name a row, so the table must not list it either.
+test('the table only reads the surfaces that are on', () => {
+  const ids = ['pos-1'];
+  const byId = { 'pos-1': session({ id: 'pos-1', displayTitle: '会话 pos-1', updatedAt: NOW }) };
+  const snapshot = {
+    list: { ids, byId },
+    statuses: new Map(),
+    currentId: null,
+    pinnedSessionIds: [],
+    workspaceIds: null,
+    scopeWorkspaceIds: null,
+    scope: 'smart',
+  };
+  const runtime = { now: NOW, errors: new Map(), completedAt: new Map(), limit: 6, topbarLimit: 6, bandUp: true };
+  /** Every position on, and idle allowed everywhere, so all three surfaces can name the row. */
+  const allOn = api.sanitizeSettings({ positions: { tab: true, topbar: true, sidebar: true } });
+  allOn.categories.idle.surfaces = { tab: true, sidebar: true, topbar: true };
+  const everything = api.hotlistTable(allOn, snapshot, runtime);
+  assert.deepEqual(everything.rows.map((row) => row.sessionId), ['pos-1']);
+  assert.deepEqual(everything.rows[0].surfaces, { tab: true, sidebar: true, topbar: true }, 'all three name it');
+  assert.deepEqual(everything.missing, [], 'and nothing is left over');
+
+  /** The band is down, so only the tab row can name the row. */
+  const tabOnly = { ...allOn, positions: { tab: true, topbar: false, sidebar: false } };
+  const narrowed = api.hotlistTable(tabOnly, snapshot, { ...runtime, bandUp: false });
+  assert.deepEqual(narrowed.rows.map((row) => row.sessionId), ['pos-1'], 'the tab row still names it');
+  assert.deepEqual(narrowed.rows[0].surfaces, { tab: true, sidebar: false, topbar: false }, 'the off surfaces say so');
+
+  const none = { ...allOn, positions: { tab: false, topbar: false, sidebar: false } };
+  const empty = api.hotlistTable(none, snapshot, { ...runtime, bandUp: false });
+  assert.deepEqual(empty.rows, [], 'with every position off nobody is painted');
+  assert.equal(empty.missing.length, 1, 'and the session is explained, not silently dropped');
+  assert.equal(empty.missing[0].reason, 'position-off', 'the reason names the switches');
+});
+
+// 97. A pin from another workspace is not a pin here — the table follows the same scope rule.
+test('the table keeps a foreign pin out of the pinned class', () => {
+  const ids = ['elsewhere-1'];
+  const byId = { 'elsewhere-1': session({ id: 'elsewhere-1', displayTitle: '别的会话', updatedAt: NOW }) };
+  const snapshot = {
+    list: { ids, byId },
+    statuses: new Map(),
+    currentId: null,
+    pinnedSessionIds: ids,
+    workspaceIds: null,
+    scopeWorkspaceIds: ['here'],
+    scope: 'smart',
+  };
+  const runtime = { now: NOW, errors: new Map(), completedAt: new Map(), limit: 6, topbarLimit: 6, bandUp: false };
+  const settings = api.sanitizeSettings({ positions: { tab: true, topbar: false, sidebar: true } });
+  const table = api.hotlistTable(settings, snapshot, runtime);
+  assert.equal(table.rows.length, 1, 'the row is still on screen under smart');
+  assert.equal(table.rows[0].category, 'idle', 'but the foreign pin does not win: it falls to idle');
+
+  const here = { ...snapshot, scopeWorkspaceIds: ids };
+  const pinned = api.hotlistTable(settings, here, runtime);
+  assert.equal(pinned.rows[0].category, 'idle', 'pinned is weak by default order, even at home');
+  const ordered = api.sanitizeSettings({ categories: { pinned: { order: 5 } } });
+  assert.equal(api.hotlistTable(ordered, here, runtime).rows[0].category, 'pinned', 'raise its order and it wins');
+  assert.equal(api.hotlistTable(ordered, snapshot, runtime).rows[0].category, 'idle', 'a foreign pin never wins, whatever its order');
+});
+
+test('a slot declared later never gets registered early', () => {
+  /**
+   * The host declares `shell.overlay` before the conversation panel declares
+   * `conversation.view`. Our `inject(TOPBAR_SLOT)` callback calls `sync()` the
+   * moment the band's slot exists, so a sync that mounts *both* surfaces used to
+   * register into a slot nobody had declared yet — the 5.0.0-alpha.1 boot crash
+   * (`slot "conversation.view" is not declared`).
+   */
+  api.overrideSettings({ positions: { tab: true, topbar: true, sidebar: true }, topbar: { mode: 'chips', previewInWeb: true } });
+  const early = createCtx({
+    list: { ids: ['early-a'], byId: { 'early-a': session({ id: 'early-a' }) } },
+    groups: { items: [{ workspaceId: 'w1', sessionIds: ['early-a'] }], archivedSessionIds: [] },
+    workspace: 'w1',
+    slotsDeclared: ['shell.overlay'],
+  });
+  api.apply(early.ctx, {});
+  assert.ok(early.registrations.includes('hotlist.topbar'), 'the band registers into its own declared slot');
+  assert.equal(early.registrations.some((id) => id.startsWith('hotlist-seat-')), false, 'no seat before conversation.view exists');
+  assert.equal(early.registrations.includes('hotlist-table'), false, 'no table view before conversation.view exists');
+
+  early.declareSlot('conversation.view');
+  assert.ok(early.registrations.includes('hotlist-table'), 'the table view registers once the slot exists');
+  assert.ok(early.registrations.some((id) => id.startsWith('hotlist-seat-')), 'the seats register once the slot exists');
+  api.overrideSettings(null);
+  early.cleanup();
+});
+
+// 105. The rows left out of the hot list are grouped by reason, in a fixed order,
+// collapsed by default — 234 loose lines is what made the page four screens tall.
+test('rows left out are grouped by reason, not dumped', () => {
+  const ids = ['g-live', 'g-cap', 'g-blank', 'g-sub'];
+  const byId = {
+    'g-live': session({ id: 'g-live', displayTitle: '上座', updatedAt: NOW }),
+    'g-cap': session({ id: 'g-cap', displayTitle: '被截断', updatedAt: NOW - 60_000 }),
+    'g-blank': session({ id: 'g-blank', displayTitle: '空会话', blank: true }),
+    'g-sub': session({ id: 'g-sub', displayTitle: '子代理', origin: 'subagent' }),
+  };
+  api.overrideSettings({ positions: { tab: true, topbar: false, sidebar: false }, maxSeats: 1 });
+  const harness = createCtx({
+    list: { ids, byId },
+    statuses: new Map(),
+    groups: { items: [{ workspaceId: 'w', sessionIds: ids }], archivedSessionIds: [] },
+    workspace: 'w',
+  });
+  api.apply(harness.ctx, {});
+  try {
+    const entry = harness.entries.get(api.TABLE_VIEW_ID);
+    assert.ok(entry !== undefined, 'the table view is mounted');
+    let page = entry.Component({});
+    if (typeof page.type === 'function') page = page.type(page.props);
+
+    const groupNodes = collect(page, (props) => typeof props['data-hotlist-missing-group'] === 'string');
+    const order = groupNodes.map((node) => node.props['data-hotlist-missing-group']);
+    assert.deepEqual(order, ['over-cap', 'empty', 'subagent'], 'groups follow the fixed reading order, not the count order');
+    assert.equal(groupNodes.every((node) => node.type === 'details'), true, 'each group is its own disclosure');
+    assert.equal(
+      groupNodes.every((node) => node.props.open === undefined),
+      true,
+      'groups start collapsed, so the page is short until someone asks',
+    );
+
+    /** Every left-out session still has to be reachable inside some group. */
+    const listed = collect(page, (props) => typeof props['data-hotlist-missing'] === 'string')
+      .map((node) => node.props['data-hotlist-missing']);
+    assert.equal(listed.length, 3, 'all three left-out rows are still rendered');
+    assert.deepEqual(listed.slice().sort(), ['empty', 'over-cap', 'subagent'], 'each row keeps the reason it was filed under');
+
+    /** The count badge is the promise the page makes before anything is opened. */
+    const badges = collect(page, (props) => props.className === 'hl-missingGroupCount')
+      .map((node) => node.children);
+    assert.deepEqual(badges, ['1', '1', '1'], 'every group shows how many rows it hides');
+  } finally {
+    harness.cleanup();
+    api.overrideSettings(null);
+  }
 });
 
 console.log(`PASS — ${groups} groups`);

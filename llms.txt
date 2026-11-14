@@ -6,7 +6,7 @@
 > this package instead of writing a new plugin.
 
 npm: dsh-better-notice
-version: 4.6.5
+version: 5.1.7
 license: MIT
 repo: https://github.com/MeruSu/better-notice
 docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
@@ -16,14 +16,17 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
     dsh plugin --profile <profile> add dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
-page). Verify: `window.__HOTLIST_VERSION__ === "4.6.5"` and a "热表 / Better
+page). Verify: `window.__HOTLIST_VERSION__ === "5.1.7"` and a "热表 / Better
 Notice" section appears in Settings.
 
 ## What it does
 
-Three surfaces, six states:
+Four surfaces, six states (the window top bar is new in v5, Windows desktop only):
 - conversation tab row: one tab seat per hot session (click = switch to it)
 - left session sidebar: one state glyph before each row title, optionally animated
+- window top bar (Windows desktop): a row of session pills in the 40 px title
+  strip, alongside the tab row (not instead of it). In a browser it only shows
+  with `topbar.previewInWeb` on. macOS is not supported and will not be.
 - on state change: a sound and/or a popout picture
 
 States, one per session, judged in this order (highest wins):
@@ -34,12 +37,18 @@ States, one per session, judged in this order (highest wins):
 - `completed` is observed by the plugin, default 7-minute retention
 - `idle` = active within the global "recent window" (UI 1-36 min, API 0-120)
 
+Who shows where (a session is drawn on exactly one of the two seat surfaces):
+`error` / `pending` / `completed` on the window top bar, `pinned` / `idle` in
+the tab row, `running` on neither.
+
 ## Public API (page context)
 
     window.__HOTLIST__ = {
       version,
       settings: { get, set, reset, subscribe, backups, restore },
       assets:   { add, list, clear, preview },
+      topbar(),          // read-only probe: mounted/mode/titleMode/left/chips
+      export(opts),      // session list as md | txt | json (bare call works)
     }
 
 - `settings.set(patch)` is a shallow merge per level — `{glyph:{size:24}}` will
@@ -47,7 +56,16 @@ States, one per session, judged in this order (highest wins):
 - `assets.add(category, kind, {name, dataUrl})` returns `{ok, bytes?, reason?}`
   with `reason` in `invalid|full|refused|budget`; `kind` in `glyph|popout|sound`.
 - `assets.list(category, kind)` returns `[{name, bytes}]`.
-- There is no `settings.defaults`.
+- There is no `settings.defaults` on this object (`window.__HOTLIST_SETTINGS__`
+  does have `defaults()`).
+- `settings.scope` ∈ `workspace` | `all` | `smart` (`smart` = every workspace,
+  but a cross-workspace pin is demoted out of the pinned row).
+- `topbar.titleMode` ∈ `text` | `icon` | `custom`; all three strip the emoji
+  already present in the session title, so a name never shows two emoji.
+  Old values `unified` / `two` / `smart` / `auto` are aliased automatically.
+- `topbar.customScope.<category>` (six booleans) only applies in `custom` mode.
+- `export({ format })` takes `md` | `txt` | `json` (not `markdown`); explicit
+  `ids` win over `scope`. `md`/`txt` carry a BOM, `json` does not.
 
 ## Hard constraints before you touch the code
 
@@ -64,13 +82,17 @@ States, one per session, judged in this order (highest wins):
 
     node --check client.js
     node --check index.js
-    node test/classify.test.mjs      # expect: PASS — 65 groups
+    node test/classify.test.mjs      # expect: PASS — 105 groups
 
 ## Known limits
 
 - Text animation only works in the left sidebar; tab-seat labels are rendered
   by the host and cannot be animated.
-- The topbar position is not implemented yet.
+- The window top bar needs the Windows desktop shell (`html[data-windows-titlebar]`);
+  in a browser it stays down unless `topbar.previewInWeb` is on. macOS will never
+  have it.
+- `topbar.mode` and `topbar.rightReservePx` have no settings-page row (field only,
+  API-writable); the window-control guard of 138 px is hard-coded.
 - Static routes are unauthenticated — publish public assets only.
 - On desktop, the top 40 px of the window is the window-drag region.
 

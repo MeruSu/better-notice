@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '5.0.0-alpha.1';
+    const VERSION = '5.1.7';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -88,6 +88,10 @@ window.__ModuleLoader__.load({
     const VIEW_PREF_PREFIX = 'dsh.conversation.';
     /** The bare view id the v2.5 single-tab build could leave behind. */
     const HOTLIST_VIEW_ID = 'hotlist';
+    /** The one view-row entry that is not a session: the table of what is hot right now. */
+    const TABLE_VIEW_ID = 'hotlist-table';
+    /** After every seat: a seat's order is `categories[*].order * 100 + position`, at most 9999. */
+    const TABLE_VIEW_ORDER = 10000;
     const REFRESH_MS = 30 * 1000;
     const RESIZE_DEBOUNCE_MS = 200;
     /** Fallback when the tab row cannot be measured; the row shows 6 tabs at typical widths. */
@@ -478,16 +482,6 @@ window.__ModuleLoader__.load({
       'settings.close': '关闭',
       'settings.title': '热表',
       'settings.subtitle': '控制对话区 tab 行的座位数量、状态图标与显示位置。',
-      'settings.export': '导出会话列表',
-      'settings.exportHint': '一行一个会话，按界面顺序排列；两次导出内容一致，可直接导入 Notion 做对比。',
-      'settings.exportRun': '导出',
-      'settings.export.md': 'Markdown 表格',
-      'settings.export.txt': '文本（TXT）',
-      'settings.export.json': 'JSON 数组',
-      'settings.export.downloaded': '已下载到下载目录',
-      'settings.export.saved': '已保存到 ',
-      'settings.export.cancelled': '已取消',
-      'settings.export.failed': '导出失败',
       'settings.group.motion': '动效',
       'settings.maxSeats': '座位上限',
       'settings.maxSeatsHint': '对话区 tab 行最多显示几个会话（1–12）。',
@@ -534,12 +528,51 @@ window.__ModuleLoader__.load({
       'settings.topbar.customScopeHint': '勾选的类别用会话名开头的 emoji 替换图标；没勾的仍用这类自己的图标。',
       'settings.topbar.maxSeats': '顶栏最多显示',
       'settings.topbar.maxSeatsHint': '顶栏最多显示几个会话（1–12），与对话区 tab 行互不影响。',
+      'settings.surface.tab': 'Tab 行',
+      'settings.surface.tabHint': '开启后该类别会出现在对话区的 Tab 行里。',
+      'settings.surface.sidebar': '侧栏',
+      'settings.surface.sidebarHint': '开启后该类别会在左侧会话列表里显示状态图标。',
       'settings.surface.topbar': '顶栏',
       'settings.surface.topbarHint': '开启后该类别会出现在窗口顶栏的胶囊行里。',
       'topbar.count': '另有 {count} 个',
       'topbar.countHint': '点击切到下一个未显示的会话',
       'topbar.moreHint': '另有 {count} 个，点击逐个切换',
       'surface.topbar': '窗口顶栏',
+      'view.table': '热表',
+      'view.lead': '当前热表 {count} 条，未进入 {missing} 条。',
+      'view.col.index': '序号',
+      'view.col.category': '类别',
+      'view.col.order': '顺序值',
+      'view.col.title': '标题',
+      'view.col.where': '出现在哪',
+      'view.col.note': '备注',
+      'view.surface.tab': 'Tab 行',
+      'view.surface.sidebar': '侧栏',
+      'view.surface.topbar': '顶栏',
+      'view.surface.none': '都没出现',
+      'view.note.current': '当前会话',
+      'view.note.pin': '置顶 #{level}',
+      'view.note.error': '失败：{message}',
+      'view.missing': '未进入热表（{count}）',
+      'view.missingNone': '所有会话都在表里。',
+      'view.reason.empty': '还没有任何消息',
+      'view.reason.subagent': '子代理会话，不占座位',
+      'view.reason.scope': '属于其他工作区，被 scope 裁掉',
+      'view.reason.no-category': '未运行、未置顶，也不在近期的闲置窗口内',
+      'view.reason.surface-off': '该类别在 Tab、侧栏、顶栏三处都关着',
+      'view.reason.position-off': '该类别只在一个已关闭的位置上显示',
+      'view.reason.over-cap': '超出座位上限被截（Tab 行 {limit} 个）',
+      // Group headings: short names, because the full sentence above is already
+      // shown on each row. Order of the list is fixed in `groupMissing()`.
+      'view.group.over-cap': '超上限',
+      'view.group.scope': '其他工作区',
+      'view.group.surface-off': '三处都关',
+      'view.group.position-off': '位置关着',
+      'view.group.no-category': '无状态',
+      'view.group.empty': '空会话',
+      'view.group.subagent': '子代理',
+      'view.missingHint': '默认收起，点一行展开该组；组内序号即该组顺序。',
+      'view.missingMore': '展开剩余 {count} 条',
       'settings.position.allOff': '热表当前不可见，可从设置重新打开。',
       'settings.takeOverStatusDot': '接管会话行首标记',
       'settings.takeOverStatusDotHint': '隐藏其它插件在会话行首画的状态点（仅侧栏）。',
@@ -561,10 +594,10 @@ window.__ModuleLoader__.load({
       'settings.chip.popout': '弹出提示',
       'settings.chip.sound': '音效',
       'settings.chipShort.tab': 'Tab',
-      'settings.chipShort.sidebar': '栏',
-      'settings.chipShort.topbar': '顶',
-      'settings.chipShort.popout': '弹',
-      'settings.chipShort.sound': '音',
+      'settings.chipShort.sidebar': '侧栏',
+      'settings.chipShort.topbar': '顶栏',
+      'settings.chipShort.popout': '弹图',
+      'settings.chipShort.sound': '音效',
       'settings.chip.positionHint': '位置在页面上方全局区设置。',
       'settings.card.orderTag': '· 顺序 {order}',
       'settings.card.disabled': '停用',
@@ -641,16 +674,6 @@ window.__ModuleLoader__.load({
       'settings.close': 'Close',
       'settings.title': 'Hot List',
       'settings.subtitle': 'Seats, state glyphs and where the list appears.',
-      'settings.export': 'Export session list',
-      'settings.exportHint': 'One row per session, in the order on screen; two exports of the same data match, so Notion can diff them.',
-      'settings.exportRun': 'Export',
-      'settings.export.md': 'Markdown table',
-      'settings.export.txt': 'Text (TXT)',
-      'settings.export.json': 'JSON array',
-      'settings.export.downloaded': 'Downloaded to your downloads folder',
-      'settings.export.saved': 'Saved to ',
-      'settings.export.cancelled': 'Cancelled',
-      'settings.export.failed': 'Export failed',
       'settings.group.motion': 'Motion',
       'settings.maxSeats': 'Maximum seats',
       'settings.maxSeatsHint': 'How many sessions the tab row may show (1–12).',
@@ -697,12 +720,49 @@ window.__ModuleLoader__.load({
       'settings.topbar.customScopeHint': 'Ticked categories use the emoji the name starts with instead of their icon; unticked ones keep the icon.',
       'settings.topbar.maxSeats': 'Top bar max sessions',
       'settings.topbar.maxSeatsHint': 'How many sessions the top bar may show (1-12), independent of the conversation tab row.',
+      'settings.surface.tab': 'Tab row',
+      'settings.surface.tabHint': 'When on, this category appears in the conversation Tab row.',
+      'settings.surface.sidebar': 'Sidebar',
+      'settings.surface.sidebarHint': 'When on, this category shows its state glyph in the session list.',
       'settings.surface.topbar': 'Top bar',
       'settings.surface.topbarHint': 'When on, this category appears as pills in the window top bar.',
       'topbar.count': '{count} more',
       'topbar.countHint': 'Click to switch to the next hidden session',
       'topbar.moreHint': '{count} more, click to step through them',
       'surface.topbar': 'Window top bar',
+      'view.table': 'Hot list',
+      'view.lead': '{count} in the hot list, {missing} left out.',
+      'view.col.index': '#',
+      'view.col.category': 'Category',
+      'view.col.order': 'Order',
+      'view.col.title': 'Title',
+      'view.col.where': 'Shown on',
+      'view.col.note': 'Note',
+      'view.surface.tab': 'Tab row',
+      'view.surface.sidebar': 'Sidebar',
+      'view.surface.topbar': 'Top bar',
+      'view.surface.none': 'none',
+      'view.note.current': 'Current session',
+      'view.note.pin': 'Pinned #{level}',
+      'view.note.error': 'Failed: {message}',
+      'view.missing': 'Left out ({count})',
+      'view.missingNone': 'Every session is in the list.',
+      'view.reason.empty': 'No messages yet',
+      'view.reason.subagent': 'Child agent run, never a seat',
+      'view.reason.scope': 'Another workspace, cut by scope',
+      'view.reason.no-category': 'Not running, not pinned, outside the recent window',
+      'view.reason.surface-off': 'Its category is off on the tab row, the sidebar and the top bar',
+      'view.reason.position-off': 'Its category only shows on a surface that is switched off',
+      'view.reason.over-cap': 'Cut by the seat cap ({limit} in the tab row)',
+      'view.group.over-cap': 'Over the cap',
+      'view.group.scope': 'Other workspace',
+      'view.group.surface-off': 'Off everywhere',
+      'view.group.position-off': 'Surface is off',
+      'view.group.no-category': 'No state',
+      'view.group.empty': 'No messages',
+      'view.group.subagent': 'Child agent',
+      'view.missingHint': 'Collapsed by default — click a group to open it. The number inside a group is its order.',
+      'view.missingMore': 'Show the other {count}',
       'settings.position.allOff': 'The hot list is hidden right now — turn a position back on here.',
       'settings.takeOverStatusDot': 'Take over the row marker',
       'settings.takeOverStatusDotHint': 'Hides state dots drawn by other plugins at the start of a session row (sidebar only).',
@@ -724,10 +784,10 @@ window.__ModuleLoader__.load({
       'settings.chip.popout': 'Popout alert',
       'settings.chip.sound': 'Sound',
       'settings.chipShort.tab': 'Tab',
-      'settings.chipShort.sidebar': 'Side',
-      'settings.chipShort.topbar': 'Top',
-      'settings.chipShort.popout': 'Pop',
-      'settings.chipShort.sound': 'Snd',
+      'settings.chipShort.sidebar': 'Sidebar',
+      'settings.chipShort.topbar': 'Top bar',
+      'settings.chipShort.popout': 'Popout',
+      'settings.chipShort.sound': 'Sound',
       'settings.chip.positionHint': 'Positions are set in the global block above.',
       'settings.card.orderTag': '· order {order}',
       'settings.card.disabled': 'off',
@@ -1378,10 +1438,52 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return match === null ? '' : match[0];
     }
 
-    /** The title with the emoji `leadingEmoji` just took removed, so `smart` prints it once. */
+    /**
+     * Every emoji the title starts with. A session can carry more than one:
+     * `🧪❓ 待选择` is a marker followed by the state. Taking only the first one
+     * left the second inside the text, so the tab row printed `❓ ❓ 待选择`.
+     */
+    function leadingEmojiRun(title) {
+      if (typeof title !== 'string') return [];
+      const run = [];
+      let rest = title.trimStart();
+      /** Four is already absurd; the cap keeps a pathological title finite. */
+      while (run.length < 4) {
+        const match = LEADING_EMOJI_RE.exec(rest);
+        if (match === null) break;
+        run.push(match[0]);
+        rest = rest.slice(match[0].length).trimStart();
+      }
+      return run;
+    }
+
+    /** The emoji closest to the words — the one the user actually put in front of them. */
+    function ownEmoji(title) {
+      const run = leadingEmojiRun(title);
+      return run.length === 0 ? '' : run[run.length - 1];
+    }
+
+    /**
+     * A title made of emoji and nothing else. There is no text to keep, so the
+     * emoji already *is* the title and drawing a second one would double it.
+     */
+    function isEmojiOnly(title) {
+      if (typeof title !== 'string') return false;
+      const run = leadingEmojiRun(title);
+      return run.length > 0 && title.trim() === run.join('');
+    }
+
+    /**
+     * The title with every leading emoji removed, so the glyph we draw is the
+     * only one. A title that is nothing but emoji keeps its text: stripping it
+     * to an empty string would rename the session to "untitled".
+     */
     function stripLeadingEmoji(title) {
-      const emoji = leadingEmoji(title);
-      return emoji === '' ? title : title.trimStart().slice(emoji.length).trimStart();
+      const run = leadingEmojiRun(title);
+      if (run.length === 0) return title;
+      const width = run.reduce((sum, emoji) => sum + emoji.length, 0);
+      const rest = title.trimStart().slice(width).trimStart();
+      return rest === '' ? title.trimStart() : rest;
     }
 
     /** Motion of a token, with its target (glyph-only or glyph + row title). */
@@ -1867,6 +1969,26 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return entry.surfaces.tab !== true && entry.surfaces.sidebar !== true && entry.surfaces.topbar !== true;
     }
 
+    /**
+     * The winning class among the ones a session earns: the smallest `order` wins
+     * and `CATEGORY_RANK` breaks a tie, so the same input always yields the same
+     * answer. `order` is a setting, so reordering the cards reorders the
+     * judgement — that is the rule, not a side effect of it.
+     */
+    function bestCategory(settings, qualified) {
+      let best = null;
+      for (const category of qualified) {
+        if (best === null) {
+          best = category;
+          continue;
+        }
+        const left = settings.categories[category].order;
+        const right = settings.categories[best].order;
+        if (left < right || (left === right && CATEGORY_RANK[category] < CATEGORY_RANK[best])) best = category;
+      }
+      return best;
+    }
+
     /** Whether a category is allowed on the surface that is asking (`tab` or `sidebar`). */
     function categoryVisible(settings, category, surface) {
       const entry = settings.categories[category];
@@ -1902,9 +2024,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       /** The workspace store's pin list, most recent first; empty until its first read lands. */
       const pinnedSessionIds = Array.isArray(input.pinnedSessionIds) ? input.pinnedSessionIds : [];
       const rows = [];
+      /** A class that is off on every surface can never win; the per-surface check happens on the winner. */
       const usable = new Set(orderedCategories(settings).filter((category) => !categoryAllOff(settings, category)));
-      /** Idle is only worth a row when its surface is on and its window is open. */
-      if (!categoryVisible(settings, 'idle', surface)) usable.delete('idle');
 
       for (const id of input.list.ids) {
         const session = input.list.byId[id];
@@ -1923,47 +2044,37 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         const children = running === true ? 0 : runningChildren(input.list, input.statuses, id);
         const pinIndex = pinnedSessionIds.indexOf(id);
         const within = settings.collect.recentWindowMinutes;
-
-        /** One session, one category: a live failure outranks everything, a pin only outranks `idle`. */
-        if (failure !== void 0 && usable.has('error')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'error', surface) === false) continue;
-          rows.push({ ...base, category: 'error', token: 'error', pinLevel: null, errorMessage: failure.message });
-          continue;
-        }
-        if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && usable.has('pending')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'pending', surface) === false) continue;
-          rows.push({ ...base, category: 'pending', token: kind === 'approval' ? 'approval' : 'question', pinLevel: null });
-          continue;
-        }
-        if (finishedAt !== void 0 && input.now - finishedAt < settings.collect.completedTtlMs && usable.has('completed')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'completed', surface) === false) continue;
-          rows.push({ ...base, category: 'completed', token: 'completed', pinLevel: null });
-          continue;
-        }
-        if ((running === true || children > 0) && usable.has('running')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'running', surface) === false) continue;
-          rows.push({ ...base, category: 'running', token: 'running', pinLevel: null });
-          continue;
-        }
-        /** `smart` shows every workspace but never a pin from another one: the pin row is skipped, the session still earns its other categories. */
+        /** `smart` shows every workspace but never a pin from another one: that pin just does not qualify. */
         const crossWorkspacePin = settings.scope === 'smart'
           && input.scopeWorkspaceIds !== null && input.scopeWorkspaceIds !== void 0
           && Array.isArray(input.scopeWorkspaceIds) && input.scopeWorkspaceIds.includes(id) === false;
-        if (pinIndex >= 0 && !crossWorkspacePin && usable.has('pinned')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'pinned', surface) === false) continue;
-          rows.push({ ...base, category: 'pinned', token: 'pinned', pinLevel: pinIndex + 1 });
-          continue;
-        }
-        if (within > 0 && input.now - updatedAt <= within * 60000 && usable.has('idle')) {
-          /** A class this surface does not carry is not drawn here — and it must not fall through to a lower one. */
-          if (categoryVisible(settings, 'idle', surface) === false) continue;
-          rows.push({ ...base, category: 'idle', token: 'idle', pinLevel: null });
-        }
+
+        /** Every class this session earns — the six conditions, unchanged from the old chain. */
+        const qualified = [];
+        if (failure !== void 0 && usable.has('error')) qualified.push('error');
+        if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && usable.has('pending')) qualified.push('pending');
+        if (finishedAt !== void 0 && input.now - finishedAt < settings.collect.completedTtlMs && usable.has('completed')) qualified.push('completed');
+        if ((running === true || children > 0) && usable.has('running')) qualified.push('running');
+        if (pinIndex >= 0 && crossWorkspacePin === false && usable.has('pinned')) qualified.push('pinned');
+        if (within > 0 && input.now - updatedAt <= within * 60000 && usable.has('idle')) qualified.push('idle');
+
+        const winner = bestCategory(settings, qualified);
+        if (winner === null) continue;
+        /**
+         * No fall-through: a class this surface does not carry drops the row
+         * instead of demoting it, or a failed session would show as `idle` in
+         * the tab row.
+         */
+        if (categoryVisible(settings, winner, surface) === false) continue;
+        const token = winner === 'pending' ? (kind === 'approval' ? 'approval' : 'question') : winner;
+        const pinLevel = winner === 'pinned' ? pinIndex + 1 : null;
+        rows.push({
+          ...base,
+          category: winner,
+          token,
+          pinLevel,
+          errorMessage: winner === 'error' ? failure.message : void 0,
+        });
       }
       return rows;
     }
@@ -2039,6 +2150,158 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return plan;
     }
 
+    /**
+     * The data behind the `热表` view entry. Pure, and built only from the three
+     * functions the surfaces themselves call — `classify` (through
+     * `buildSeatPlan`), `buildSeatPlan` and `sidebarStateOf` — so a row here and
+     * a seat in the row can never disagree about what is hot.
+     *
+     * `missing` is the reason this view exists: a session the user expects and
+     * the plugin drops has to say *why*. Seven reasons, in the order the
+     * decision is made — the first six are "it never became a row", the last is
+     * "it became one and the cap cut it":
+     *
+     * `empty` no messages yet | `subagent` a child run, never a seat |
+     * `scope` another workspace under `scope: 'workspace'` |
+     * `no-category` nothing matched: not running, not pinned, outside the window |
+     * `surface-off` its class is off on all three surfaces |
+     * `position-off` its class is on somewhere, but that surface is off |
+     * `over-cap` it would be listed, and the seat cap cut it
+     */
+    function hotlistTable(settings, snapshot, runtime) {
+      const shared = {
+        list: snapshot.list,
+        statuses: snapshot.statuses,
+        errors: runtime.errors,
+        completedAt: runtime.completedAt,
+        currentId: snapshot.currentId,
+        pinnedSessionIds: snapshot.pinnedSessionIds,
+        workspaceIds: snapshot.workspaceIds,
+        scopeWorkspaceIds: snapshot.scopeWorkspaceIds ?? null,
+        scope: snapshot.scope,
+        now: runtime.now,
+      };
+      /**
+       * A surface that is switched off cannot name a row, so its plan is not even
+       * built: the table has to agree with what is actually painted, not with what
+       * would be painted if every position were on.
+       */
+      const tabPlan = settings.positions.tab === true
+        ? buildSeatPlan({ ...shared, surface: 'tab', limit: runtime.limit }, settings)
+        : [];
+      const bandPlan = runtime.bandUp === true
+        ? buildSeatPlan({ ...shared, surface: 'topbar', limit: runtime.topbarLimit }, settings)
+        : [];
+      const seats = new Map(tabPlan.map((seat) => [seat.sessionId, seat]));
+      const bandSeats = new Map(bandPlan.map((seat) => [seat.sessionId, seat]));
+      /** `sidebarStateOf` speaks tokens; the table speaks categories. Same words, same rule. */
+      const sidebarStates = new Map();
+      for (const sessionId of settings.positions.sidebar === true ? snapshot.list.ids : []) {
+        const session = snapshot.list.byId[sessionId];
+        if (session === void 0) continue;
+        const state = sidebarStateOf({
+          session,
+          status: snapshot.statuses.get(sessionId),
+          error: runtime.errors.get(sessionId),
+          completedAt: runtime.completedAt.get(sessionId),
+          settings,
+          now: runtime.now,
+          pinned: snapshot.pinnedSessionIds.includes(sessionId),
+          children: runningChildren(snapshot.list, snapshot.statuses, sessionId),
+          scope: snapshot.scope,
+          currentWorkspaceIds: snapshot.workspaceIds,
+        });
+        if (state !== null) sidebarStates.set(sessionId, state);
+      }
+      const candidates = new Set([...seats.keys(), ...bandSeats.keys(), ...sidebarStates.keys()]);
+      const rows = [];
+      for (const sessionId of candidates) {
+        const seat = seats.get(sessionId) ?? bandSeats.get(sessionId);
+        const state = sidebarStates.get(sessionId);
+        const category = seat === void 0 ? CATEGORY_OF_TOKEN[state] ?? 'running' : seat.category;
+        const session = snapshot.list.byId[sessionId];
+        const title = seat === void 0 ? session?.displayTitle ?? '' : seat.title;
+        const notes = [];
+        if (sessionId === snapshot.currentId) notes.push({ code: 'current' });
+        if (seat !== void 0 && seat.pinLevel !== null && seat.pinLevel !== void 0) notes.push({ code: 'pin', detail: String(seat.pinLevel) });
+        if (seat !== void 0 && typeof seat.errorMessage === 'string' && seat.errorMessage !== '') {
+          notes.push({ code: 'error', detail: seat.errorMessage.slice(0, ERROR_TEXT_LIMIT) });
+        }
+        rows.push({
+          sessionId,
+          category,
+          order: settings.categories[category].order,
+          title: shortenTitle(title),
+          surfaces: { tab: seats.has(sessionId), sidebar: sidebarStates.has(sessionId), topbar: bandSeats.has(sessionId) },
+          notes,
+        });
+      }
+      rows.sort((left, right) => {
+        if (left.category !== right.category) {
+          return settings.categories[left.category].order - settings.categories[right.category].order;
+        }
+        return left.order - right.order || left.sessionId.localeCompare(right.sessionId);
+      });
+      rows.forEach((row, index) => {
+        row.index = index + 1;
+      });
+      /**
+       * The class a session *would* win with every switch forced on: that is how
+       * a session that is off for a reason gets a nameable class instead of
+       * "unknown".
+       */
+      const anywhere = {
+        ...settings,
+        scope: 'all',
+        categories: Object.fromEntries(CATEGORY_IDS.map((category) => [category, {
+          ...settings.categories[category],
+          enabled: true,
+          surfaces: { tab: true, sidebar: true, topbar: true },
+        }])),
+      };
+      const intrinsic = new Map(classify(anywhere, { ...shared, scope: 'all', workspaceIds: null, surface: 'tab' })
+        .map((row) => [row.sessionId, row.category]));
+      const missing = [];
+      for (const sessionId of snapshot.list.ids) {
+        if (candidates.has(sessionId)) continue;
+        const session = snapshot.list.byId[sessionId];
+        if (session === void 0) continue;
+        const title = shortenTitle(typeof session.displayTitle === 'string' ? session.displayTitle : '');
+        if (session.blank === true) {
+          missing.push({ sessionId, title, category: null, reason: 'empty' });
+          continue;
+        }
+        if (session.origin === 'subagent') {
+          missing.push({ sessionId, title, category: null, reason: 'subagent' });
+          continue;
+        }
+        if (snapshot.scope === 'workspace' && snapshot.workspaceIds !== null && snapshot.workspaceIds.includes(sessionId) === false) {
+          missing.push({ sessionId, title, category: null, reason: 'scope' });
+          continue;
+        }
+        const category = intrinsic.get(sessionId) ?? null;
+        if (category === null) {
+          missing.push({ sessionId, title, category: null, reason: 'no-category' });
+          continue;
+        }
+        if (categoryAllOff(settings, category)) {
+          missing.push({ sessionId, title, category, reason: 'surface-off' });
+          continue;
+        }
+        const reachable = (settings.positions.tab === true && categoryVisible(settings, category, 'tab'))
+          || (settings.positions.sidebar === true && categoryVisible(settings, category, 'sidebar'))
+          || (runtime.bandUp === true && categoryVisible(settings, category, 'topbar'));
+        missing.push({
+          sessionId,
+          title,
+          category,
+          reason: reachable ? 'over-cap' : 'position-off',
+          limit: runtime.limit,
+        });
+      }
+      return { rows, missing, limit: runtime.limit, overflow: tabPlan.overflow };
+    }
+
     // =========================================================================
     // Session list export. Pure: the same opts in -> the same string out, so two
     // exports of one snapshot are byte-identical and Notion can diff them.
@@ -2060,8 +2323,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     const EXPORT_SCOPES = Object.freeze(['workspace', 'all', 'smart']);
     /** Windows Notepad needs it or a Chinese title comes back as mojibake. */
     const EXPORT_BOM = '\uFEFF';
-    /** Set by `apply()`: the settings page cannot reach the session stores by itself. */
-    let exportAction = null;
 
     /** `2026-11-13 01:47`, derived from the epoch value alone — never from `Date.now()`. */
     function localStamp(epochMs) {
@@ -2129,9 +2390,12 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         if (scope === 'workspace' && inWorkspace(id) === false) continue;
         const pinIndex = pinnedIds.indexOf(id);
         const pinned = pinIndex >= 0;
-        /** `smart` = every workspace except a pin that belongs to another one. */
-        if (scope === 'smart' && pinned && inWorkspace(id) === false) continue;
-
+        /**
+         * No pre-skip for a cross-workspace pin: it used to be dropped here, but
+         * `sidebarStateOf` already knows that rule — the pin simply does not
+         * qualify and the row exports as whatever it is otherwise (usually
+         * `idle`), which is exactly what the sidebar shows for it.
+         */
         const status = statuses.get(id);
         const token = sidebarStateOf({
           session,
@@ -2142,6 +2406,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           now,
           pinned,
           children: runningChildren(input.list, statuses, id),
+          /** Same two fields the sidebar passes, or the cross-workspace rule cannot fire. */
+          scope,
+          currentWorkspaceIds: workspaceIds,
         }) ?? 'idle';
 
         rows.push({
@@ -2233,18 +2500,33 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       return format === 'json' ? serializeExport(rows, format) : EXPORT_BOM + serializeExport(rows, format);
     }
 
-    /** Tab label: the token's emoji + title shortened to the tab width. */
-    function labelOf(t, seat, settings = snapshot()) {
+    /**
+     * Tab label split into the glyph we own and the text the host keeps, so the
+     * two can be painted by different nodes without ever doubling an emoji.
+     */
+    function labelParts(t, seat, settings = snapshot()) {
       const mode = settings.topbar.titleMode;
       const category = CATEGORY_OF_TOKEN[seat.token ?? seat.badge ?? null] ?? 'running';
-      const own = leadingEmoji(seat.title);
+      /** The emoji closest to the words, not the first one: `🧪❓ 待选择` carries two. */
+      const own = ownEmoji(seat.title);
       /** `custom` lets the emoji the user typed into the title win; `icon` and `text` never use it. */
       const fromTitle = own !== '' && customIconWins(settings, category);
-      /** The label is ours end to end, so the title's own leading emoji never shows up twice. */
+      /** A title that is nothing but emoji already carries its own glyph. */
+      if (isEmojiOnly(seat.title)) return { emoji: '', title: shortenTitle(seat.title.trim()) };
+      /**
+       * No leading emoji of the title may survive here — every one of them would
+       * pair with the glyph we draw.
+       */
       const raw = stripLeadingEmoji(seat.title);
       const title = raw === '' ? t('tab.untitled') : shortenTitle(raw);
       const token = seat.token ?? seat.badge ?? null;
       const emoji = mode === 'text' ? '' : fromTitle ? own : token === null ? '' : emojiOf(settings, token);
+      return { emoji, title };
+    }
+
+    /** Tab label: the token's emoji + title shortened to the tab width. */
+    function labelOf(t, seat, settings = snapshot()) {
+      const { emoji, title } = labelParts(t, seat, settings);
       return emoji === '' ? title : `${emoji} ${title}`;
     }
 
@@ -2274,10 +2556,18 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
      * reads its preferences: only the `view` field changes, everything else
      * is kept verbatim.
      */
-    /** A view id that can only belong to one of our seats, or to the old single-tab build. */
+    /**
+     * A view id that can only belong to one of our seats, to the old single-tab
+     * build, or to the table entry. The table is in this list for the same
+     * reason the seats are: it is registered after boot, so a persisted id would
+     * resolve to nothing and the session would open on a placeholder page.
+     */
     function isSeatViewId(view) {
       if (typeof view !== 'string') return false;
-      return SEAT_PREFIXES.some((prefix) => view.startsWith(prefix)) || view === LEGACY_VIEW_ID || view === HOTLIST_VIEW_ID;
+      return SEAT_PREFIXES.some((prefix) => view.startsWith(prefix))
+        || view === LEGACY_VIEW_ID
+        || view === HOTLIST_VIEW_ID
+        || view === TABLE_VIEW_ID;
     }
 
     function healViewPreferences() {
@@ -2612,22 +2902,32 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const currentWorkspaceIds = Array.isArray(input.currentWorkspaceIds) ? input.currentWorkspaceIds : null;
       if (scope === 'workspace' && currentWorkspaceIds !== null && currentWorkspaceIds.includes(session.id) === false) return null;
       const crossWorkspacePin = scope === 'smart' && currentWorkspaceIds !== null && currentWorkspaceIds.includes(session.id) === false;
-      /** Same chain as `classify`: a failure, a waiting question, a finish, a run, a pin, then idle. */
-      if (error !== void 0 && now - error.at <= SIDEBAR_ERROR_TTL_MS && visible('error')) return 'error';
+      /**
+       * Same rule as `classify`: collect every class the row earns, then let the
+       * smallest `order` win. The sidebar keeps its own two extra conditions
+       * (error TTL, `completionUnread`) — that is why it is a second function —
+       * but it must never disagree with the tab row about which class won.
+       */
+      const usable = new Set(orderedCategories(settings).filter((category) => !categoryAllOff(settings, category)));
+      const qualified = [];
+      if (error !== void 0 && now - error.at <= SIDEBAR_ERROR_TTL_MS && usable.has('error')) qualified.push('error');
       const kind = status?.pendingInteraction?.kind;
-      if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && visible('pending')) {
-        return kind === 'approval' ? 'approval' : 'question';
-      }
+      if ((kind === 'approval' || kind === 'question' || kind === 'plan-review') && usable.has('pending')) qualified.push('pending');
       const finished = status?.completionUnread === true
         || (completedAt !== undefined && now - completedAt < settings.collect.completedTtlMs);
-      if (finished && visible('completed')) return 'completed';
+      if (finished && usable.has('completed')) qualified.push('completed');
       const running = status?.running === undefined ? session.running === true : status.running === true;
-      if ((running === true || (children ?? 0) > 0) && visible('running')) return 'running';
-      if (pinned === true && visible('pinned') && !crossWorkspacePin) return 'pinned';
+      if ((running === true || (children ?? 0) > 0) && usable.has('running')) qualified.push('running');
+      if (pinned === true && crossWorkspacePin === false && usable.has('pinned')) qualified.push('pinned');
       const within = settings.collect.recentWindowMinutes;
       const updatedAt = typeof session.updatedAt === 'number' ? session.updatedAt : 0;
-      if (within > 0 && now - updatedAt <= within * 60000 && visible('idle')) return 'idle';
-      return null;
+      if (within > 0 && now - updatedAt <= within * 60000 && usable.has('idle')) qualified.push('idle');
+      const winner = bestCategory(settings, qualified);
+      if (winner === null) return null;
+      /** No fall-through either: the sidebar shows the winning class or nothing at all. */
+      if (visible(winner) === false) return null;
+      if (winner === 'pending') return kind === 'approval' ? 'approval' : 'question';
+      return winner;
     }
 
     function createSidebarAdapter(options) {
@@ -2900,13 +3200,26 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
            */
           const titleNow = findRowTitle(row, data.session?.displayTitle ?? '', existing?.host);
           const displayTitle = data.session?.displayTitle ?? '';
-          const ownEmoji = leadingEmoji(displayTitle);
-          const fromTitle = ownEmoji !== '' && customIconWins(settings, category);
-          const wantsOwnGlyph = settings.topbar.titleMode !== 'text' && fromTitle === false;
-          const drawn = wantsOwnGlyph === true ? resolveStateGlyph(settings, state, `${sessionId}|${category}`) : { kind: 'none', value: '' };
+          const titleEmoji = ownEmoji(displayTitle);
+          const fromTitle = titleEmoji !== '' && customIconWins(settings, category);
+          /**
+           * The slot never goes empty on a yield: when the title's own emoji wins
+           * it is drawn *in the slot* instead of the class glyph. Hiding the glyph
+           * and leaving the emoji inside the title threw the state signal away —
+           * an idle row and an error row both looked like `🎓 title` with nothing
+           * before it, so the user could not tell them apart. Who is drawn
+           * changes; how it moves does not: the same `resolveStateGlyph` and the
+           * same burst lottery run on either value.
+           */
+          const drawsGlyph = settings.topbar.titleMode !== 'text';
+          const drawn = drawsGlyph === false
+            ? { kind: 'none', value: '' }
+            : fromTitle === true
+              ? { kind: 'emoji', value: titleEmoji }
+              : resolveStateGlyph(settings, state, `${sessionId}|${category}`);
           const glyph = drawn;
           const title = titleNow;
-          const hostEmojiGoes = settings.topbar.titleMode === 'text' || (wantsOwnGlyph === true && drawn.kind !== 'none');
+          const hostEmojiGoes = settings.topbar.titleMode === 'text' || (drawsGlyph === true && drawn.kind !== 'none');
           const desiredTitle = hostEmojiGoes === true ? stripLeadingEmoji(displayTitle) : displayTitle;
           if (title === null) {
             /** A restyled row costs a counted miss, but the glyph itself stays reachable. */
@@ -3371,9 +3684,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const [settings, setSettings] = React.useState(() => snapshot());
       const [openCards, setOpenCards] = React.useState(() => readOpenCards());
       const [uploadError, setUploadError] = React.useState(null);
-      /** Export is an action, not a setting: the format lives here, not in storage. */
-      const [exportFormat, setExportFormat] = React.useState('md');
-      const [exportStatus, setExportStatus] = React.useState(null);
+
 
       React.useEffect(() => onSettingsChange(setSettings), []);
       React.useEffect(() => {
@@ -3710,6 +4021,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           h('span', { key: 'caret', className: 'hl-caret', 'aria-hidden': 'true' }, '▸'),
         ]);
         const body = open === false ? null : h('div', { key: 'body', className: 'hl-cardBody', 'data-hotlist-card-body': category }, [
+          switchRow(`categories.${category}.surfaces.tab`, t('settings.surface.tab'), t('settings.surface.tabHint'), entry.surfaces.tab === true, () => patchCategory(category, { surfaces: { ...entry.surfaces, tab: entry.surfaces.tab !== true } })),
+          switchRow(`categories.${category}.surfaces.sidebar`, t('settings.surface.sidebar'), t('settings.surface.sidebarHint'), entry.surfaces.sidebar === true, () => patchCategory(category, { surfaces: { ...entry.surfaces, sidebar: entry.surfaces.sidebar !== true } })),
           switchRow(`categories.${category}.surfaces.topbar`, t('settings.surface.topbar'), t('settings.surface.topbarHint'), entry.surfaces.topbar === true, () => patchCategory(category, { surfaces: { ...entry.surfaces, topbar: entry.surfaces.topbar !== true } })),
           iconRows(category),
           motionRows(category),
@@ -3755,48 +4068,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           patch({ shortcuts: { ...settings.shortcuts, [key]: value } });
         }
       };
-
-      /**
-       * The export row. `exportAction` is installed by `apply()` because the
-       * session stores live in that closure — until it lands the button is
-       * disabled instead of quietly doing nothing.
-       */
-      const runExport = async () => {
-        if (exportAction === null) return;
-        setExportStatus(null);
-        try {
-          const result = await exportAction(exportFormat);
-          if (result === void 0 || result === null) setExportStatus(t('settings.export.failed'));
-          else if (result.status === 'saved') setExportStatus(`${t('settings.export.saved')}${result.path}`);
-          else if (result.status === 'cancelled') setExportStatus(t('settings.export.cancelled'));
-          else setExportStatus(t('settings.export.downloaded'));
-        } catch {
-          setExportStatus(t('settings.export.failed'));
-        }
-      };
-
-      const exportSection = () => h('section', { key: 'export', className: 'hl-global', 'data-hotlist-export': '' }, [
-        h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.export')),
-        h('div', { key: 'row', className: 'hl-row', 'data-hotlist-row': 'export' }, [
-          h('div', { key: 'main', className: 'hl-rowMain' }, [
-            h('span', { key: 'title', className: 'hl-rowTitle' }, t('settings.exportHint')),
-            exportStatus === null ? null : h('span', { key: 'status', className: 'hl-rowHint' }, exportStatus),
-          ]),
-          h('div', {
-            key: 'actions',
-            style: { display: 'flex', alignItems: 'center', gap: '8px', flex: 'none' },
-          }, [
-            select(EXPORT_FORMATS, exportFormat, setExportFormat, (value) => t(`settings.export.${value}`)),
-            h('button', {
-              key: 'run',
-              type: 'button',
-              className: 'hl-step',
-              disabled: exportAction === null,
-              onClick: runExport,
-            }, t('settings.exportRun')),
-          ]),
-        ]),
-      ]);
 
       const globalSection = () => h('section', { key: 'global', className: 'hl-global', 'data-hotlist-global': '' }, [
         h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.group.global')),
@@ -3918,7 +4189,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         ]),
         ...notices,
         globalSection(),
-        exportSection(),
         h('div', { key: 'cards', className: 'hl-cards' }, cardOrder.map(card)),
         h('div', { key: 'foot', className: 'hl-foot' }, [
           h('button', { key: 'close', type: 'button', className: 'hl-step', onClick: close }, t('settings.close')),
@@ -4867,74 +5137,6 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         };
       }
 
-      /** One blob source for both modes: the service builds and revokes the URL itself. */
-      const exportSource = (text, filename, mediaType) => ({
-        name: filename,
-        mediaType,
-        read: async () => new Blob([text], { type: mediaType }),
-      });
-
-      /** Last resort, only when the `fileActions` service is not there at all. */
-      function anchorDownload(text, filename, mediaType) {
-        const url = URL.createObjectURL(new Blob([text], { type: mediaType }));
-        const anchor = document.createElement('a');
-        anchor.href = url;
-        anchor.download = filename;
-        document.body.append(anchor);
-        anchor.click();
-        anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 30000);
-        return { status: 'requested', path: void 0 };
-      }
-
-      /**
-       * A first, B second — and only a throw moves from A to B. `requested`
-       * means the download already happened (`dsh-client-ui-file-actions`
-       * `:1778-1784` clicks the anchor before returning it), `cancelled` means
-       * the user dismissed the dialog; saving again on either would hand the
-       * user a second file or override a decision they just made.
-       */
-      async function saveExport(text, filename, mediaType) {
-        const source = exportSource(text, filename, mediaType);
-        const actions = ctx.get('fileActions');
-        if (actions !== void 0 && typeof actions.save === 'function') {
-          try {
-            const result = await actions.save(source, 'saveAs');
-            if (result?.status === 'cancelled') return { status: 'cancelled', path: void 0 };
-            if (result?.status === 'saved') return { status: 'saved', path: result.path };
-            /** `requested`, or a shape we do not know: the service took responsibility. */
-            return { status: 'requested', path: void 0 };
-          } catch {
-            /** Web rejects `saveAs` without reading the source — that is normal there. */
-          }
-          try {
-            const result = await actions.save(source, 'download');
-            if (result?.status === 'cancelled') return { status: 'cancelled', path: void 0 };
-            return { status: 'requested', path: void 0 };
-          } catch {
-            /** fall through to the hand-rolled anchor */
-          }
-        }
-        return anchorDownload(text, filename, mediaType);
-      }
-
-      const EXPORT_MEDIA = {
-        md: ['text/markdown;charset=utf-8', 'md'],
-        txt: ['text/plain;charset=utf-8', 'txt'],
-        json: ['application/json', 'json'],
-      };
-
-      ctx.effect(() => {
-        exportAction = async (format) => {
-          const chosen = EXPORT_FORMATS.includes(format) ? format : 'md';
-          const text = exportSessions({ ...liveExportInput(), format: chosen });
-          const [mediaType, extension] = EXPORT_MEDIA[chosen];
-          return saveExport(text, `hotlist-sessions-${localStamp(Date.now()).replace(/[-: ]/g, '')}.${extension}`, mediaType);
-        };
-        return () => {
-          exportAction = null;
-        };
-      }, 'hotlist: export action');
       /** sessionId -> {message, at}: run failures kept until that session reaches the main view. */
       const errors = new Map();
       /**
@@ -4950,6 +5152,9 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       const unreadBefore = new Map();
       /** sessionId -> {order, title, label, message, dispose} of the live seat. */
       const registered = new Map();
+      /** Repaints the tab row once a second: a host re-render can drop our span. */
+      let tabTimer = null;
+      let tabPlan = [];
       /** sessionId -> {seat, at}: a seat removed together with its session, ready to come back as it was. */
       const recentSeats = new Map();
       let shrinkTimer = null;
@@ -5231,6 +5436,13 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
        * session left the plan is queued for deferred disposal.
        */
       function mountTabSeats(plan, present) {
+        /**
+         * `slots.inject` runs its callback the moment `key` is declared, and that
+         * callback calls `sync()`. Whichever slot the host declares first triggers
+         * a sync while the other slot may still be undeclared — registering then
+         * throws "slot X is not declared". Ask before writing.
+         */
+        if (ctx.slots.spec(SLOT) === undefined) return;
         const wanted = new Map(plan.map((seat) => [seat.sessionId, seat]));
         let mutations = 0;
         for (const [sessionId, live] of registered) {
@@ -5270,6 +5482,110 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         }
       }
 
+      /**
+       * The tab row is the host's own button; the only way to move what is
+       * painted there is to own a node inside it, exactly like the sidebar
+       * rows. One span carries the glyph, the host text node loses its own
+       * emoji so the two never double up, and the class animation runs on the
+       * span. A host re-render that drops the span is repaired on the next tick.
+       */
+      const TAB_GLYPH_ATTR = 'data-hotlist-tab-glyph';
+      const TAB_STYLE_ATTR = 'data-hotlist-tab-style';
+      const TAB_CSS = [
+        '[' + TAB_GLYPH_ATTR + '][data-hotlist-motion="spin"]{animation:hl-spin 2.4s linear infinite}',
+        '[' + TAB_GLYPH_ATTR + '][data-hotlist-motion="pulse"]{animation:hl-pulse 1.6s ease-in-out infinite}',
+        '[' + TAB_GLYPH_ATTR + '][data-hotlist-motion="bounce"]{animation:hl-bounce 1.2s ease-in-out infinite}',
+        '[' + TAB_GLYPH_ATTR + '][data-hotlist-motion="blink"]{animation:hl-blink 1.2s ease-in-out infinite}',
+        '[' + TAB_GLYPH_ATTR + ']{display:inline-block;margin-right:4px}',
+        '@keyframes hl-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}',
+        '@keyframes hl-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}',
+        '@keyframes hl-bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-3px)}70%{transform:translateY(0)}90%{transform:translateY(-1.5px)}}',
+        '@keyframes hl-blink{0%,100%{opacity:1}50%{opacity:.35}}',
+        'html[' + REDUCE_MOTION_ATTR + '] [' + TAB_GLYPH_ATTR + ']{animation:none !important}',
+        '@media (prefers-reduced-motion:reduce){[' + TAB_GLYPH_ATTR + ']{animation:none !important}}',
+      ].join('');
+
+      function injectTabCss() {
+        if (typeof document === 'undefined') return;
+        if (document.querySelector('[' + TAB_STYLE_ATTR + ']') !== null) return;
+        const style = document.createElement('style');
+        style.setAttribute(TAB_STYLE_ATTR, '');
+        style.textContent = TAB_CSS;
+        (document.head ?? document.documentElement).appendChild(style);
+      }
+
+      function removeTabCss() {
+        if (typeof document === 'undefined') return;
+        const style = document.querySelector('[' + TAB_STYLE_ATTR + ']');
+        if (style !== null) style.remove();
+      }
+
+      /**
+       * The host paints one text node per tab — since v5 it sits inside a
+       * `span[class*="tabLabel"]`, not directly under the button. Our glyph span
+       * has to go *inside that same span*, before the text, or it lands outside
+       * the flex row the host lays out and gets clipped.
+       */
+      function findTabLabelTextNode(button, wanted) {
+        const spans = button.querySelectorAll('span');
+        const candidates = spans.length === 0 ? [button] : [button, ...spans];
+        for (const scope of candidates) {
+          for (const node of scope.childNodes ?? []) {
+            if (node.nodeType === 3 && node.textContent.includes(wanted)) return node;
+          }
+        }
+        return null;
+      }
+
+      function decorateTabSeat(settings, seat) {
+        if (typeof document === 'undefined') return;
+        const row = document.querySelector('[data-conversation-tabs]');
+        if (row === null) return;
+        const { emoji: shown, title: wanted } = labelParts(t, seat, settings);
+        const token = seat.token ?? null;
+        const moved = shown === '' ? { motion: 'none' } : tokenMotion(settings, token);
+        for (const button of row.querySelectorAll('[role="tab"]')) {
+          const textNode = findTabLabelTextNode(button, wanted);
+          if (textNode === null) continue;
+          const parent = textNode.parentElement ?? button;
+          let glyph = parent.querySelector('[' + TAB_GLYPH_ATTR + ']');
+          if (shown === '') {
+            if (glyph !== null) glyph.remove();
+            /** Text mode still has to strip the title's own emoji — we own the row. */
+            if (textNode.textContent !== wanted) textNode.textContent = wanted;
+            return;
+          }
+          if (glyph === null) {
+            glyph = document.createElement('span');
+            glyph.setAttribute(TAB_GLYPH_ATTR, '');
+            parent.insertBefore(glyph, textNode);
+          }
+          if (glyph.textContent !== shown) glyph.textContent = shown;
+          if (glyph.getAttribute('data-hotlist-motion') !== moved.motion) glyph.setAttribute('data-hotlist-motion', moved.motion);
+          /** One emoji, never two: the host text keeps only the title. */
+          if (textNode.textContent !== wanted) textNode.textContent = wanted;
+          return;
+        }
+      }
+
+      function decorateTabSeats(settings, plan) {
+        injectTabCss();
+        for (const seat of plan) decorateTabSeat(settings, seat);
+      }
+
+      function clearTabGlyphs() {
+        if (typeof document === 'undefined') return;
+        const row = document.querySelector('[data-conversation-tabs]');
+        if (row !== null) {
+          for (const glyph of row.querySelectorAll('[' + TAB_GLYPH_ATTR + ']')) glyph.remove();
+        }
+        removeTabCss();
+        if (tabTimer !== null) {
+          clearInterval(tabTimer);
+          tabTimer = null;
+        }
+      }
+
       function disposeTabSeats() {
         if (disposalTimer !== null) {
           clearTimeout(disposalTimer);
@@ -5288,6 +5604,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         recentSeats.clear();
         for (const live of registered.values()) live.dispose();
         registered.clear();
+        tabPlan = [];
+        clearTabGlyphs();
       }
 
       /** Session list snapshot minus archived ids, plus the current session, its workspace and live failures. */
@@ -5401,7 +5719,15 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
        * from a snapshot instead of reading five module variables, and the probes
        * below only ever replace the whole object.
        */
-      let topbarModel = { chips: [], mode: 'chips', titleMode: 'custom', reserve: TOPBAR_RESERVE.fallback, left: 0, currentId: void 0 };
+      let topbarModel = {
+        chips: [],
+        bursts: new Map(),
+        mode: 'chips',
+        titleMode: 'custom',
+        reserve: TOPBAR_RESERVE.fallback,
+        left: 0,
+        currentId: void 0,
+      };
       /** How many pills the band's own width actually fits; the only number `topbar.maxSeats: 'auto'` reads. */
       let topbarCapacity = MAX_SEATS.fallback;
       const topbarListeners = new Set();
@@ -5459,25 +5785,49 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
        */
       function topbarChips(settings, plan) {
         const mode = settings.topbar.titleMode;
+        const reduced = settings.display.reduceMotion === 'on';
         const chips = [];
         for (const seat of plan) {
           const category = CATEGORY_OF_TOKEN[seat.token] ?? 'running';
-          const own = leadingEmoji(seat.title);
-          /** The title's own emoji only wins inside the custom scope; then we draw none. */
-          const keepHostEmoji = own !== '' && customIconWins(settings, category);
+          const own = ownEmoji(seat.title);
           const token = seat.token ?? null;
+          /**
+           * `custom` draws the title's own emoji, `icon` our category glyph,
+           * `text` none. It is drawn in its own span rather than left inside the
+           * title text: that span is what the per-category animation moves.
+           */
+          const shown = own !== '' && customIconWins(settings, category)
+            ? own
+            : mode === 'text' || token === null
+              ? ''
+              : emojiOf(settings, token);
+          /** A pill with no glyph has nothing to move, so it never wins the lottery. */
+          const moved = shown === '' || token === null || reduced
+            ? { motion: 'none', motionTarget: 'glyph' }
+            : tokenMotion(settings, token);
           chips.push({
             id: seat.sessionId,
-            title: keepHostEmoji === true ? seat.title : stripLeadingEmoji(seat.title),
-            emoji: keepHostEmoji === true || mode === 'text' ? '' : token === null ? '' : emojiOf(settings, token),
+            category,
+            title: stripLeadingEmoji(seat.title),
+            emoji: shown,
+            motion: moved.motion,
+            motionTarget: moved.motionTarget,
+            frequency: settings.categories[category].glyph.frequency,
           });
         }
         return chips;
       }
 
       function publishTopbar(snapshot, settings, plan) {
+        const chips = topbarChips(settings, plan);
+        /** A pill that left the band takes its burst with it. */
+        const live = new Set(chips.map((chip) => chip.id));
+        for (const sessionId of [...chipBursts.keys()]) {
+          if (live.has(sessionId) === false) stopChipBurst(sessionId);
+        }
         topbarModel = {
-          chips: topbarChips(settings, plan),
+          chips,
+          bursts: new Map(chipBursts),
           mode: settings.topbar.mode,
           titleMode: settings.topbar.titleMode,
           reserve: settings.topbar.rightReservePx,
@@ -5546,7 +5896,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       }
 
       function topbarChipNode(chip) {
-        return h('button', {
+        const burst = topbarModel.bursts.get(chip.id);
+        const attrs = {
           key: chip.id,
           type: 'button',
           'data-hotlist-chip': chip.id,
@@ -5554,7 +5905,14 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           tabIndex: -1,
           onClick: () => switchTo(chip.id, topbarModel.currentId, () => {}),
           style: chipStyle(chipWidthFor(chip)),
-        }, [
+        };
+        /** Declared even while idle, so the acceptance probe can read which motion a pill owns. */
+        if (chip.motion !== void 0 && chip.motion !== 'none') attrs['data-hotlist-chip-motion'] = chip.motion;
+        if (burst !== void 0) {
+          attrs['data-hotlist-chip-burst'] = '';
+          attrs['data-hotlist-chip-target'] = chip.motionTarget === 'row' ? 'row' : 'emoji';
+        }
+        return h('button', attrs, [
           chip.emoji === '' || chip.emoji === void 0
             ? null
             : h('span', { key: 'glyph', 'data-hotlist-chip-emoji': '', style: { fontSize: '14px', lineHeight: '24px' } }, chip.emoji),
@@ -5655,8 +6013,97 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         }, nodes);
       }
 
+      const CHIP_STYLE_ATTR = 'data-hotlist-chip-style';
+
+      /**
+       * The band carries its own stylesheet instead of leaning on the sidebar's:
+       * `SIDEBAR_STYLE` is in the document only while the sidebar adapter runs,
+       * and the band has to animate with the sidebar off. The four `hl-*`
+       * keyframes are the same definitions the sidebar uses (a second identical
+       * `@keyframes` is inert); `hl-chip-nudge` is band-only because a 24 px
+       * pill must not scale the way a 16 px glyph may.
+       */
+      const CHIP_CSS = [
+        '[data-hotlist-chip][data-hotlist-chip-burst][data-hotlist-chip-target="emoji"][data-hotlist-chip-motion="spin"] [data-hotlist-chip-emoji]{animation:hl-spin 2.4s linear 1}',
+        '[data-hotlist-chip][data-hotlist-chip-burst][data-hotlist-chip-target="emoji"][data-hotlist-chip-motion="pulse"] [data-hotlist-chip-emoji]{animation:hl-pulse 1.6s ease-in-out 1}',
+        '[data-hotlist-chip][data-hotlist-chip-burst][data-hotlist-chip-target="emoji"][data-hotlist-chip-motion="bounce"] [data-hotlist-chip-emoji]{animation:hl-bounce 1.2s ease-in-out 1}',
+        '[data-hotlist-chip][data-hotlist-chip-burst][data-hotlist-chip-target="emoji"][data-hotlist-chip-motion="blink"] [data-hotlist-chip-emoji]{animation:hl-blink 1.2s ease-in-out 1}',
+        '[data-hotlist-chip][data-hotlist-chip-burst][data-hotlist-chip-target="row"]{animation:hl-chip-nudge 1.2s ease-in-out 1}',
+        '@keyframes hl-chip-nudge{0%,100%{transform:translateY(0)}40%{transform:translateY(-2px)}70%{transform:translateY(0)}90%{transform:translateY(-1px)}}',
+        '@keyframes hl-spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}',
+        '@keyframes hl-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}',
+        '@keyframes hl-bounce{0%,100%{transform:translateY(0)}40%{transform:translateY(-3px)}70%{transform:translateY(0)}90%{transform:translateY(-1.5px)}}',
+        '@keyframes hl-blink{0%,100%{opacity:1}50%{opacity:.35}}',
+        `html[${REDUCE_MOTION_ATTR}] [data-hotlist-chip]{animation:none !important}html[${REDUCE_MOTION_ATTR}] [data-hotlist-chip] *{animation:none !important}`,
+        '@media (prefers-reduced-motion:reduce){[data-hotlist-chip],[data-hotlist-chip] *{animation:none !important}}',
+      ].join('');
+
+      function injectChipCss() {
+        if (typeof document === 'undefined') return;
+        if (document.querySelector(`[${CHIP_STYLE_ATTR}]`) !== null) return;
+        const style = document.createElement('style');
+        style.setAttribute(CHIP_STYLE_ATTR, '');
+        style.textContent = CHIP_CSS;
+        (document.head ?? document.documentElement).appendChild(style);
+      }
+
+      function removeChipCss() {
+        if (typeof document === 'undefined') return;
+        const style = document.querySelector(`[${CHIP_STYLE_ATTR}]`);
+        if (style !== null) style.remove();
+      }
+
+      /** sessionId -> the timeout that ends that pill's single shot. */
+      const chipBursts = new Map();
+      let chipTimer = null;
+
+      function publishBursts() {
+        topbarModel = { ...topbarModel, bursts: new Map(chipBursts) };
+        notifyTopbar();
+      }
+
+      function stopChipBurst(sessionId) {
+        const timer = chipBursts.get(sessionId);
+        if (timer === void 0) return;
+        clearTimeout(timer);
+        chipBursts.delete(sessionId);
+      }
+
+      function startChipBurst(chip) {
+        const timer = setTimeout(() => {
+          stopChipBurst(chip.id);
+          publishBursts();
+        }, MOTION_MS[chip.motion] ?? 1200);
+        chipBursts.set(chip.id, timer);
+        publishBursts();
+      }
+
+      /**
+       * The same lottery the sidebar runs (`motionBursts`), one roll per pill per
+       * second: `glyph.frequency` is the chance of a hit, `MOTION_CONCURRENCY`
+       * caps how many play at once, and a hit is one single shot — never a
+       * permanently spinning glyph. Reduced motion and a hidden window start
+       * nothing at all.
+       */
+      function bandBursts() {
+        if (topbarModel.chips.length === 0) return;
+        if (typeof document !== 'undefined' && document.hidden === true) return;
+        const settings = readSettings();
+        if (settings.display.reduceMotion === 'on') return;
+        for (const chip of topbarModel.chips) {
+          if (chipBursts.has(chip.id)) continue;
+          if (chipBursts.size >= MOTION_CONCURRENCY) break;
+          if (chip.motion === void 0 || chip.motion === 'none') continue;
+          const frequency = typeof chip.frequency === 'number' ? chip.frequency : 0;
+          if (frequency <= 0) continue;
+          if (Math.random() >= frequency) continue;
+          startChipBurst(chip);
+        }
+      }
+
       function mountTopbar() {
         if (topbarEntry !== null) return;
+        if (ctx.slots.spec(TOPBAR_SLOT) === undefined) return;
         const dispose = ctx.slots.register({
           name: TOPBAR_SLOT,
           id: TOPBAR_ID,
@@ -5665,15 +6112,276 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           label: () => t('surface.topbar'),
         }, TopbarBar);
         topbarEntry = { dispose };
+        injectChipCss();
         startTopbarProbe();
+        /** One tick at once, so a fresh band moves before the first second is over. */
+        bandBursts();
+        chipTimer = setInterval(bandBursts, SIDEBAR_TICK_MS);
       }
 
       function disposeTopbar() {
         clearTopbarProbes();
+        if (chipTimer !== null) {
+          clearInterval(chipTimer);
+          chipTimer = null;
+        }
+        for (const sessionId of [...chipBursts.keys()]) stopChipBurst(sessionId);
+        removeChipCss();
         if (topbarEntry === null) return;
         const entry = topbarEntry;
         topbarEntry = null;
         entry.dispose();
+      }
+
+      // =======================================================================
+      // The `热表` view: one fixed entry in the view row that shows what the three
+      // surfaces decided, plus the sessions they dropped and why. It is a table
+      // of *the plugin's own decision*, so it reads the same three classifiers
+      // the surfaces read instead of keeping a second opinion.
+      // =======================================================================
+
+      const VIEW_STYLE_ATTR = 'data-hotlist-view-style';
+
+      const VIEW_CSS = [
+        '.hl-view{display:flex;flex-direction:column;gap:10px;padding:16px 20px;font-size:13px;overflow:auto}',
+        '.hl-viewLead{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px}',
+        '.hl-viewTitle{margin:6px 0 0;font-size:13px;font-weight:600}',
+        '.hl-viewEmpty{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px}',
+        '.hl-table{width:100%;border-collapse:collapse;table-layout:fixed}',
+        '.hl-table th,.hl-table td{padding:5px 8px;text-align:left;border-bottom:.5px solid var(--dsw-alias-border-l2);vertical-align:top}',
+        '.hl-table th{font-size:11px;font-weight:600;color:var(--dsw-alias-label-secondary);white-space:nowrap}',
+        '.hl-tableNum{width:48px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}',
+        '.hl-tableWhere{width:150px;color:var(--dsw-alias-label-secondary)}',
+        '.hl-tableNote{width:170px;color:var(--dsw-alias-label-secondary)}',
+        '.hl-tableTitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.hl-tableGlyph{margin-right:4px}',
+        '.hl-missingGroups{display:flex;flex-direction:column;gap:2px;margin:0;padding:0;list-style:none}',
+        '.hl-missingGroup{border-radius:6px}',
+        '.hl-missingGroup>summary{display:flex;gap:8px;align-items:baseline;cursor:pointer;padding:4px 6px;border-radius:6px;list-style:none}',
+        '.hl-missingGroup>summary::-webkit-details-marker{display:none}',
+        '.hl-missingGroup>summary:hover{background:rgba(127,127,127,0.08)}',
+        '.hl-missingGroupName{font-weight:600}',
+        '.hl-missingGroupName::before{content:"▸";display:inline-block;width:12px;transition:transform 160ms ease}',
+        '.hl-missingGroup[open] .hl-missingGroupName::before{transform:rotate(90deg)}',
+        '.hl-missingGroup[open]>.hl-missingList{animation:hlMissingIn 180ms cubic-bezier(.4,0,.2,1)}',
+        '.hl-missingGroupCount{color:var(--dsw-alias-label-secondary);font-size:12px;font-variant-numeric:tabular-nums}',
+        '.hl-missingGroupWhy{color:var(--dsw-alias-label-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.hl-missingList{display:flex;flex-direction:column;gap:4px;margin:4px 0 6px;padding:0 0 0 22px;list-style:none}',
+        '.hl-missingList li{display:flex;gap:8px;align-items:baseline}',
+        '.hl-missingIndex{color:var(--dsw-alias-label-secondary);font-size:11px;font-variant-numeric:tabular-nums;min-width:18px}',
+        '.hl-missingTitle{max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+        '.hl-missingWhy{color:var(--dsw-alias-label-secondary);font-size:12px}',
+        '.hl-missingHint{color:var(--dsw-alias-label-secondary);font-size:12px;margin:0 0 6px}',
+        '@keyframes hlMissingIn{from{transform:translateY(-4px)}to{transform:translateY(0)}}',
+        '@media (prefers-reduced-motion:reduce){.hl-missingGroupName::before{transition:none}.hl-missingGroup[open]>.hl-missingList{animation:none}}',
+      ].join('');
+
+      function injectViewCss() {
+        if (typeof document === 'undefined') return;
+        if (document.querySelector(`[${VIEW_STYLE_ATTR}]`) !== null) return;
+        const style = document.createElement('style');
+        style.setAttribute(VIEW_STYLE_ATTR, '');
+        style.textContent = VIEW_CSS;
+        (document.head ?? document.documentElement).appendChild(style);
+      }
+
+      function removeViewCss() {
+        if (typeof document === 'undefined') return;
+        const style = document.querySelector(`[${VIEW_STYLE_ATTR}]`);
+        if (style !== null) style.remove();
+      }
+
+      let tableModel = null;
+      let tableEntry = null;
+      const tableListeners = new Set();
+
+      function notifyTable() {
+        for (const listener of [...tableListeners]) listener();
+      }
+
+      function computeTable(settings) {
+        const snapshot = readSnapshot();
+        const measured = seatLimit();
+        const limit = settings.maxSeats === 'auto' ? measured : Math.min(settings.maxSeats, measured);
+        const topbarLimit = settings.topbar.maxSeats === 'auto'
+          ? Math.max(1, Math.min(MAX_SEATS.max, topbarCapacity))
+          : Math.max(MAX_SEATS.min, Math.min(settings.topbar.maxSeats, MAX_SEATS.max));
+        return hotlistTable(settings, snapshot, {
+          now: Date.now(),
+          errors,
+          completedAt,
+          limit,
+          topbarLimit,
+          bandUp: topbarMountable(settings),
+        });
+      }
+
+      function publishTable(settings) {
+        tableModel = computeTable(settings);
+        notifyTable();
+      }
+
+      /** Which of the three surfaces name this row, in reading order. */
+      function surfaceText(row) {
+        const labels = [];
+        if (row.surfaces.tab) labels.push(t('view.surface.tab'));
+        if (row.surfaces.sidebar) labels.push(t('view.surface.sidebar'));
+        if (row.surfaces.topbar) labels.push(t('view.surface.topbar'));
+        return labels.length === 0 ? t('view.surface.none') : labels.join(' · ');
+      }
+
+      function noteText(note) {
+        if (note.code === 'pin') return t('view.note.pin', { level: note.detail });
+        if (note.code === 'error') return t('view.note.error', { message: note.detail });
+        return t('view.note.current');
+      }
+
+      function reasonText(item) {
+        return item.reason === 'over-cap'
+          ? t('view.reason.over-cap', { limit: item.limit })
+          : t(`view.reason.${item.reason}`);
+      }
+
+      function tableRowNode(row) {
+        const notes = row.notes.map(noteText).join(' · ');
+        return h('tr', { key: row.sessionId, 'data-hotlist-table-row': row.sessionId }, [
+          h('td', { key: 'index', className: 'hl-tableNum' }, String(row.index)),
+          h('td', { key: 'category' }, [
+            h('span', { key: 'glyph', className: 'hl-tableGlyph' }, CATEGORY_GLYPHS[row.category] ?? ''),
+            t(`settings.category.${row.category}`),
+          ]),
+          h('td', { key: 'order', className: 'hl-tableNum' }, String(row.order)),
+          h('td', { key: 'title', className: 'hl-tableTitle', title: row.title }, row.title),
+          h('td', { key: 'where', className: 'hl-tableWhere' }, surfaceText(row)),
+          h('td', { key: 'note', className: 'hl-tableNote' }, notes),
+        ]);
+      }
+
+      /**
+       * Reading order of the groups. Fixed on purpose: the reasons are graded —
+       * a row cut by the seat cap only missed the list by a little, a child agent
+       * never belonged there at all. Sorting by count instead would reshuffle the
+       * page between two syncs and make it unreadable.
+       */
+      const MISSING_REASON_ORDER = Object.freeze([
+        'over-cap',
+        'scope',
+        'surface-off',
+        'position-off',
+        'no-category',
+        'empty',
+        'subagent',
+      ]);
+
+      /** `missing` rows bucketed by reason, in `MISSING_REASON_ORDER`, empty ones dropped. */
+      function groupMissing(items) {
+        const buckets = new Map();
+        for (const item of items) {
+          const bucket = buckets.get(item.reason);
+          if (bucket === undefined) buckets.set(item.reason, [item]);
+          else bucket.push(item);
+        }
+        const groups = [];
+        for (const reason of MISSING_REASON_ORDER) {
+          const rows = buckets.get(reason);
+          if (rows === undefined) continue;
+          groups.push({ reason, rows });
+          buckets.delete(reason);
+        }
+        // A reason this version does not know about still has to be visible: an
+        // unknown bucket is a bug in the classification, not a row to hide.
+        for (const [reason, rows] of buckets) groups.push({ reason, rows });
+        return groups;
+      }
+
+      function missingNode(item, index) {
+        return h('li', { key: item.sessionId, 'data-hotlist-missing': item.reason }, [
+          h('span', { key: 'index', className: 'hl-missingIndex' }, String(index + 1)),
+          h('span', {
+            key: 'title',
+            className: 'hl-missingTitle',
+            title: item.title,
+          }, item.title === '' ? t('tab.untitled') : item.title),
+          h('span', { key: 'why', className: 'hl-missingWhy' }, reasonText(item)),
+        ]);
+      }
+
+      function missingGroupNode(group) {
+        const first = group.rows[0];
+        return h('details', {
+          key: group.reason,
+          className: 'hl-missingGroup',
+          'data-hotlist-missing-group': group.reason,
+        }, [
+          h('summary', { key: 'sum' }, [
+            h('span', { key: 'name', className: 'hl-missingGroupName' }, t(`view.group.${group.reason}`)),
+            h('span', { key: 'count', className: 'hl-missingGroupCount' }, String(group.rows.length)),
+            h('span', { key: 'why', className: 'hl-missingGroupWhy', title: reasonText(first) }, reasonText(first)),
+          ]),
+          h('ul', { key: 'rows', className: 'hl-missingList' }, group.rows.map(missingNode)),
+        ]);
+      }
+
+      function HotlistTableView() {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const listener = () => setTick((value) => value + 1);
+          tableListeners.add(listener);
+          return () => {
+            tableListeners.delete(listener);
+          };
+        }, []);
+        const model = tableModel === null ? computeTable(readSettings()) : tableModel;
+        const columns = [
+          t('view.col.index'),
+          t('view.col.category'),
+          t('view.col.order'),
+          t('view.col.title'),
+          t('view.col.where'),
+          t('view.col.note'),
+        ];
+        return h('div', { className: 'hl-view', 'data-hotlist-table': '' }, [
+          h('p', { key: 'lead', className: 'hl-viewLead' }, t('view.lead', { count: model.rows.length, missing: model.missing.length })),
+          h('table', { key: 'table', className: 'hl-table' }, [
+            h('thead', { key: 'head' }, h('tr', {}, columns.map((label) => h('th', { key: label }, label)))),
+            h('tbody', { key: 'body' }, model.rows.map(tableRowNode)),
+          ]),
+          h('h4', { key: 'missingTitle', className: 'hl-viewTitle' }, t('view.missing', { count: model.missing.length })),
+          model.missing.length === 0
+            ? h('p', { key: 'none', className: 'hl-viewEmpty' }, t('view.missingNone'))
+            : h('p', { key: 'hint', className: 'hl-missingHint' }, t('view.missingHint')),
+          model.missing.length === 0
+            ? null
+            : h('div', { key: 'missing', className: 'hl-missingGroups' }, groupMissing(model.missing).map(missingGroupNode)),
+        ]);
+      }
+
+      /**
+       * `slots.inject` callbacks take no arguments and may run while another slot
+       * is being declared — so a registration must first prove its own slot is
+       * declared (`ctx.slots.spec(name)`), never assume it from the caller.
+       */
+      function mountTableView() {
+        if (tableEntry !== null) return;
+        if (ctx.slots.spec(SLOT) === undefined) return;
+        injectViewCss();
+        tableEntry = ctx.slots.register({
+          name: SLOT,
+          id: TABLE_VIEW_ID,
+          order: TABLE_VIEW_ORDER,
+          locale: NS,
+          label: () => t('view.table'),
+        }, HotlistTableView);
+      }
+
+      function disposeTableView() {
+        if (tableEntry !== null) {
+          const dispose = tableEntry;
+          tableEntry = null;
+          dispose();
+        }
+        tableModel = null;
+        removeViewCss();
       }
 
       const sync = () => {
@@ -5723,6 +6431,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           cycleCurrent = snapshot.currentId ?? null;
           disposeTabSeats();
           disposeTopbar();
+          disposeTableView();
           sidebar?.refresh();
           return;
         }
@@ -5747,6 +6456,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         /** The band is the row now: the seats are gone, and the shrink guard below is tab-only. */
         if (!tabOn) {
           disposeTabSeats();
+          disposeTableView();
           sidebar?.refresh();
           return;
         }
@@ -5771,7 +6481,12 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           sidebar?.refresh();
           return;
         }
+        publishTable(settings);
+        mountTableView();
         mountTabSeats(plan, present);
+        tabPlan = plan;
+        decorateTabSeats(settings, plan);
+        if (tabTimer === null) tabTimer = setInterval(() => decorateTabSeats(readSettings(), tabPlan), SIDEBAR_TICK_MS);
         sidebar?.refresh();
       };
 
@@ -6017,6 +6732,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           stopStatus();
           stopGroups?.();
           disposeTabSeats();
+          disposeTableView();
           flushCompletedAt();
         };
       });
@@ -6039,6 +6755,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       classify,
       sortSeats,
       buildSeatPlan,
+      hotlistTable,
+      TABLE_VIEW_ID,
+      TABLE_VIEW_ORDER,
+      isSeatViewId,
+      CATEGORY_IDS,
       exportSessions,
       orderedCategories,
       categoryAllOff,
@@ -6112,7 +6833,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       POPOUT_PRIORITY,
       POPOUT_COOLDOWN_MS,
       leadingEmoji,
+      leadingEmojiRun,
+      ownEmoji,
+      isEmojiOnly,
       stripLeadingEmoji,
+      labelParts,
       customIconWins,
       TITLE_MODE_ALIASES,
       TOPBAR_TITLE_MODES,

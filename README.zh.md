@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - 包名：`dsh-better-notice`（模块 id 与包名相同）
-- 版本：`4.6.5`（见 [CHANGELOG.md](CHANGELOG.md)）
+- 版本：`5.1.7`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
 
@@ -46,17 +46,19 @@ dsh plugin --profile <profile> add dsh-better-notice
 
 ## 它做什么
 
-三个面，共用一套判定：
+四个面，共用一套判定：
 
 1. **对话区 tab 行**——每个热会话占一个 tab 座位，点一下切过去。当前会话不占座位（它本身就是「对话」tab）。
 
    ![tab 行座位](screenshots/tab-seats.png)
 
-2. **左侧会话栏**——每行标题前一枚状态图标（默认 emoji，也可以换成上传的方图），可带动效。
+2. **窗口顶栏**（Windows 桌面，v5 新增）——40px 标题带里一排会话胶囊，和 tab 行并排。它和 tab 行是**并存**关系、不顶替，两个面把六个类别分着画。详见[窗口顶栏](#窗口顶栏windows-桌面)。
+
+3. **左侧会话栏**——每行标题前一枚状态图标（默认 emoji，也可以换成上传的方图），可带动效。
 
    ![侧栏状态图标](screenshots/sidebar-glyphs.png)
 
-3. **状态变化时**——响一声提示音 + 从窗口边缘滑出一张弹出图。
+4. **状态变化时**——响一声提示音 + 从窗口边缘滑出一张弹出图。
 
 图标也可以换成你自己的方图，而不是 emoji：
 
@@ -84,16 +86,18 @@ dsh plugin --profile <profile> add dsh-better-notice
 
 ## 六类一览
 
-| 类别 | 什么时候出现 | tab 座位 | 侧栏图标 | 弹出图 | 音效 |
-|---|---|---|---|---|---|
-| 📌 `pinned` | 你在**宿主原生**界面里置顶的会话（侧栏行 hover/右键 →「置顶会话」） | ✅ | ✅ | — | — |
-| ⛔ `error` | Agent 报错（`api-session/error`），10 分钟后过期 | ✅ | ✅ | ✅ | 🔈 |
-| 🔐 `pending` | 等你审批 / 等你回答 / 等你过方案（副图标 ❓） | ✅ | ✅ | ✅ | 🔈 |
-| ✅ `completed` | 本插件看到它跑完，7 分钟内 | ✅ | ✅ | ✅ | 🔈 |
-| ⏳ `running` | 正在干活（含「子代理在跑、父会话空闲」） | ✅ | ✅ | — | — |
-| 🧊 `idle` | 空闲，且最后活动在「最近窗口」内（默认 5 分钟） | ✅ | ✅ | — | — |
+| 类别 | 什么时候出现 | tab 行 | 窗口顶栏 | 侧栏图标 | 弹出图 | 音效 |
+|---|---|---|---|---|---|---|
+| 📌 `pinned` | 你在**宿主原生**界面里置顶的会话（侧栏行 hover/右键 →「置顶会话」） | ✅ | — | ✅ | — | — |
+| ⛔ `error` | Agent 报错（`api-session/error`），10 分钟后过期 | — | ✅ | ✅ | ✅ | 🔈 |
+| 🔐 `pending` | 等你审批 / 等你回答 / 等你过方案（副图标 ❓） | — | ✅ | ✅ | ✅ | 🔈 |
+| ✅ `completed` | 本插件看到它跑完，7 分钟内 | — | ✅ | ✅ | ✅ | 🔈 |
+| ⏳ `running` | 正在干活（含「子代理在跑、父会话空闲」） | — | — | ✅ | — | — |
+| 🧊 `idle` | 空闲，且最后活动在「最近窗口」内（默认 5 分钟） | ✅ | — | ✅ | — | — |
 
-✅ = 默认开 · — = 默认关（弹出图与音效按类别逐个打开）· 🔈 = 有内置音效，但**不打开那一类就不会响**。
+✅ = 默认开 · — = 默认关 · 🔈 = 有内置音效，但**不打开那一类就不会响**。
+
+两个座位面是**分家**的（见[窗口顶栏](#窗口顶栏windows-桌面)）：`pinned` / `idle` 占 tab 行座位，`error` / `pending` / `completed` 占顶栏胶囊，`running` 两个面都不占——同一个会话不会画两遍。六个类别在侧栏都有图标。
 
 ### 一个会话是怎么归类的
 
@@ -105,7 +109,7 @@ error > pending > completed > running > pinned > idle
 
 理由：报错是源头故障，待审批往往是它的后果，所以报错优先；置顶只是「我想先看它」，不是「它在动」，所以在**有动作的状态**里排最后。这个顺序**不给用户改**——改它等于改语义，不只是改外观。
 
-**展示顺序**是另一件事，而且**可以按类改**（`order`，默认 `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50`）。`error` 与 `pending` 默认同分，同分时按上面的判定优先级兜底，所以实际看到的次序是 *报错 → 待处理 → 置顶 → 已完成 → 进行中 → 闲置*。
+**展示顺序**是另一件事，而且**可以按类改**（`order`，默认 `error 10 / pending 10 / completed 20 / running 30 / idle 50 / pinned 60`）。`error` 与 `pending` 默认同分，同分时按上面的判定优先级兜底，所以自上而下的实际次序是 *报错 → 待处理 → 已完成 → 进行中 → 闲置 → 置顶*——想把自己的置顶会话顶到前面，靠的是 `pinned.maxSeats` 给它们自己那一排座位，而不是插进展示顺序。
 
 还有一条与面无关的机制：**「刚完成」跨刷新保留**。宿主自己的 `completionUnread` 只活 1–3 分钟、一打开会话就清；Better Notice 自己记下 `running true → 非 running` 的时刻（合并写，500ms 一批），页面重载后按 `collect.completedTtlMs` 和当前工作区恢复。刷新页面不会把刚跑完的会话从 ✅ 里弄丢。
 
@@ -121,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `4.6.5`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/merusu-dsh-better-notice-4.6.3.tgz`，效果一样，同样要重启。
+- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `5.1.7`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/dsh-better-notice-5.1.7.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -146,7 +150,7 @@ host 路由在进程启动时创建，只刷新页面不够。
 
 在 GUI 的浏览器控制台里依次确认：
 
-1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'4.6.5'`；
+1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'5.1.7'`；
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
 3. 打开设置，左导航有**「热表」**，页面里是一块全局区 + **6** 张可折叠的类别卡；
 4. 侧栏的会话行前面出现了状态图标；
@@ -179,6 +183,47 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 
 只在页面区域有焦点、没有菜单或对话框、非长按、非输入法组合、没按着 `Ctrl`/`Cmd` 时才处理。`Alt+1..9` 直跳**未实现**——网页端裸 Alt+数字被宿主的 `isWebBindingAllowed` 拒，第三方 `dsh-session-hotkeys` 又在 capture 阶段抢键。
 
+## 窗口顶栏（Windows 桌面）
+
+Windows 上的 GUI 顶部有一条 40px 标题带。插件可以往里面画一排会话胶囊，与对话区 tab 行**并存**——不是替代它。
+
+| 想要什么 | 字段 | 说明 |
+|---|---|---|
+| 在标题带里显示胶囊 | `positions.topbar` | Windows 上默认 `true`；浏览器里无效 |
+| 在浏览器里看效果 | `topbar.previewInWeb` | 桌面外壳以外唯一的预览方式 |
+| 换样式 | `topbar.mode` *(仅 API)* | `chips`（胶囊）/ `count`（一颗「N 个在等」）/ `off` |
+| 最多几颗 | `topbar.maxSeats` | `1`–`12`；多出来的收进 `+N` 胶囊，点开是隐藏的那些 |
+| 胶囊宽度 | `topbar.chipWidthPct` | **百分比**，`-30`…`+30`，`0` = 不动；单颗不会窄于 72px、宽于 140px |
+| 给窗控留位置 | `topbar.rightReservePx` *(仅 API)* | `0`–`400` px，给自定义标题栏用 |
+
+- 这条带是 `pointer-events:none` 的透明浮层，只有胶囊自己收点击并标了 `-webkit-app-region:no-drag`，所以**拖拽带照旧能拖**。那 40px 属于窗口，不属于插件。
+- 左边界用命中测试（`elementsFromPoint`）量：只有**贴左边且宽度 ≤480** 的元素才算占位——全宽容器要是算占位，胶囊会被推到屏幕外。
+- 右侧给窗控写死 `WINDOW_CONTROLS_GUARD = 138` px，**不是设置项**。
+- `running` 永远不出现在这里，当前会话也跳过。一个会话只出现在**一个**面上（`error`/`pending`/`completed` 走顶栏，`pinned`/`idle` 走 tab 行）。
+- macOS：不支持，以后也不会。
+
+### 标签显示三档（胶囊 / 座位怎么画名字）
+
+`topbar.titleMode` 决定会话名前面放什么：
+
+| 取值 | 你看到 | 说明 |
+|---|---|---|
+| `text` | 只有名字 | 名字开头的 emoji 会被剥掉 |
+| `icon` | 插件自己的类别图标 | 名字开头的 emoji 会被剥掉 |
+| `custom` | 会话名开头那颗 emoji（有的话） | 要不要按类启用，见下一节 |
+
+三档都会**剥掉会话名里已有的 emoji**，不会出现两个 emoji 并排。旧值（`unified` / `two` / `smart` / `auto`）自动映射到这三个新名字，升级不会丢掉用户选过的档位。
+
+### 自定义生效范围——哪些类别借用标题 emoji
+
+`topbar.customScope.<category>` 是六个布尔，**只在 `custom` 档生效**。关掉某一类，意味着即使会话名以 emoji 开头，那一类也继续画插件自己的图标。
+
+| 字段 | 取值 | 默认 |
+|---|---|---|
+| `topbar.customScope.{pinned,error,pending,completed,running,idle}` | `true` / `false` | 六类全 `true` |
+
+设置页里这是类别卡第二行的六颗 chip；档位是 `text` 或 `icon` 时整行不出现，因为那时候它不起作用。
+
 ## 自定义索引
 
 字段说明在下面两张表里；这一节按「想干什么」组织。所有项都在**设置 →「热表」**里改，改完即时生效，不用刷新。标「仅 API」的几项现在没有控件，要用 `window.__HOTLIST_SETTINGS__.set(...)`。
@@ -187,15 +232,17 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 
 ### 位置：想让它出现在哪
 
-三个面各自独立，可以只开一个，也可以都不开（都不开等于暂停整个插件，不用卸）。
+每个面各有自己的总开关（`positions.tab` / `positions.sidebar` / `positions.topbar`），可以只开一个，也可以都不开（都不开等于暂停整个插件，不用卸）。
 
 | 我想… | 字段 | 取值 | 默认 |
 |---|---|---|---|
 | 只在对话区 tab 行出现 | `positions.tab` | `true` / `false` | `true` |
 | 也在左侧会话栏每行标题前显示图标 | `positions.sidebar`（仅 API） | `true` / `false` | `true` |
-| 放到窗口顶栏 | `positions.topbar` | `false`（**未实现**，设置页置灰） | `false` |
+| 放到窗口顶栏（Windows 桌面） | `positions.topbar` | `true` / `false` | `true` |
 
-> **顶栏先看清楚，别干等。** **Windows** 上它排在**下个大版本 v5**，现在那一行只是让可见性计算完整，设置页永远是灰的「即将支持」。**macOS 不支持，也不会支持**——宿主在 Mac 上顶部区域行为不一样，没有可挂载的位置。别让 Mac 用户等这个。
+> **顶栏只在 Windows 桌面，macOS 永远不会有。** Windows 桌面上它画进那条 40px 标题带；在浏览器里默认不挂，要靠 `topbar.previewInWeb` 打开预览。**macOS 不支持，也不会支持**——宿主在 Mac 上顶部区域行为不一样，没有可挂载的位置。别让 Mac 用户等这个。
+>
+> 顶栏和对话区 tab 行是**并存**关系，谁都不顶替谁，它们只是分工：`error` / `pending` / `completed` 进顶栏，`pinned` / `idle` 占 tab 行，`running` **两边都不出现**（还在跑不是新闻）。两个面用的是同一份判定，同一个会话不会在两边显示成两种状态。
 
 还有第二层：`categories.<id>.surfaces.{tab,sidebar,topbar}` 决定**那一类**能不能出现在**那个面**。设置页只把这些显示成只读小标签，改要走 API。
 
@@ -222,9 +269,9 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 | 我想… | 字段 | 取值 | 默认 |
 |---|---|---|---|
 | 整类关掉 | `categories.<id>.enabled` | `true` / `false` | 六类全 `true` |
-| 决定这一类排在第几 | `categories.<id>.order` | `1`–`99` | `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50` |
+| 决定这一类排在第几 | `categories.<id>.order` | `1`–`99` | `error 10 / pending 10 / pinned 60 / completed 20 / running 30 / idle 50` |
 | 同一类内部怎么排 | `categories.<id>.sortBy` | `'time'`（最近活动在前）/ `'manual'`（按宿主置顶次序） | `'time'`（`pinned` 为 `'manual'`） |
-| 这一类显示在哪些面 | `categories.<id>.surfaces.{tab,sidebar,topbar}` | 三个布尔 | 前两个 `true`，`topbar` `false` |
+| 这一类显示在哪些面 | `categories.<id>.surfaces.{tab,sidebar,topbar}` | 三个布尔 | `pinned`/`idle` 走 tab，`error`/`pending`/`completed` 走顶栏，`sidebar` 六类全开；`running` 前两个都关 |
 | 图标从哪来 | `categories.<id>.glyph.source` | `'emoji'` / `'upload'` / `'popout'` | `'emoji'` |
 | 换图标字符 | `categories.<id>.glyph.value` | emoji，最多 8 个码位 | 见上表 |
 | 用自己画的方图 | `categories.<id>.glyph.uploads` | 最多 6 张，单张 ≤16KB，`png/jpeg/webp/gif` | `[]` |
@@ -266,7 +313,7 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 
 - **折叠卡**：图标预览、类别名、`· 顺序 N`、五个只读小标签（Tab / 栏 / 顶 / 弹 / 音，高亮 = 开）、右端 caret。点整行展开，**可以同时开多张卡**。展开状态存 `sessionStorage`（`dsh.hotlist.open`），不写进设置。
 - **展开区**（紧凑多列）：① 图标（来源 / 上传 / 图标值 / 频率滑块）；② 动效（`motion` + 作用于 `glyph`/`row`）；③ 弹出（开关 / 弹出图 / 入场·待机·退出 / 出现侧·停留时长）；④ 音效（启用 / 来源 / 试听）；⑤ 顺序。
-- **全局区**：座位上限（含「自动」）、**置顶最多显示**、刚完成保持时长（分钟）、全局音量、**最近窗口**（分钟）、`positions.tab`、`positions.topbar`（置灰「即将支持」）、`takeOverStatusDot`。
+- **全局区**：范围（当前工作区 / 全部 / 智能）、座位上限（含「自动」）、**置顶最多显示**、刚完成保持时长（分钟）、全局音量、**最近窗口**（分钟）、`positions.tab`、`positions.topbar`、`positions.sidebar`（仅 API）、`takeOverStatusDot`。顶栏那一段（样式 / 标签显示 / 胶囊数 / 胶囊宽度 / 网页预览）只在 `positions.topbar` 打开时才存在。
 - 越界写入会被夹回范围。写盘失败（localStorage 配额满）会在页脚提示，也能从 `window.__HOTLIST_SETTINGS__.lastError()` 拿到原因。
 
 ### 全局默认值
@@ -276,7 +323,16 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 | `maxSeats` | `6` | `1`–`12`，或 `'auto'`（按 tab 行实际宽度） |
 | `positions.tab` | `true` | tab 座位总开关 |
 | `positions.sidebar` | `true` | 侧栏总开关（设置页无此行，走 API） |
-| `positions.topbar` | `false` | 窗口顶栏，**未实现**，设置页置灰 |
+| `positions.topbar` | `true` | Windows 桌面标题带；浏览器里要 `topbar.previewInWeb` 才挂 |
+| `scope` | `'smart'` | `workspace`（只当前工作区）/ `all`（全部工作区）/ `smart`（全部工作区，但跨工作区的置顶会掉出置顶行） |
+| `topbar.mode` | `'chips'` | `chips` / `count` / `off`（无设置行，仅 API） |
+| `topbar.titleMode` | `'custom'` | `text` / `icon` / `custom`；旧名 `unified`/`two`/`smart`/`auto` 自动映射 |
+| `topbar.maxSeats` | `6` | `1`–`12`，与 `maxSeats` 互不影响 |
+| `topbar.chipWidthPct` | `0` | **百分比**，`-30`…`+30`；`0` 与出厂宽度逐字节一致 |
+| `topbar.previewInWeb` | `false` | 浏览器里也画顶栏 |
+| `topbar.rightReservePx` | `0` | `0`–`400` px（无设置行，仅 API） |
+| `topbar.customScope` | 六类全 `true` | 六个布尔，只在 `custom` 档读 |
+| `choices` | `{}` | 用户真选过的键；由 `writeSettings()` 写，不要手改 |
 | `takeOverStatusDot` | `true` | 顶掉其它插件（`dsh-sessions-manager`）画的行首状态点 |
 | `hideNativeDot` | `true` | 隐藏宿主原生状态槽（4.4 起无设置行，字段保留） |
 | `collect.completedTtlMs` | `420000`（7 分钟） | 1–1440 分钟 |
@@ -324,7 +380,7 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 | 「想更显眼」 | 加弹出、加声音、加动效 | `popout.enabled`、`sound.enabled`、`frequency` 调高 | `popout.displayMs: 12000`，`frequency: 1`，`overlay.sizeMin/sizeMax` 调高 |
 | 「看不到某一类」 | 三个开关按序排查 | ① `categories.<id>.enabled` ② 它的 `surfaces` ③ `idle` 的最近窗口 | ① 必须 `true` ② 那个面的那一位必须 `true` ③ `recentWindowMinutes > 0` |
 | 「改了没生效」 | 分情况 | 改 `client.js` → 刷新页面；改 `index.js` → **重启 GUI**；只改设置值 → 看 `lastError()`，多半被夹回默认 | — |
-| 「顶栏什么时候有」 | 未实现 | `positions.topbar` / `surfaces.topbar` | 一律 `false`，别承诺 |
+| 「顶栏什么时候有」 | 只有 Windows 桌面（macOS 永远没有） | `positions.topbar`，浏览器预览加 `topbar.previewInWeb` | Windows 默认 `true`；浏览器里要开预览开关 |
 | 「怎么置顶／取消置顶」 | 不在本插件 | 宿主侧栏行自带菜单 | 我们只读；`pinned.maxSeats` 只控制显示几个 |
 
 写设置的两种写法，效果一样：
@@ -346,7 +402,7 @@ window.__HOTLIST_SETTINGS__.set(next);
 2. **不要靠改 `classify()` 顺序来「修」可见性。** 用 `enabled`、`surfaces`、`order`；优先级是语义。
 3. **不要重置用户设置。** 不 `reset()`、不清 storage 键、不在 `sanitize*` 里「顺手强制」——见[改这个插件](#改这个插件)。
 4. **置顶是宿主的活。** 别自己造置顶菜单，读 `pinnedSessionIds`。
-5. **顶栏还不存在。** 直接说没有，别假装。
+5. **顶栏只在 Windows 桌面。** 浏览器里要 `topbar.previewInWeb`；macOS 直接说没有、以后也不会有。
 
 ## 提示音与仓库自带的 TTS 工具
 
@@ -444,7 +500,7 @@ s.lastError()      // 最近一次写盘错误（字符串或 null）
 
 // 设置 + 三个素材池
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.5'
+api.version                                        // '5.1.7'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -452,11 +508,17 @@ api.assets.add(category, kind, { name, dataUrl })  // → { ok, reason?, bytes? 
 api.assets.list(category, kind)                    // → [{ name, bytes }]
 api.assets.clear(category, kind)                   // → boolean
 api.assets.preview('pending')                      // 立刻试听 → boolean
+
+// 只读探针，给脚本与验收脚本用
+api.topbar()                                       // → { mounted, mode, titleMode, left, leftSource, measured, reserve, currentId, capacity, chips }
+api.export({ format: 'md' })                       // 导出会话清单，md | txt | json（裸调用也能用）
 ```
 
 - `kind`：`'glyph'` | `'popout'` | `'sound'`。
 - `category`：`'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle'`。
 - `add` 的 `reason` 是 `invalid` / `full` / `refused` / `budget` 之一。
+- `export()`：`format` 是 `md` | `txt` | `json`（**不是** `markdown`）；显式 `ids` 优先于 `scope`；`md`/`txt` 带 BOM，`json` 不带；纯函数，同一快照导两次逐字节相同。
+- `topbar()` 只读。`leftSource` 告诉你 band 的左边界来自 `occupied`（命中测试）、`menu` 还是 `fallback`——验收脚本读的就是这个字段。
 
 **两个坑**：
 
@@ -473,7 +535,7 @@ api.assets.preview('pending')                      // 立刻试听 → boolean
 4. **没有独立的「子代理」状态。** 宿主不暴露该信号，「子代理在跑」并入 `running`。
 5. **`plan-review` 与 ❓ 不区分。** 宿主只暴露一个 `pendingInteraction.kind`。
 6. **tab 标签只能是字符串。** 宿主用字符串画标签，所以 tab 上永远只有 emoji，不能放方图。
-7. **窗口顶栏未实现。** `positions.topbar` / `surfaces.topbar` 只参与可见性判断。
+7. **窗口顶栏需要 Windows 桌面外壳。** 浏览器里只有开了 `topbar.previewInWeb` 才出现；macOS 完全不支持。挂着顶栏时 tab 行照常工作，两个面互相独立。
 8. **tab 与侧栏的判定函数不是同一个。** `classify()`（tab）与 `sidebarStateOf()`（侧栏）读同一批数据，4.6.0 起两边优先级已统一，但仍不是同一个函数：侧栏还认宿主的 `completionUnread`，tab 面只认本插件记下的 `completedAt`，侧栏的报错另有自己的 30 分钟 TTL（`SIDEBAR_ERROR_TTL_MS`），而 tab 面用的是 10 分钟（`ERROR_TTL_MS`）。所以「刚跑完又立刻重新开始跑」的会话会短暂出现「tab 还是 ✅、侧栏已经 ⏳」。这是两面的取舍，不是待修的 bug。
 9. **tab 行放不下会被裁。** 官方把多余 tab 折进一个点不到的溢出菜单，所以本插件自己按行宽算上限。
 10. **动效是抽签不是常亮。** 每类按自己的频率掷骰子，命中才挑该类一个座位播一遍，同屏最多 4 个在动（`MOTION_CONCURRENCY`）。
@@ -507,15 +569,15 @@ ctx.get('uiWorkspace').workspaces.list             ← 工作区分组 + pinnedS
 ctx.remote.$on('api-session/error', …)             ← agent 级报错
                  │
                  ▼
-        classify()      判类别与 token            client.js:1590
-        sortSeats()     同类别内排序               client.js:1654
-        buildSeatPlan() 套上限、给出座位 order      client.js:1677
+        classify()      判类别与 token            client.js:1900
+        sortSeats()     同类别内排序               client.js:1977
+        buildSeatPlan() 套上限、给出座位 order      client.js:2000
                  │
      ┌───────────┴────────────┬──────────────────┐
      ▼                        ▼                  ▼
 mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
 tab 座位（conversation.view）  侧栏 DOM 增强      设置页（settings.section）
-client.js:4291                client.js:1974    client.js:2668
+client.js:5233                client.js:2633    client.js:3368
 ```
 
 三个纯函数（`classify` / `sortSeats` / `buildSeatPlan`）不碰 DOM、可以喂假数据，是**改行为最安全的入口**。它们的返回值也是 `window.__HOTLIST__` 之外唯一的调试抓手——`client.js` 末尾的导出表（`client.js:4712` 起）把 `classify` / `sortSeats` / `buildSeatPlan` / `readSettings` / `defaultSettings` / `sanitizeSettings` / `sidebarStateOf` / `HotlistSettingsPage` 都交了出来，单测就是靠这张表跑真源码的。
@@ -524,7 +586,7 @@ client.js:4291                client.js:1974    client.js:2668
 
 **1）加一个类别**
 
-`CATEGORY_IDS`（`client.js:122`）→ `CATEGORY_ORDER`（`:123`）→ `CATEGORY_GLYPHS`（`:141`）→ `CATEGORY_MOTION`（`:142`）→ `CATEGORY_SURFACES`（`:144`，值是 `{tab, sidebar, topbar}`）→ `defaultCategory()`（`:246`）补默认值 → `sanitizeSettings()`（`:764`）里认这个键 → `classify()`（`:1477`）里给它一条判定 → 词典 `ZH`（`:307`）/ `EN`（`:431`）各加一组文案 → `test/classify.test.mjs` 加一组。漏掉 `CATEGORY_GLYPHS` 通常只是图标空白；漏掉 `CATEGORY_SURFACES` 会直接在 `defaultCategory()` 里抛。
+`CATEGORY_IDS`（`client.js:180`）→ `CATEGORY_ORDER`（`client.js:181`）→ `CATEGORY_GLYPHS`（`client.js:200`）→ `CATEGORY_MOTION`（`client.js:201`）→ `CATEGORY_SURFACES`（`client.js:238`，值是 `{tab, sidebar, topbar}`）→ `defaultCategory()`（`:246`）补默认值 → `sanitizeSettings()`（`:764`）里认这个键 → `classify()`（`:1477`）里给它一条判定 → 词典 `ZH`（`:307`）/ `EN`（`:431`）各加一组文案 → `test/classify.test.mjs` 加一组。漏掉 `CATEGORY_GLYPHS` 通常只是图标空白；漏掉 `CATEGORY_SURFACES` 会直接在 `defaultCategory()` 里抛。
 
 **2）加一条设置项**
 
@@ -532,7 +594,7 @@ client.js:4291                client.js:1974    client.js:2668
 
 **3）加一个动效**
 
-`MOTION_NAMES`（`:153`）加名字 → `MOTION_MS`（`:1736`）加时长 → `SIDEBAR_STYLE`（`:1758`）里加 `@keyframes hl-<名字>`（只动 `transform` / `opacity`）→ 要做文字版就在 `TEXT_MOTION`（`:1745`）与 `TEXT_BURST`（`:1752`）各加一条 + `@keyframes hl-text-<名字>`。同屏并发上限是 `MOTION_CONCURRENCY`（`:192`）。
+`MOTION_NAMES`（`client.js:247`）加名字 → `MOTION_MS`（`client.js:2375`）加时长 → `SIDEBAR_STYLE`（`client.js:2397`）里加 `@keyframes hl-<名字>`（只动 `transform` / `opacity`）→ 要做文字版就在 `TEXT_MOTION`（`client.js:2384`）与 `TEXT_BURST`（`client.js:2391`）各加一条 + `@keyframes hl-text-<名字>`。同屏并发上限是 `MOTION_CONCURRENCY`（`client.js:286`）。
 
 **4）加一个弹出图点位**
 
@@ -540,11 +602,11 @@ client.js:4291                client.js:1974    client.js:2668
 
 **5）换内置音效**
 
-`BUILTIN_SOUND`（`:212`）是类别到文件名的唯一一张表（`SOUND_CATEGORIES`（`:214`）由它派生）；把新 wav 放进 `assets/sounds/`、改这张表、同步 `assets/sounds/manifest.json`。播放地址由 `SOUND_URL`（`:211`）拼出 `/hotlist-sound/<文件>`，实际发文件的是 `index.js` 的 `serveSound()`；改完**必须重启 GUI**。
+`BUILTIN_SOUND`（`client.js:306`）是类别到文件名的唯一一张表（`SOUND_CATEGORIES`（`client.js:308`）由它派生）；把新 wav 放进 `assets/sounds/`、改这张表、同步 `assets/sounds/manifest.json`。播放地址由 `SOUND_URL`（`client.js:305`）拼出 `/hotlist-sound/<文件>`，实际发文件的是 `index.js` 的 `serveSound()`；改完**必须重启 GUI**。
 
 **6）改顺序与优先级**
 
-- **展示顺序**：`CATEGORY_ORDER`（`:123`）+ 每类的 `order`，由 `sortSeats()`（`:1541`）消费。只管「排在哪儿」。
+- **展示顺序**：`CATEGORY_ORDER`（`client.js:181`）+ 每类的 `order`，由 `sortSeats()`（`:1541`）消费。只管「排在哪儿」。
 - **判定优先级**：`classify()`（`:1477`）里 if 的先后顺序。一个会话只属于一个类别，**从上往下第一条命中的赢**。
 - 两者故意分开：用户能改 `order`，改不了「谁能抢到会话」。改 `classify` 等于改语义，务必同步 `category order` / `sidebar priority` 两组单测。
 
@@ -554,10 +616,10 @@ client.js:4291                client.js:1974    client.js:2668
 
 - 字段：`settings.categories.<类别>.glyph.motionTarget`
 - 取值：`'glyph'` = 只动图标；`'row'` = 图标 + 标题一起动。
-- **4.6.0 起默认统一成 `'row'`**（`defaultGlyph()`，`client.js:258`）。
+- **4.6.0 起默认统一成 `'row'`**（`defaultGlyph()`，`client.js:327`）。
 
 ```js
-// 改法一：改所有类别的默认值（源码，defaultGlyph() client.js:258）
+// 改法一：改所有类别的默认值（源码，defaultGlyph() client.js:327）
 function defaultGlyph(category) {
   return {
     kind: 'emoji',
@@ -586,16 +648,16 @@ window.__HOTLIST_SETTINGS__.set({
 
 **改法三有个坑**：`set` 只做两级浅合并，`glyph` / `popout` / `sound` 是**整块替换**，上面那行会把 `pending.glyph` 的 `value`、`motion`、`frequency` 全洗回默认。正确姿势是先 `get()`、改整个对象、再 `set()`。
 
-加一条新的文字动效：`TEXT_MOTION`（`client.js:1858`，常驻循环）与 `TEXT_BURST`（`:1752`，单次爆发）各加一条，`MOTION_MS`（`:1736`）加时长，`SIDEBAR_STYLE`（`:1758`）里加 `@keyframes hl-text-<名字>`。文字 keyframes **只动 `opacity` 与 1–2px 位移，不加 `scale`**（会发虚）；并发仍受 `MOTION_CONCURRENCY`（`:192`）约束，频率是每类独立的 `glyph.frequency`。
+加一条新的文字动效：`TEXT_MOTION`（`client.js:2384`，常驻循环）与 `TEXT_BURST`（`client.js:2391`，单次爆发）各加一条，`MOTION_MS`（`client.js:2375`）加时长，`SIDEBAR_STYLE`（`client.js:2397`）里加 `@keyframes hl-text-<名字>`。文字 keyframes **只动 `opacity` 与 1–2px 位移，不加 `scale`**（会发虚）；并发仍受 `MOTION_CONCURRENCY`（`client.js:286`）约束，频率是每类独立的 `glyph.frequency`。
 
 ### 升级不破坏用户设置
 
-**承诺：升级插件永远不改掉用户已经选过的设置。** 仍然等于我们某一代出厂默认的值不算「选过」——它跟随当前默认（见下面那条 `LEGACY_VALUES`）；除此之外盘上的值一律优先。用户**真选过**的字段是他自己的，哪怕值恰好等于某个预设：`choices`（`client.js:152`）记下这些选择，预设规则动它之前先看这张表。
+**承诺：升级插件永远不改掉用户已经选过的设置。** 仍然等于我们某一代出厂默认的值不算「选过」——它跟随当前默认（见下面那条 `LEGACY_VALUES`）；除此之外盘上的值一律优先。用户**真选过**的字段是他自己的，哪怕值恰好等于某个预设：`choices`（`client.js:1805`）记下这些选择，预设规则动它之前先看这张表。
 
 怎么做到：
 
 - **默认值只用来补缺**，盘上已有的值永远优先。`sanitizeSettings()` 的写法是「先拿 default，再逐字段看盘上有没有合法值，有就用盘上的」——所以改 `CATEGORY_ORDER`、改 `defaultGlyph()` 对老用户是**完全无感**的。
-- **出厂预设是我们的，不是用户的**：盘上某个值只等于我们过去某一代发的默认值（闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——这样老安装不用用户重新设置也能看到冰块图标和 4.6.3 那套动效表。这张表是 `LEGACY_VALUES`（`client.js:152`），和类别 `order` 等于历史默认值时的判据（`LEGACY_DEFAULTS`）是同一条分界线。用户一旦动过那个字段，值就是用户的，我们再也不碰；不是任何一代默认值的值一字不动。「动过」是显式记下来的：`choices` `{ "<路径>": true }`（`client.js:702-737`），只由 `writeSettings()` 用**传进来的 patch** 写，所以被预设规则改写过、用户没选过的值混不进来；`resetSettings()` 会把整张表清空，因为恢复默认等于重新认可出厂预设。
+- **出厂预设是我们的，不是用户的**：盘上某个值只等于我们过去某一代发的默认值（闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——这样老安装不用用户重新设置也能看到冰块图标和 4.6.3 那套动效表。这张表是 `LEGACY_VALUES`（`client.js:210`），和类别 `order` 等于历史默认值时的判据（`LEGACY_DEFAULTS`）是同一条分界线。用户一旦动过那个字段，值就是用户的，我们再也不碰；不是任何一代默认值的值一字不动。「动过」是显式记下来的：`choices` `{ "<路径>": true }`（`client.js:702-737`），只由 `writeSettings()` 用**传进来的 patch** 写，所以被预设规则改写过、用户没选过的值混不进来；`resetSettings()` 会把整张表清空，因为恢复默认等于重新认可出厂预设。
 - **加字段**：在 `sanitize*` 里给个 fallback 就够了，**不要升 `SETTINGS_VERSION`**。升号意味着「必须有迁移」，而迁移写错会静默洗掉用户数据。
 - **真要改数据结构**（删字段、换含义）：必须保留「读旧值 → 转换 → 丢弃旧字段」这条链（现住在 `sanitizeSettings()` 里，v3.1 → v4 就是这么过的），并把 `SETTINGS_VERSION` 升最小的号。`migrate v3 to v4` 一组就是这条链的验收。
 
@@ -622,7 +684,7 @@ window.__HOTLIST_SETTINGS__.set({
 ```powershell
 node --check client.js          # 语法。client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 65 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 93 groups
 ```
 
 外加一道**保存前的静态闸门**（只在维护者机器上有，不随仓库分发）：
@@ -638,7 +700,7 @@ cd <你 clone 下来的那个目录>
 
 node --check client.js          # client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 65 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 93 groups
 ```
 
 单测把真实的 `client.js` 源文件读进来，塞进 `window.__ModuleLoader__` 的桩里执行：假的是浏览器（手写的极简 `window` / `document`，不引 jsdom，`React` 也是桩），跑的是真源码。里面还带几道静态扫描：引用未声明的常量、注入样式选择器合法性、快捷键 label 必须是 thunk。
@@ -653,7 +715,7 @@ index.js               宿主侧：注册 /hotlist-sound/ 音频路由
 cordis.patch.yml       bundle 插入行
 assets/                3 类各 4 档弹出图素材 + 六类各一份 svg
 assets/sounds/         内置音效（attention.wav / complete.wav）
-test/classify.test.mjs 单测（65 组）
+test/classify.test.mjs 单测（93 组）
 docs/                  架构、测试、扩展三份维护者文档
 tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运行）
 ```
@@ -674,7 +736,7 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 4. **我们注册的静态路由不鉴权。** `/hotlist-sound/*` 与 `/plugins/**/assets/*` 不校验 token，能连到端口的人都能取。
    *不这么做会怎样：* 你等于开了一条泄露路径。只放公开素材，永远别放用户数据。
 
-5. **用户设置永远不许覆盖。** `sanitizeSettings()`（`client.js:867`）是纯函数、**逐字段回落而不是整块回落**；未知键被收进 `PRESERVED_KEY`（`client.js:107`）下次读回；超范围原值记在 `outOfRangeOf`（`client.js:1239`）也会还回去；最近五次写入滚动存在备份环（`BACKUP_KEY`，`client.js:109`，`BACKUP_LIMIT = 5`）。迁移里**绝对不要**用 `defaultSettings()` 重建对象——那会静默洗掉用户的每一个自定义值。
+5. **用户设置永远不许覆盖。** `sanitizeSettings()`（`client.js:1085`）是纯函数、**逐字段回落而不是整块回落**；未知键被收进 `PRESERVED_KEY`（`client.js:165`）下次读回；超范围原值记在 `outOfRangeOf`（`client.js:1530`）也会还回去；最近五次写入滚动存在备份环（`BACKUP_KEY`，`client.js:167`，`BACKUP_LIMIT = 5`）。迁移里**绝对不要**用 `defaultSettings()` 重建对象——那会静默洗掉用户的每一个自定义值。
    *不这么做会怎样：* 用户整套配置没了，而且不知道什么时候没的。唯一退路是 `window.__HOTLIST__.settings.backups()` / `.restore(i)`。
 
 6. **只有数据结构真的变了才动 `SETTINGS_VERSION`，并且迁移要同一个提交里写完。** 纯默认值调整、新增可选字段，只需要在 `sanitize*` 里给 fallback，不需要抬版本号。
@@ -686,7 +748,7 @@ tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运�
 8. **三个硬上限是写死的，不是设置项。** `PLAN_MAX_ROWS = 37`（`client.js:203`）从尾部裁、保住优先级头部；`MOTION_CONCURRENCY = 4`（`client.js:217`）限制同屏动效数；`PINNED_SEATS = {min: 0, max: 12}`（`client.js:200`）。
    *不这么做会怎样：* 你想靠调大 `maxSeats` 解决「计划被截断」，但 `maxSeats` 本身也超不过行上限。
 
-9. **判定优先级只有一个真源，而且是两个函数。** `classify()`（`client.js:1590-1645`）决定 tab 座位与弹出，`sidebarStateOf()`（`client.js:1951-1972`）决定侧栏图标；两者共用 `error > pending > completed > running > pinned > idle` 这个顺序，但附加条件不同。
+9. **判定优先级只有一个真源，而且是两个函数。** `classify()`（`client.js:1900-1969`）决定 tab 座位与弹出，`sidebarStateOf()`（`client.js:2605-2631`）决定侧栏图标；两者共用 `error > pending > completed > running > pinned > idle` 这个顺序，但附加条件不同。
    *不这么做会怎样：* 你只改了一个，同一个会话在两个面上显示成两个状态——4.6.0 之前就是这个 bug。
 
 10. **`dsh plugin add` 对已装的插件不会重写 bundle 条目，而且运行中的 GUI 占着文件。** 先 `remove` 再 `add`；覆盖安装前先关掉那个 profile 的 GUI，否则复制会以 `EPERM` 失败。

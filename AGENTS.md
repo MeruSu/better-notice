@@ -3,7 +3,7 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `dsh-better-notice` · version `4.6.5` · MIT
+- Package: `dsh-better-notice` · version `5.1.7` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
 - One command to install: `dsh plugin --profile <profile> add dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
@@ -16,13 +16,20 @@ do not rebuild it, and what will break the host if you get it wrong.
 many sessions you cannot tell which one is waiting for approval, which one just
 finished, which one failed.
 
-**Three surfaces, one state per session:**
+**Four surfaces, one state per session:**
 
 | Surface | What you see | Where the code lives |
 |---|---|---|
-| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:4291`) |
-| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:1974` / `1951`) |
-| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:3806`) · `mountPopout` (`client.js:3251`) |
+| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:5233`) |
+| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:2633` / `2605`) |
+| Window top bar (**Windows desktop**, new in v5) | a row of session pills in the 40 px title strip, next to the tab row | `mountTopbar` (`client.js:5658`) |
+| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:4635`) · `mountPopout` (`client.js:4080`) |
+
+**Who is drawn where** (`buildSeatPlan()` takes a `surface` argument): `error` /
+`pending` / `completed` go to the window top bar, `pinned` / `idle` go to the tab
+row, `running` goes to neither. The two seat surfaces coexist — turning the band
+on does **not** hide the tab row, it narrows it to the categories it owns. The
+sidebar is independent and shows all six.
 
 **Six states, judged in this order — highest wins, a session belongs to exactly one:**
 
@@ -39,24 +46,24 @@ error  >  pending  >  completed  >  running  >  pinned  >  idle
 | `pinned` | pinned **in the host's own UI** — read from `pinnedSessionIds`, never stored by this plugin | no | — |
 | `idle` | active within the global recent window | no | — |
 
-The two functions that decide this are `classify()` (`client.js:1590-1645`) and
-`sidebarStateOf()` (`client.js:1951-1972`). They share the same order but apply
+The two functions that decide this are `classify()` (`client.js:1900-1955`) and
+`sidebarStateOf()` (`client.js:2605-2626`). They share the same order but apply
 different extra conditions (the sidebar has an error TTL and honours
 `completionUnread`). Change both, or you get two different answers for the same
 session on two surfaces.
 
-**Default display order** (`CATEGORY_ORDER`, `client.js:123`):
-`error 10 · pending 10 · pinned 15 · completed 20 · running 30 · idle 50`.
+**Default display order** (`CATEGORY_ORDER`, `client.js:181`):
+`error 10 · pending 10 · pinned 60 · completed 20 · running 30 · idle 50`.
 
-**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:203`). Rows past it are cut
+**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:272`). Rows past it are cut
 from the tail — the priority head always survives. `plan.overflow` reports how
 many were dropped.
 
-**Settings are never overwritten.** `sanitizeSettings()` (`client.js:867`) is
+**Settings are never overwritten.** `sanitizeSettings()` (`client.js:1085`) is
 pure and falls back per field, never wholesale. Unknown keys go to
-`PRESERVED_KEY` (`client.js:107`) and come back on the next read; out-of-range
-values come back too (`outOfRangeOf`, `client.js:1239`); the last five writes
-are kept as a rolling backup ring under `BACKUP_KEY` (`client.js:109`,
+`PRESERVED_KEY` (`client.js:165`) and come back on the next read; out-of-range
+values come back too (`outOfRangeOf`, `client.js:1530`); the last five writes
+are kept as a rolling backup ring under `BACKUP_KEY` (`client.js:167`,
 `BACKUP_LIMIT = 5`). There is deliberately **no `SETTINGS_VERSION` bump** for
 cosmetic changes — a version bump means writing a migration, and a wrong
 migration silently wipes user data.
@@ -65,8 +72,8 @@ migration silently wipes user data.
 equals a default an earlier release shipped — `💤` for the idle glyph,
 `blink`/`none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — is
 not a user choice, so it follows the current default (`LEGACY_VALUES`,
-`client.js:152`). A value the user actually picked is recorded in `choices`
-(`client.js:702-737`, written by `writeSettings()` from the incoming patch
+`client.js:210`). A value the user actually picked is recorded in `choices`
+(`client.js:1805`, written by `writeSettings()` from the incoming patch
 only) and the preset rule never touches it; `resetSettings()` clears the map.
 
 ---
@@ -118,7 +125,7 @@ authenticated** — publish public assets only, never user data.
 
 ```js
 window.__HOTLIST__ = {
-  version,                                              // "4.6.5"
+  version,                                              // "5.1.7"
   settings: { get, set, reset, subscribe, backups, restore },
   assets:   { add, list, clear, preview },
 };
@@ -137,19 +144,33 @@ window.__HOTLIST__ = {
 - `assets.clear(category, kind)` → boolean.
 - `assets.preview(category)` → plays the sound for that category now
   (bypasses the cold-start gate and the 1500 ms throttle).
-- There is **no** `settings.defaults`.
+- `topbar()` → read-only probe: `{ mounted, mode, titleMode, left, leftSource,
+  measured, reserve, currentId, capacity, chips }`.
+- `export(opts)` → session list as `md` | `txt` | `json`; explicit `ids` win over
+  `scope`; a bare call works (it merges the live state first).
+- There is **no** `settings.defaults` on this object (`window.__HOTLIST_SETTINGS__`
+  is the one that has `defaults()`).
 
 Global settings keys: `maxSeats` (1–12), `pinned.maxSeats` (0–12, default 3),
 `collect.completedTtlMs` (1–1440 min), `collect.recentWindowMinutes`
 (UI 1–36, storage/API 0–120), `sound.volume` (0–100),
-`positions.{tab,sidebar,topbar}`, `takeOverStatusDot`.
+`positions.{tab,sidebar,topbar}` (all three are real now; `topbar` defaults to
+`true` and only draws on Windows), `scope` (`workspace` | `all` | `smart`),
+`takeOverStatusDot`.
+
+Top bar keys: `topbar.{mode, titleMode, maxSeats, previewInWeb, rightReservePx,
+chipWidthPct, customScope}`. `titleMode` ∈ `text` | `icon` | `custom` (old names
+`unified` / `two` / `smart` / `auto` are aliased); `chipWidthPct` is a
+**percentage** `-30…+30`, `0` = unchanged; `customScope` applies only in `custom`
+mode. All three title modes strip the emoji already in the session title, so a
+name never renders two emoji.
 
 ---
 
 ## 4. Layout of the repo
 
 ```
-client.js              web half — everything the UI does (single file, ~4.7k lines)
+client.js              web half — everything the UI does (single file, ~6.1k lines)
 index.js               host half — registers the /hotlist-sound prefix route
 cordis.patch.yml       one insert line that mounts the plugin
 package.json           name / version / files / dsh.{bundle,client}
@@ -157,7 +178,7 @@ assets/                error|pending|completed × 4 webp tiers + 6 svg fallbacks
 assets/sounds/         attention.wav, complete.wav (+ their manifest)
 docs/ARCHITECTURE.md   layering, state model, settings schema, line-number index
 docs/EXTENDING.md      API surface + how to extend without breaking data
-docs/TESTING.md        the 65 test groups, each with its source line
+docs/TESTING.md        the 105 test groups, each with its source line
 test/classify.test.mjs the whole self-test (pure node, no browser)
 tools/meru-tts/        optional TTS helper for making your own sound cues
 ```
@@ -168,7 +189,7 @@ tools/meru-tts/        optional TTS helper for making your own sound cues
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs      # expect: PASS — 65 groups
+node test/classify.test.mjs      # expect: PASS — 105 groups
 ```
 
 `node --check` alone is not enough: a deleted-but-still-referenced constant is
@@ -215,8 +236,10 @@ Git may not be under `C:\Program Files\Git`. Ask the tool itself:
    the host; their CSS cannot be animated from here.
 2. The window top bar is **Windows-only and needs the desktop shell** (it lives in
    the 40 px strip that `html[data-windows-titlebar]` marks). In a browser the band
-   stays down unless `topbar.previewInWeb` is on. While it is up the tab row stands
-   down on purpose, so the two surfaces never draw the same session twice.
+   stays down unless `topbar.previewInWeb` is on. macOS is not supported and will
+   not be. The band and the tab row **coexist**: each category owns one surface
+   (§1), so a session is never drawn twice — the tab row is not hidden, it is
+   narrowed to `pinned` / `idle`.
 3. `.mp3` / `.wav` cannot be served by the package-asset route (see 2.3).
 4. Static asset routes are unauthenticated (see 2.3).
 5. On desktop the top 40 px of the window is the window-drag region; never give

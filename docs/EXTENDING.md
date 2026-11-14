@@ -34,7 +34,7 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
-插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'4.6.5'`）。
+插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.7'`）。
 
 写设置后不需要刷新页面：tab、侧栏、设置页都在同一个 store 上重算。
 
@@ -57,6 +57,8 @@ window.__HOTLIST__ = {
     clear(category, kind),       // 清空该池，返回 boolean
     preview(category),           // 立刻播一条该类别池里的音效（试听），返回是否播放
   },
+  topbar(),                    // 只读探针：顶栏当前状态，见下面「顶栏探针」
+  export(opts),                // 导出会话清单，见 §10
 };
 ```
 
@@ -67,19 +69,61 @@ window.__HOTLIST__ = {
 
 `assets.add` 返回 `{ ok: true, bytes }` 或 `{ ok: false, reason }`，`reason` ∈ `'invalid'`（参数不对）/ `'full'`（该池已满）/ `'refused'`（素材不合格，见 §4.2）/ `'budget'`（总量超了，写入时被裁回来）。
 
+### 1.3 顶栏探针 `window.__HOTLIST__.topbar()`
+
+只读，给验收脚本用，一次拿到顶栏的全部结论（不必去 DOM 里猜）：
+
+```js
+window.__HOTLIST__.topbar();
+// {
+//   mounted,      // band 是否挂上了
+//   mode,         // 'chips' | 'count' | 'off'
+//   titleMode,    // 'text' | 'icon' | 'custom'
+//   left,         // band 实际左边界（px）
+//   leftSource,   // 'occupied'（命中测试得出）| 'fallback'（用默认 40px 带）
+//   measured,     // 命中测试量到的占用右边界
+//   reserve,      // 右侧留给窗控的宽度
+//   currentId,    // 当前会话 id（它不占胶囊）
+//   capacity,     // 这一帧能放下的胶囊数
+//   chips,        // [{ id }] 当前画出来的胶囊
+// }
+```
+
+### 1.4 `choices`：用户真选过的值
+
+`sanitizeSettings()` 有一条「出厂预设不是用户选择」的规则：盘上的值如果**只等于我们过去某一代发的默认值**（`LEGACY_VALUES`：`💤` 图标、`blink`/`none` 动效、`motionTarget:'glyph'`、频率 `1`、音效关），就跟着当前默认走。
+
+`settings.choices` 是这条规则的例外表：`writeSettings()` 只把**这次 patch 里真的出现的键**记进 `choices`，之后预设规则不再动它。所以：
+
+- 想「明确设成和旧默认一样的值」→ 直接 `set()`，它会落地并留在 `choices` 里。
+- `resetSettings()` 会**清空** `choices`（之后预设规则重新生效）。
+- `backups()` / `restore(n)` 连 `choices` 一起回滚。
+- 手工写这个字段没用，`sanitizeChoices()` 只认合法形状、丢弃 `false` 与超长键。
+
 ---
 
 ## 2. 设置形状
 
 存储键 `dsh.hotlist.settings.v1`（v2.x 旧键 `dsh.session-switcher.settings` 会自动迁移并删除）。
 
-下面所有字段在 v4.6.1 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池，v4.4.0 把动效间隔换成播放频率、把收录窗口搬到全局，v4.5.0 删掉弹出图尺寸的 UI（`overlay.sizeMin/sizeMax` 仍是 API 字段）并把内置音效固定成两个 wav，v4.6.0 置顶改读宿主原生并删掉 `settings.pins`，v4.6.1 删掉第 7 类 `favorite` 并把「最近对话展示时间」的 UI 收窄到 1–36 分钟（读旧记录时缺字段一律回落默认，不会报错）。
+下面所有字段在 v5.0.0-alpha.1 都已落地：v4.1.0 只有单图/占位音效种类，v4.2.0 把它们换成了素材池，v4.4.0 把动效间隔换成播放频率、把收录窗口搬到全局，v4.5.0 删掉弹出图尺寸的 UI（`overlay.sizeMin/sizeMax` 仍是 API 字段）并把内置音效固定成两个 wav，v4.6.0 置顶改读宿主原生并删掉 `settings.pins`，v4.6.1 删掉第 7 类 `favorite` 并把「最近对话展示时间」的 UI 收窄到 1–36 分钟，v5.0.0-alpha.1 加了窗口顶栏（`positions.topbar` 默认 **true**）、`scope`、`topbar.*`、`choices`，并把 `pinned` 的默认顺序改成 **60**（读旧记录时缺字段一律回落默认，不会报错）。
 
 ```js
 {
-  version: 4,
+  version: 4,                   // 设置 schema 版本；v5 没升（新字段走默认值分支，不写迁移）
   maxSeats: 6,                  // 1–12，或 'auto'
-  positions: { tab: true, topbar: false, sidebar: true },   // topbar 尚未实现，恒 false
+  scope: 'smart',               // v5 新增：'workspace' 只当前工作区 | 'all' 全部工作区 | 'smart' 全部工作区但跨工作区置顶降级
+  positions: { tab: true, topbar: true, sidebar: true },    // topbar 默认 true（只有 Windows 桌面画得出来，浏览器要 topbar.previewInWeb）
+  topbar: {                     // v5 新增：窗口顶栏
+    mode: 'chips',              // 'chips' 胶囊 | 'count' 一颗计数 | 'off'
+    titleMode: 'custom',        // 'text' 只文字 | 'icon' 插件图标 | 'custom' 用标题自带 emoji（旧名 unified/two/smart/auto 自动映射）
+    maxSeats: 6,                // 顶栏最多几颗，1–12，与 tab 行互不影响
+    previewInWeb: false,        // 浏览器里也画（桌面外壳以外唯一的预览方式）
+    rightReservePx: 0,          // 0–400，给自定义标题栏的窗控留位置；另有写死的 WINDOW_CONTROLS_GUARD = 138
+    chipWidthPct: 0,            // -30…+30 百分比，0 = 与旧版逐字节一致；单颗仍夹在 72–140px
+    customScope: { pinned: true, error: true, pending: true, completed: true, running: true, idle: true },  // 只在 titleMode='custom' 生效
+  },
+  choices: {},                  // v5 新增：用户真选过的键 → true（出厂预设规则不再覆盖它；resetSettings() 清空）
   takeOverStatusDot: true,      // 隐藏别的插件画在行首的状态点
   hideNativeDot: true,          // 隐藏宿主自带的会话状态点
   display: { reduceMotion: 'auto' },   // 'auto' | 'on' | 'off'（API 可写，设置页没有行）
@@ -98,7 +142,7 @@ window.__HOTLIST__ = {
 ```js
 {
   enabled: true,
-  order: 0,                     // 决定展示顺序（1–99），不影响判定；pinned 默认 15，也是可编辑的
+  order: 0,                     // 决定展示顺序（1–99），不影响判定；pinned 默认 60（error 10 / pending 10 / completed 20 / running 30 / idle 50）
   sortBy: 'time',               // 'time' | 'manual'（pinned 用 manual，按宿主置顶次序）
   pinLevel: null,               // 只读：宿主 pinnedSessionIds 里的下标 + 1（由宿主置顶次序决定，不可手改）
   surfaces: { tab: true, sidebar: true, topbar: false },
@@ -106,9 +150,9 @@ window.__HOTLIST__ = {
     source: 'emoji',            // 'emoji' | 'upload' | 'popout'
     value: '📌',                // emoji 文本（source='upload' 时忽略）
     uploads: [],                // [{ name, dataUrl }]，source='upload' 时按会话定种取一张
-    motion: 'pulse',            // none | spin | pulse | bounce | blink
-    motionTarget: 'glyph',      // 'glyph' | 'row'（row 只对侧栏标题生效）
-    frequency: 1,               // 0–1，步进 0.05：每 1s 掷一次骰子，1 = 每个节拍都播，0 = 该类永不动（默认按类，见 README 的字段表）
+    motion: 'bounce',           // none | spin | pulse | bounce | blink（默认按类：pinned/error/pending bounce、completed/running spin、idle none）
+    motionTarget: 'row',        // 'glyph' 只动图标 | 'row' 图标+标题（row 只在侧栏生效，胶囊/tab 行标题由宿主渲染，动不了）
+    frequency: 0.9,             // 0–1，步进 0.05：每 1s 掷一次骰子，1 = 每个节拍都播，0 = 该类永不动（默认按类：0.3 / 0.9 / 0.9 / 1 / 1 / 0）
   },
   glyphSecondary: null,         // 仅 pending 有：❓ 小图标，同样带 motion
   popout: {
@@ -294,7 +338,7 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 - **超范围的原始值不丢**：盘上是 `maxSeats: 99` 这种，读的时候按 `1`–`12` 夹取使用，但原值记在保留层里；哪天上限放宽了，`reviveOutOfRange()` 会把 `99` 还回去。
 - **每次落盘前存一份滚动备份**：最近 5 份（`BACKUP_KEY`，`BACKUP_LIMIT = 5`），只记 `{at, settings}`。查有哪些副本用 `window.__HOTLIST__.settings.backups()`（返回 `[{at, version}]`，最新在前），要退回某一份用 `settings.restore(0)`（0 = 最近一份，`-1` 或不传 = 最旧一份）。
 - **唯一例外**是 `RETIRED_PATHS` 里的路径（例如 v4.6.1 退役的 `categories.favorite`）：这些是插件主动删除的字段，读时丢弃、不进保留层，否则它们会永远跟着用户。
-- **另一条例外（v4.6.4 起）：出厂预设不是用户选择。** 盘上某个值只等于我们过去某一代发的默认值（`LEGACY_VALUES`：闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——用户没改过的东西不该把他锁在旧默认上。用户动过的值一律不动——「动过」由 `choices`（`{ "<路径>": true }`，v4.6.5 起）记录，所以 `none` / `blink` / 「仅图标」/ 频率 100% / 关音效这些和旧默认同值的选项也能落地。
+- **另一条例外（v4.6.4 起）：出厂预设不是用户选择。** 盘上某个值只等于我们过去某一代发的默认值（`LEGACY_VALUES`：闲置图标 `💤`、动效 `blink` / `none`、`motionTarget: 'glyph'`、频率 `1`、音效关），就跟随当前默认——用户没改过的东西不该把他锁在旧默认上。用户动过的值一律不动——「动过」由 `choices`（`{ "<路径>": true }`，v5.0.0-alpha.1 起）记录，所以 `none` / `blink` / 「仅图标」/ 频率 100% / 关音效这些和旧默认同值的选项也能落地。
 - 想确认这套还在生效：单测 `user settings are never overwritten`、`defaults never overwrite stored values`、`legacy default order is adopted, real choices are kept`（这三组保「不覆盖用户」）与 `factory presets are replaced, user choices are kept`（这一组保「旧预设要换掉」）与 `user picks survive the preset rule`（这一组保「用户选过的值不被闸门改」）红了就是破了。
 
 ## 8. 想加功能而不是配置
@@ -305,7 +349,7 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 
 ---
 
-## 9. 这一版的类别判定优先级（4.6.1）
+## 9. 这一版的类别判定优先级（v5.0.0-alpha.1）
 
 **一个会话只属于一个类别。** `classify()` 从上往下走，第一条命中的就定了，后面的条件不再看。
 
@@ -322,10 +366,32 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 
 **置顶来自宿主，不是本插件的设置。** 数据源是 `ctx.get('uiWorkspace').workspaces.list.getSnapshot().pinnedSessionIds`（数组，最近置顶的在前），置顶/取消置顶在宿主侧栏行的原生菜单里。插件这边**只读**，只提供全局「置顶最多显示」（`pinned.maxSeats`，`0`–`12`，`0` = 不显示置顶）来控制它占几个座位。`pinLevel` 直接取数组下标 + 1，所以置顶的先后由宿主的置顶次序决定，插件不提供「上移/下移」。
 
-**展示顺序与判定优先级是两件事。** 展示顺序看每类的 `order`，默认 `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50`。`error` 与 `pending` 默认同分，**同分时按上面的判定优先级兜底**（也就是 `CATEGORY_ORDER` 常量里 `error` 必须排在 `pending` 前），所以最终看到的是 报错 → 待处理 → 置顶 → 已完成 → 进行中 → 闲置。
+**展示顺序与判定优先级是两件事。** 展示顺序看每类的 `order`，默认 `error 10 / pending 10 / pinned 60 / completed 20 / running 30 / idle 50`（`pinned` 在 v5.0.0-alpha.1 从 15 改成 60，旧值 0/1/15 视为老默认自动跟新）。`error` 与 `pending` 默认同分，**同分时按上面的判定优先级兜底**（也就是 `CATEGORY_ORDER` 常量里 `error` 必须排在 `pending` 前），所以最终看到的是 报错 → 待处理 → 置顶 → 已完成 → 进行中 → 闲置。
 
 **6 类，不是 7 类（v4.6.1 起）。** `CATEGORY_IDS = ['pinned', 'error', 'pending', 'completed', 'running', 'idle']`。v4.6.0 及更早还有第 7 个 `favorite`（收藏，`reserved: true`、恒不产出）；它在 v4.6.1 里被整个删掉——类型、常量、设置页那张卡、i18n 键一起没了，旧盘里的 `categories.favorite` 读时丢弃。想加回一个「收藏」类不是改配置，是加类别（见 §8）。
 
-**老安装的旧默认顺序会被自动升级，逐类判断（v4.6.1 起）。** 判据是「这一类的 `order` 值是否等于某个历史默认值」（`LEGACY_DEFAULTS`）——等于就视为「用户没选过」，换成新版默认。历史值 → 新值：`pinned` 的 `0`（含最早那版的 `1`）→ **15**、`pending` 的 `20` → **10**、`completed` 的 `30` → **20**、`running` 的 `40` → **30**；`error` 一直是 `10`、`idle` 一直是 `50`，不受影响。用户改过的值一个都不会动。这条在 `sanitizeSettings` 里跑，不是一次性脚本，所以每次读盘都会按同一规则判。
+**老安装的旧默认顺序会被自动升级，逐类判断（v4.6.1 起）。** 判据是「这一类的 `order` 值是否等于某个历史默认值」（`LEGACY_DEFAULTS`）——等于就视为「用户没选过」，换成新版默认。历史值 → 新值：`pinned` 的 `0` / `1` / `15` → **60**（v5.0.0-alpha.1 把它挪到靠后）、`pending` 的 `20` → **10**、`completed` 的 `30` → **20**、`running` 的 `40` → **30**；`error` 一直是 `10`、`idle` 一直是 `50`，不受影响。用户改过的值一个都不会动。这条在 `sanitizeSettings` 里跑，不是一次性脚本，所以每次读盘都会按同一规则判。
 
 改优先级 = 改语义，别只改 `order` 就以为改了判定；两处都要动时，`test/classify.test.mjs` 的 `category order` 与 `sidebar priority` 两组是验收线。
+
+---
+
+## 10. 导出会话清单（`window.__HOTLIST__.export`）
+
+v5.0.0-alpha.1 起有两条路，**都不需要打开设置页**：
+
+```js
+// 控制台 / 脚本：会合并进当前的真实状态，所以裸调用也能用
+window.__HOTLIST__.export();                       // → Markdown
+window.__HOTLIST__.export({ format: 'json' });     // → JSON 字符串
+window.__HOTLIST__.export({ format: 'txt', scope: 'all' });
+window.__HOTLIST__.export({ ids: ['s1', 's2'] });  // 只导这两个
+```
+
+- `format` ∈ `'md'` | `'txt'` | `'json'`（**不是** `markdown`），非法值回落 `'md'`。
+- `scope` ∈ `'workspace'` | `'all'` | `'smart'`，非法值读当前设置里的 `scope`。**显式给 `ids` 时只导出这些 id**，页面上的 scope 与当前会话都不参与决定导谁。
+- Markdown 与纯文本**带 BOM**（`\uFEFF` 开头），粘进 Notion / 表格中文不乱码；JSON **不带** BOM。
+- 列固定为：`displayTitle, status, workspace, lastActivityIso, lastActivityLocal, pinned, archived, running, pendingKind, completionUnread, isCurrent, origin, id`。单元格里的 `|`、制表符、换行会被转义，不会破坏表格结构。
+- 纯函数、可重复调用：同一份输入两次输出逐字节相等。
+
+设置页页脚的「导出」按钮走的是同一条 `exportSessions()`，只是先弹一个格式选择。

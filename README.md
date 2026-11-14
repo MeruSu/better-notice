@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - Package: `dsh-better-notice` (module id is the same string)
-- Version: `4.6.5` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `5.1.7` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -46,17 +46,19 @@ dsh plugin --profile <profile> add dsh-better-notice
 
 ## What it does
 
-Three surfaces, one shared decision:
+Four surfaces, one shared decision:
 
 1. **Conversation tab row** — each hot session takes one tab seat; click it to switch. The current session does not take a seat (it *is* the “Chat” tab).
 
    ![Tab row seats](screenshots/tab-seats.png)
 
-2. **Left sidebar** — one status glyph in front of every session title (emoji by default, or an uploaded square image), optionally animated.
+2. **Window top bar (Windows desktop, new in v5)** — a row of session pills in the 40 px title strip, next to the tab row. It **coexists** with the tab row instead of replacing it; the two split the six categories. See [The window top bar](#the-window-top-bar-windows-desktop).
+
+3. **Left sidebar** — one status glyph in front of every session title (emoji by default, or an uploaded square image), optionally animated.
 
    ![Sidebar status glyphs](screenshots/sidebar-glyphs.png)
 
-3. **On state change** — one sound plus one popout image that slides in from a window edge.
+4. **On state change** — one sound plus one popout image that slides in from a window edge.
 
 The glyph can also be your own square picture instead of an emoji:
 
@@ -84,16 +86,18 @@ Only those three states ship raster art (4 tiers each: 64 / 320 / 780 / 1560 px,
 
 ## Categories at a glance
 
-| Category | When it appears | Tab seat | Sidebar glyph | Popout image | Sound |
-|---|---|---|---|---|---|
-| 📌 `pinned` | You pinned it in the **host's own** UI (hover/right-click a sidebar row → “Pin session”) | ✅ | ✅ | — | — |
-| ⛔ `error` | The agent reported an error (`api-session/error`), expires after 10 min | ✅ | ✅ | ✅ | 🔈 |
-| 🔐 `pending` | Waiting for your approval / answer / plan review (secondary glyph ❓) | ✅ | ✅ | ✅ | 🔈 |
-| ✅ `completed` | This plugin saw it finish, within the last 7 min | ✅ | ✅ | ✅ | 🔈 |
-| ⏳ `running` | Working (includes “a subagent is running, parent idle”) | ✅ | ✅ | — | — |
-| 🧊 `idle` | Idle, and last activity is inside the *recent window* (default 5 min) | ✅ | ✅ | — | — |
+| Category | When it appears | Tab row | Window top bar | Sidebar glyph | Popout image | Sound |
+|---|---|---|---|---|---|---|
+| 📌 `pinned` | You pinned it in the **host's own** UI (hover/right-click a sidebar row → “Pin session”) | ✅ | — | ✅ | — | — |
+| ⛔ `error` | The agent reported an error (`api-session/error`), expires after 10 min | — | ✅ | ✅ | ✅ | 🔈 |
+| 🔐 `pending` | Waiting for your approval / answer / plan review (secondary glyph ❓) | — | ✅ | ✅ | ✅ | 🔈 |
+| ✅ `completed` | This plugin saw it finish, within the last 7 min | — | ✅ | ✅ | ✅ | 🔈 |
+| ⏳ `running` | Working (includes “a subagent is running, parent idle”) | — | — | ✅ | — | — |
+| 🧊 `idle` | Idle, and last activity is inside the *recent window* (default 5 min) | ✅ | — | ✅ | — | — |
 
-✅ = on by default · — = off by default (popout and sound are opt-in per category) · 🔈 = a bundled sound exists but **stays silent until you enable that category** in settings.
+✅ = on by default · — = off by default · 🔈 = a bundled sound exists but **stays silent until you enable that category** in settings.
+
+The two seat surfaces **split the six categories** (see [The window top bar](#the-window-top-bar-windows-desktop)): `pinned` / `idle` take tab-row seats, `error` / `pending` / `completed` take top-bar pills, and `running` takes neither — a session is never drawn on both. All six still get a sidebar glyph.
 
 ### How a session is classified
 
@@ -105,7 +109,7 @@ error > pending > completed > running > pinned > idle
 
 Rationale: an error is a root cause and a pending approval is often its consequence, so the error wins; pinning is just “I want to look at this first”, not “something is happening”, so it ranks last of the *active* states. This order is **not configurable** — changing it changes semantics, not looks.
 
-**Display order** is a different thing and *is* configurable per category (`order`, default `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50`). `error` and `pending` tie by default; ties fall back to the classification priority above, so what you actually see is *error → pending → pinned → completed → running → idle*.
+**Display order** is a different thing and *is* configurable per category (`order`, default `error 10 / pending 10 / completed 20 / running 30 / idle 50 / pinned 60`). `error` and `pending` tie by default; ties fall back to the classification priority above, so the vertical order you actually see is *error → pending → completed → running → idle → pinned* — pinning moves a session to the top of its own surface via `pinned.maxSeats`, not by jumping the display order.
 
 One mechanism is independent of all surfaces: **“just finished” survives a page reload.** The host's own `completionUnread` only lives for 1–3 minutes and is cleared as soon as you open the session, so Better Notice records the `running true → not running` transition itself (batched writes, 500 ms), and after a reload replays it subject to `collect.completedTtlMs` and the current workspace. Refreshing the page does not lose your ✅ sessions.
 
@@ -121,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `4.6.5`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/merusu-dsh-better-notice-4.6.3.tgz` gives the same result and the same restart.
+- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.7`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.7.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -146,7 +150,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'4.6.5'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.7'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -179,6 +183,47 @@ await fetch('/hotlist-sound/attention.wav').then(r => [r.status, r.headers.get('
 
 Keys are only handled when the page has focus region, no menu/dialog is open, it is not a long press, not an IME composition, and `Ctrl`/`Cmd` is not held. `Alt+1..9` direct jump is **not implemented** — bare Alt+digit is rejected by the host's `isWebBindingAllowed`, and the third-party `dsh-session-hotkeys` grabs it in the capture phase.
 
+## The window top bar (Windows desktop)
+
+On Windows the GUI has a 40 px title strip above everything. The plugin can draw a row of session pills into it, next to the tab row — **not instead of it**.
+
+| What you get | Field | Notes |
+|---|---|---|
+| Pills in the strip | `positions.topbar` | `true` by default on Windows; no effect in a browser |
+| See it in a browser | `topbar.previewInWeb` | the only way to preview the band outside the desktop shell |
+| Style | `topbar.mode` *(API only)* | `chips` (pills) / `count` (a single “N waiting” chip) / `off` |
+| How many pills | `topbar.maxSeats` | `1`–`12`; the rest collapse into a `+N` chip that opens the hidden ones |
+| Pill width | `topbar.chipWidthPct` | **percent**, `-30`…`+30`, `0` = untouched; a pill never goes below 72 px or above 140 px |
+| Space for the window controls | `topbar.rightReservePx` *(API only)* | `0`–`400` px, for a custom title bar |
+
+- The band is a transparent overlay with `pointer-events:none`; only the pills take clicks and they are marked `-webkit-app-region:no-drag`, so **the drag strip stays draggable**. The 40 px strip belongs to the window, not to us.
+- The left edge is measured with a hit test (`elementsFromPoint`): only an element that hugs the left edge *and* is at most 480 px wide counts as occupying space. A full-width container would otherwise push the pills off-screen.
+- The right side reserves a hard-coded `WINDOW_CONTROLS_GUARD = 138` px for the window buttons. It is **not a setting**.
+- `running` never appears here, and the current session is skipped. A session shows on **one** surface only (`error`/`pending`/`completed` on the band, `pinned`/`idle` in the tab row).
+- macOS: not supported, and it will not be. Nothing to attach to.
+
+### Label display modes (how a pill / seat draws its name)
+
+`topbar.titleMode` decides what sits in front of the session name:
+
+| Value | You see | Notes |
+|---|---|---|
+| `text` | the name only | the leading emoji is stripped |
+| `icon` | the plugin's own category glyph | the leading emoji is stripped |
+| `custom` | the emoji the session name starts with, when it has one | per-category opt-in below |
+
+All three modes **strip the emoji already in the session title**, so you never get two emoji side by side. Old setting values (`unified` / `two` / `smart` / `auto`) are aliased onto the three current names, so an upgrade never breaks a stored choice.
+
+### Custom icon scope — which categories borrow the title emoji
+
+`topbar.customScope.<category>` is six booleans, and it **only applies to the `custom` mode**. Turning a category off there means that category keeps drawing the plugin's own glyph even when the title starts with an emoji.
+
+| Field | Values | Default |
+|---|---|---|
+| `topbar.customScope.{pinned,error,pending,completed,running,idle}` | `true` / `false` | all six `true` |
+
+Settings shows this as six chips on the second row of the category card, and the whole row disappears while the mode is `text` or `icon`, because it would do nothing there.
+
 ## Customization index
 
 Field reference tables are below; this section is organized by intent. Everything here is editable in **Settings → “Better Notice”** and applies immediately, no reload. The few rows marked *API only* have no control yet — use `window.__HOTLIST_SETTINGS__.set(...)`.
@@ -187,15 +232,17 @@ Field reference tables are below; this section is organized by intent. Everythin
 
 ### Placement — where it shows up
 
-Three surfaces are independent; you can enable one, two, or none (none = the plugin is effectively paused without uninstalling).
+Each surface has its own master switch (`positions.tab` / `positions.sidebar` / `positions.topbar`); you can enable one, two, or none (none = the plugin is effectively paused without uninstalling).
 
 | I want… | Field | Values | Default |
 |---|---|---|---|
 | Only in the conversation tab row | `positions.tab` | `true` / `false` | `true` |
 | Also show a status glyph in the sidebar | `positions.sidebar` *(API only)* | `true` / `false` | `true` |
-| Put it in the window top bar | `positions.topbar` | `false` (**not implemented**, greyed out in settings) | `false` |
+| Put it in the window top bar (Windows desktop) | `positions.topbar` | `true` / `false` | `true` |
 
-> **Top bar: read this before you wait for it.** On **Windows** it is planned for the **next major version (v5)** — today the `positions.topbar` row exists only to keep the maths honest and is greyed out with “coming soon”. On **macOS it is not supported and will not be**: the host's top region behaves differently there, so there is nothing to attach to. Do not tell a Mac user to wait for it.
+> **The top bar is Windows-only, and macOS will never get it.** On Windows desktop the plugin draws into the 40 px title strip; in a browser tab the band stays down unless you switch on `topbar.previewInWeb`. On **macOS it is not supported and will not be**: the host's top region behaves differently there, so there is nothing to attach to. Do not tell a Mac user to wait for it.
+>
+> The top bar and the tab row **coexist** — neither replaces the other. They split the six categories instead: `error` / `pending` / `completed` live in the band, `pinned` / `idle` take tab seats, and `running` deliberately appears on **neither** (it is not news). Both surfaces draw from the same classification, so a session never shows up as two different states.
 
 Per-category placement is a second layer: `categories.<id>.surfaces.{tab,sidebar,topbar}` decides whether *that* category may appear on *that* surface. Settings shows these as read-only chips; change them through the API.
 
@@ -222,9 +269,9 @@ Category ids: `pinned` · `error` · `pending` · `completed` · `running` · `i
 | I want… | Field | Values | Default |
 |---|---|---|---|
 | Turn a whole category off | `categories.<id>.enabled` | `true` / `false` | all six `true` |
-| Decide where that category sits | `categories.<id>.order` | `1`–`99` | `error 10 / pending 10 / pinned 15 / completed 20 / running 30 / idle 50` |
+| Decide where that category sits | `categories.<id>.order` | `1`–`99` | `error 10 / pending 10 / pinned 60 / completed 20 / running 30 / idle 50` |
 | Sort within the category | `categories.<id>.sortBy` | `'time'` (recent activity first) / `'manual'` (host pin order) | `'time'` (`pinned` = `'manual'`) |
-| Restrict it to some surfaces | `categories.<id>.surfaces.{tab,sidebar,topbar}` | three booleans | first two `true`, `topbar` `false` |
+| Restrict it to some surfaces | `categories.<id>.surfaces.{tab,sidebar,topbar}` | three booleans | `tab` for `pinned`/`idle`, `topbar` for `error`/`pending`/`completed`, `sidebar` for all; `running` has none of the first two |
 | Choose where the icon comes from | `categories.<id>.glyph.source` | `'emoji'` / `'upload'` / `'popout'` | `'emoji'` |
 | Change the glyph character | `categories.<id>.glyph.value` | emoji, at most 8 code points | per category, see the table above |
 | Use your own square image | `categories.<id>.glyph.uploads` | up to 6, ≤16 KB each, `png/jpeg/webp/gif` | `[]` |
@@ -266,7 +313,7 @@ Field-name-level documentation for people writing scripts.
 
 - **Collapsed card:** glyph preview, category name, `· order N`, five read-only chips (Tab / Bar / Top / Pop / Snd — highlighted = on), caret. Click the row to expand; **several cards may be open at once**. Open state lives in `sessionStorage` (`dsh.hotlist.open`), never in settings.
 - **Expanded area** (compact multi-column): ① glyph (source / upload / value / frequency slider); ② motion (`motion` + target `glyph`/`row`); ③ popout (enabled / image / entrance·ambient·exit / side·display time); ④ sound (enabled / source / preview); ⑤ order.
-- **Global block:** seat limit (with “auto”), **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar` (greyed “coming soon”), `takeOverStatusDot`.
+- **Global block:** scope (workspace / all / smart), seat limit (with “auto”), **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar`, `positions.sidebar` (API only), `takeOverStatusDot`. The band block (style / label display / pill count / pill width / web preview) only exists while `positions.topbar` is on.
 - Out-of-range writes are clamped. A failed write (localStorage quota) is reported in the page footer and through `window.__HOTLIST_SETTINGS__.lastError()`.
 
 ### Global defaults
@@ -276,7 +323,16 @@ Field-name-level documentation for people writing scripts.
 | `maxSeats` | `6` | `1`–`12`, or `'auto'` (follows the real tab-row width) |
 | `positions.tab` | `true` | master switch for tab seats |
 | `positions.sidebar` | `true` | master switch for the sidebar (no settings row; API only) |
-| `positions.topbar` | `false` | window top bar, **not implemented**, greyed out |
+| `positions.topbar` | `true` | Windows desktop title strip; no effect in a browser unless `topbar.previewInWeb` |
+| `scope` | `'smart'` | `workspace` (current workspace only) / `all` (every workspace) / `smart` (every workspace, but a cross-workspace pin is demoted out of the pinned row) |
+| `topbar.mode` | `'chips'` | `chips` / `count` / `off` (no settings row; API only) |
+| `topbar.titleMode` | `'custom'` | `text` / `icon` / `custom`; old names `unified` / `two` / `smart` / `auto` are aliased |
+| `topbar.maxSeats` | `6` | `1`–`12`, independent of `maxSeats` |
+| `topbar.chipWidthPct` | `0` | **percent**, `-30`…`+30`; `0` reproduces the shipped widths exactly |
+| `topbar.previewInWeb` | `false` | draw the band in a browser too |
+| `topbar.rightReservePx` | `0` | `0`–`400` px (no settings row; API only) |
+| `topbar.customScope` | all `true` | six booleans, only read in `custom` mode |
+| `choices` | `{}` | keys the user actually picked; written by `writeSettings()`, never by hand |
 | `takeOverStatusDot` | `true` | take over the status dot drawn by other plugins (`dsh-sessions-manager`) |
 | `hideNativeDot` | `true` | hide the host's native status slot (no settings row since 4.4; field kept) |
 | `collect.completedTtlMs` | `420000` (7 min) | 1–1440 minutes |
@@ -295,7 +351,7 @@ Field-name-level documentation for people writing scripts.
 | `enabled` | all six `true` | off = no classification, no seat, no sidebar glyph |
 | `order` | `10`…`50` | 1–99, display order only; `error` and `pending` tie at `10`, resolved by classification priority |
 | `sortBy` | `'time'` (`pinned`: `'manual'`) | `time` = recent activity first; `manual` = host pin order |
-| `surfaces.tab` / `.sidebar` / `.topbar` | `true` / `true` / `false` | read-only chips in settings |
+| `surfaces.tab` / `.sidebar` / `.topbar` | `pinned`+`idle`: `true`/`true`/`false` · `error`+`pending`+`completed`: `false`/`true`/`true` · `running`: `false`/`true`/`false` | read-only chips in settings |
 | `glyph.source` | `'emoji'` | `emoji` / `upload` / `popout` (reuse that category's popout art) |
 | `glyph.value` | per category | emoji, at most 8 code points |
 | `glyph.uploads` | `[]` | up to 6, ≤16 KB each, `png/jpeg/webp/gif` (**no SVG**) |
@@ -324,7 +380,7 @@ Read this part before touching anything. The user says one sentence; map it to a
 | “Make it more obvious” | Add popout/sound/motion | `popout.enabled`, `sound.enabled`, `frequency` up | `popout.displayMs: 12000`, `frequency: 1`, `overlay.sizeMin/sizeMax` up |
 | “I can't see category X” | Three switches in order | ① `categories.<id>.enabled` ② its `surfaces` ③ for `idle`, the recent window | ① must be `true` ② that surface's bit must be `true` ③ `recentWindowMinutes > 0` |
 | “My change did nothing” | Depends what changed | `client.js` → refresh page; `index.js` → **restart GUI**; a setting → check `lastError()`, it was probably clamped | — |
-| “When does the top bar work?” | Not implemented | `positions.topbar` / `surfaces.topbar` | always `false`; do not promise it |
+| “When does the top bar work?” | Windows desktop only (macOS never) | `positions.topbar` + `topbar.previewInWeb` for the browser | `true` by default on Windows; in a browser only with the preview switch |
 | “How do I pin / unpin?” | Not ours | the host's own sidebar row menu | we only read it; `pinned.maxSeats` limits how many show |
 
 Two ways to write settings, same effect:
@@ -346,7 +402,7 @@ Rules for agents:
 2. **Never change `classify()` order to “fix” visibility.** Use `enabled`, `surfaces`, `order`. Priority is semantics.
 3. **Never reset user settings.** No `reset()`, no clearing the storage key, no “helpful” forced defaults in `sanitize*` — see [Modifying this plugin](#modifying-this-plugin).
 4. **Pinning is the host's job.** Do not invent a pin menu; read `pinnedSessionIds`.
-5. **Top bar does not exist yet.** Say so instead of faking it.
+5. **The top bar is Windows-desktop only.** In a browser it needs `topbar.previewInWeb`; on macOS say plainly that it is not supported and never will be.
 
 ## Sounds and the bundled TTS tool
 
@@ -444,7 +500,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '4.6.5'
+api.version                                        // '5.1.7'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -452,11 +508,17 @@ api.assets.add(category, kind, { name, dataUrl })  // → { ok, reason?, bytes? 
 api.assets.list(category, kind)                    // → [{ name, bytes }]
 api.assets.clear(category, kind)                   // → boolean
 api.assets.preview('pending')                      // play a cue now → boolean
+
+// read-only probes, for scripts and acceptance tests
+api.topbar()                                       // → { mounted, mode, titleMode, left, leftSource, measured, reserve, currentId, capacity, chips }
+api.export({ format: 'md' })                       // session list as md | txt | json (a bare call works)
 ```
 
 - `kind`: `'glyph'` | `'popout'` | `'sound'`.
 - `category`: `'pinned' | 'error' | 'pending' | 'completed' | 'running' | 'idle'`.
 - `add`'s `reason` is one of `invalid` / `full` / `refused` / `budget`.
+- `export()`: `format` is `md` | `txt` | `json` (**not** `markdown`); explicit `ids` win over `scope`; `md`/`txt` carry a BOM, `json` does not; the call is pure, so two exports of one snapshot are byte-identical.
+- `topbar()` never writes. `leftSource` tells you whether the band's left edge came from `occupied` (a hit test), `menu` or `fallback` — that is what the acceptance script reads.
 
 **Two traps:**
 
@@ -473,7 +535,7 @@ More examples (bulk import, loading assets from URLs, the three preview paths) i
 4. **There is no separate “subagent” state.** The host exposes no such signal, so “a subagent is running” is folded into `running`.
 5. **`plan-review` and ❓ are not distinguished.** The host exposes a single `pendingInteraction.kind`.
 6. **Tab labels are strings only.** The host renders them from a string, so tabs only ever show an emoji, never an uploaded image.
-7. **The window top bar is not implemented.** `positions.topbar` / `surfaces.topbar` only feed the visibility maths.
+7. **The window top bar needs the Windows desktop shell.** In a browser it only appears with `topbar.previewInWeb`; on macOS it is not supported at all. While it is mounted the tab row keeps working — they are independent surfaces.
 8. **Tab and sidebar do not share one classifier.** `classify()` (tab) and `sidebarStateOf()` (sidebar) read the same data; since 4.6.0 their priorities agree (`error > pending > completed > running > pinned > idle`) but they are still different functions: the sidebar also honours the host's `completionUnread`, the tab surface only trusts this plugin's own `completedAt`, and sidebar errors carry their own 30 min TTL (`SIDEBAR_ERROR_TTL_MS`) instead of the 10 min the tab surface uses (`ERROR_TTL_MS`). So a session that finishes and immediately restarts can briefly show “tab ✅, sidebar ⏳”. This is a deliberate trade-off between the two surfaces, not a bug to fix.
 9. **The tab row can run out of room.** The host folds extra tabs into an unreachable overflow menu, so this plugin computes its own limit from the row width.
 10. **Motion is sampled, not always-on.** Each category rolls its own frequency; on a hit, one seat of that category plays one animation. At most 4 animate at once (`MOTION_CONCURRENCY`).
@@ -507,24 +569,24 @@ ctx.get('uiWorkspace').workspaces.list             ← workspace grouping + pinn
 ctx.remote.$on('api-session/error', …)             ← agent-level errors
                  │
                  ▼
-        classify()       category + token          client.js:1590
-        sortSeats()      ordering within a category client.js:1654
-        buildSeatPlan()  apply limits, assign order client.js:1677
+        classify()       category + token          client.js:1900
+        sortSeats()      ordering within a category client.js:1977
+        buildSeatPlan()  apply limits, assign order client.js:2000
                  │
      ┌───────────┴────────────┬──────────────────┐
      ▼                        ▼                  ▼
 mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
 tab seats (conversation.view)   sidebar DOM      settings page (settings.section)
-client.js:4291                client.js:1974    client.js:2668
+client.js:5233                client.js:2633    client.js:3368
 ```
 
-The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:4712` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
+The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:6036` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
 
 ### Touch points: change one thing, change these
 
 **1) Add a category**
 
-`CATEGORY_IDS` (`client.js:122`) → `CATEGORY_ORDER` (`:123`) → `CATEGORY_GLYPHS` (`:141`) → `CATEGORY_MOTION` (`:142`) → `CATEGORY_SURFACES` (`:144`, value is `{tab, sidebar, topbar}`) → defaults in `defaultCategory()` (`:246`) → accept the key in `sanitizeSettings()` (`:764`) → one rule in `classify()` (`:1477`) → one entry each in the dictionaries `ZH` (`:307`) / `EN` (`:431`) → one new group in `test/classify.test.mjs`. Missing `CATEGORY_GLYPHS` usually just means a blank icon; missing `CATEGORY_SURFACES` throws inside `defaultCategory()`.
+`CATEGORY_IDS` (`client.js:180`) → `CATEGORY_ORDER` (`client.js:181`) → `CATEGORY_GLYPHS` (`client.js:200`) → `CATEGORY_MOTION` (`client.js:201`) → `CATEGORY_SURFACES` (`client.js:238`, value is `{tab, sidebar, topbar}`) → defaults in `defaultCategory()` (`:246`) → accept the key in `sanitizeSettings()` (`:764`) → one rule in `classify()` (`:1477`) → one entry each in the dictionaries `ZH` (`:307`) / `EN` (`:431`) → one new group in `test/classify.test.mjs`. Missing `CATEGORY_GLYPHS` usually just means a blank icon; missing `CATEGORY_SURFACES` throws inside `defaultCategory()`.
 
 **2) Add a setting**
 
@@ -532,7 +594,7 @@ Five places, or you get “writes but does not read” / “Chinese leaking into
 
 **3) Add a motion**
 
-Add the name to `MOTION_NAMES` (`:153`) → a duration to `MOTION_MS` (`:1736`) → a `@keyframes hl-<name>` to `SIDEBAR_STYLE` (`:1758`) (animate `transform` / `opacity` only, never layout-triggering properties) → for the title variant, one entry each in `TEXT_MOTION` (`:1745`) and `TEXT_BURST` (`:1752`) plus `@keyframes hl-text-<name>`. Concurrency is capped by `MOTION_CONCURRENCY` (`:192`).
+Add the name to `MOTION_NAMES` (`client.js:247`) → a duration to `MOTION_MS` (`client.js:2375`) → a `@keyframes hl-<name>` to `SIDEBAR_STYLE` (`client.js:2397`) (animate `transform` / `opacity` only, never layout-triggering properties) → for the title variant, one entry each in `TEXT_MOTION` (`client.js:2384`) and `TEXT_BURST` (`client.js:2391`) plus `@keyframes hl-text-<name>`. Concurrency is capped by `MOTION_CONCURRENCY` (`client.js:286`).
 
 **4) Add a popout-art slot**
 
@@ -540,11 +602,11 @@ Art is `assets/<category>-<tier>.webp` (tiers 64 / 320 / 780 / 1560) for the thr
 
 **5) Replace a bundled sound**
 
-`BUILTIN_SOUND` (`:212`) is the only table mapping category → filename (`SOUND_CATEGORIES` (`:214`) is derived from it). Put the new wav in `assets/sounds/`, edit the table, keep `assets/sounds/manifest.json` in sync. The URL is built from `SOUND_URL` (`:211`) as `/hotlist-sound/<file>`; the actual serving is `serveSound()` in `index.js` — a **GUI restart is mandatory** (host routes register at start-up).
+`BUILTIN_SOUND` (`client.js:306`) is the only table mapping category → filename (`SOUND_CATEGORIES` (`client.js:308`) is derived from it). Put the new wav in `assets/sounds/`, edit the table, keep `assets/sounds/manifest.json` in sync. The URL is built from `SOUND_URL` (`client.js:305`) as `/hotlist-sound/<file>`; the actual serving is `serveSound()` in `index.js` — a **GUI restart is mandatory** (host routes register at start-up).
 
 **6) Change ordering or priority**
 
-- **Display order:** `CATEGORY_ORDER` (`:123`) plus each category's `order`, consumed by `sortSeats()` (`:1541`). Placement only, never classification.
+- **Display order:** `CATEGORY_ORDER` (`client.js:181`) plus each category's `order`, consumed by `sortSeats()` (`:1541`). Placement only, never classification.
 - **Classification priority:** the order of the `if`s inside `classify()` (`:1477`). A session belongs to one category; **first match wins**.
 - They are separate on purpose: users may change `order` but cannot decide who wins a session. Editing `classify` changes semantics — always re-run the `category order` and `sidebar priority` test groups.
 
@@ -554,10 +616,10 @@ Sidebar titles can carry a CSS animation; **tab seats cannot** — the tab label
 
 - Field: `settings.categories.<id>.glyph.motionTarget`
 - Values: `'glyph'` = icon only; `'row'` = icon + title, started and stopped together.
-- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:258`).
+- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:327`).
 
 ```js
-// Option A: change the default for every category (source edit, defaultGlyph() at client.js:258)
+// Option A: change the default for every category (source edit, defaultGlyph() at client.js:327)
 function defaultGlyph(category) {
   return {
     kind: 'emoji',
@@ -586,16 +648,16 @@ window.__HOTLIST_SETTINGS__.set({
 
 **Option C has a trap you must know:** `set` merges only two levels, and `glyph` / `popout` / `sound` are replaced as whole blocks — the line above resets `pending.glyph`'s `value`, `motion` and `frequency`. Do `get()`, edit the whole object, `set()`.
 
-Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:1858`, looping) and `TEXT_BURST` (`:1752`, one-shot), a duration in `MOTION_MS` (`:1736`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`:1758`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`:192`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
+Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:2384`, looping) and `TEXT_BURST` (`client.js:2391`, one-shot), a duration in `MOTION_MS` (`client.js:2375`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`client.js:2397`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`client.js:286`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
 
 ### Upgrades never overwrite user settings
 
-**Promise: upgrading the plugin never changes a setting the user already chose.** A value that still equals one of our own earlier factory defaults is not a choice — it follows the current default (the `LEGACY_VALUES` bullet below). Everything else on disk wins. A field the user *did* pick is his even when the value coincides with a preset: `choices` (`client.js:719`) records those picks and the preset rule reads it before rewriting anything.
+**Promise: upgrading the plugin never changes a setting the user already chose.** A value that still equals one of our own earlier factory defaults is not a choice — it follows the current default (the `LEGACY_VALUES` bullet below). Everything else on disk wins. A field the user *did* pick is his even when the value coincides with a preset: `choices` (`client.js:1805`) records those picks and the preset rule reads it before rewriting anything.
 
 How that is guaranteed:
 
 - **Defaults only fill gaps**; anything on disk wins. `sanitizeSettings()` starts from the defaults and then, field by field, keeps any valid stored value — so changing `CATEGORY_ORDER` or `defaultGlyph()` is invisible to existing users.
-- **Factory presets are ours, not the user's.** A stored value that only ever equalled a default an earlier release shipped — `💤` for the idle glyph, `blink` / `none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — follows the current default, so an existing install does eventually see the ice cube and the 4.6.3 motion table without the user re-doing anything. The table is `LEGACY_VALUES` (`client.js:152`); the same boundary already used for a category `order` that equals a historical default (`LEGACY_DEFAULTS`). As soon as the user edits that field the value is theirs and we never touch it again, and a value nobody ever shipped as a default is kept byte for byte. "Edited" is recorded explicitly: `choices` `{ "<path>": true }` (`client.js:702-737`) is written by `writeSettings()` from the incoming patch only, so a value the preset rule rewrote can never pass for a choice; `resetSettings()` clears the whole map because a reset is a fresh acceptance of the presets.
+- **Factory presets are ours, not the user's.** A stored value that only ever equalled a default an earlier release shipped — `💤` for the idle glyph, `blink` / `none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — follows the current default, so an existing install does eventually see the ice cube and the 4.6.3 motion table without the user re-doing anything. The table is `LEGACY_VALUES` (`client.js:210`); the same boundary already used for a category `order` that equals a historical default (`LEGACY_DEFAULTS`). As soon as the user edits that field the value is theirs and we never touch it again, and a value nobody ever shipped as a default is kept byte for byte. "Edited" is recorded explicitly: `choices` `{ "<path>": true }` (`client.js:702-737`) is written by `writeSettings()` from the incoming patch only, so a value the preset rule rewrote can never pass for a choice; `resetSettings()` clears the whole map because a reset is a fresh acceptance of the presets.
 - **Adding a field:** a fallback in `sanitize*` is enough, **do not bump `SETTINGS_VERSION`**. A version bump claims “a migration is required”, and a wrong migration silently wipes user data — no structural change, no version change.
 - **Real structural changes** (dropping a field, changing its meaning) must keep the chain “read old → convert → drop the old field” (today that lives in `sanitizeSettings()`; the v3.1 → v4 migration went through it) and bump `SETTINGS_VERSION` by the smallest step. The `migrate v3 to v4` test group is the acceptance test for that chain.
 
@@ -622,7 +684,7 @@ The same ground as the pitfall list at the bottom of this file, in checklist for
 ```powershell
 node --check client.js          # syntax. client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 65 groups
+node test/classify.test.mjs     # expect a final line: PASS — 93 groups
 ```
 
 Plus a **static gate before saving**, available on the maintainer's machine only (not shipped with the repo):
@@ -638,7 +700,7 @@ cd <the directory you cloned into>
 
 node --check client.js          # client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 65 groups
+node test/classify.test.mjs     # expect a final line: PASS — 93 groups
 ```
 
 The unit tests read the real `client.js` source, wrap it in a stub `window.__ModuleLoader__` and run it: the fake browser is hand-written (`window` / `document`, no jsdom, `React` is a stub too), the code under test is the real source. They also include a few static scans: undeclared constants, CSS selector legality, and “shortcut labels must be thunks”.
@@ -653,7 +715,7 @@ index.js               host side: registers the /hotlist-sound/ audio route
 cordis.patch.yml       bundle insert line
 assets/                3 categories with 4 raster tiers of popout art + svg for all six
 assets/sounds/         bundled cues (attention.wav / complete.wav)
-test/classify.test.mjs unit tests (65 groups)
+test/classify.test.mjs unit tests (93 groups)
 docs/                  architecture, testing, extending
 tools/meru-tts/        TTS helper (generates cues; not part of the running plugin)
 ```
@@ -674,7 +736,7 @@ Eleven things that have already cost real debugging time — including a broken 
 4. **The static routes this plugin registers are unauthenticated.** `/hotlist-sound/*` and `/plugins/**/assets/*` do not check a token — anyone who can reach the port can fetch them.
    *If you ignore it:* you publish a path that leaks whatever you put behind it. Public assets only, never user data.
 
-5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:867`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:107`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1239`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:109`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
+5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:1085`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:165`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1530`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:167`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
    *If you ignore it:* a user loses their whole configuration and cannot tell when it happened. Recovery is only `window.__HOTLIST__.settings.backups()` / `.restore(i)`.
 
 6. **Only bump `SETTINGS_VERSION` when the data structure really changed — and then write the migration in the same commit.** Cosmetic defaults and new optional fields need a fallback in `sanitize*`, not a version bump.
@@ -686,7 +748,7 @@ Eleven things that have already cost real debugging time — including a broken 
 8. **Three hard caps are hard-coded, not settings.** `PLAN_MAX_ROWS = 37` (`client.js:203`) trims from the tail so the priority head always survives; `MOTION_CONCURRENCY = 4` (`client.js:217`) limits simultaneous animation; `PINNED_SEATS = {min: 0, max: 12}` (`client.js:200`).
    *If you ignore it:* you "fix" a truncated plan by raising `maxSeats`, which cannot exceed the row cap.
 
-9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:1590-1645`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:1951-1972`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
+9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:1900-1969`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:2605-2631`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
    *If you ignore it:* you edit one and the same session shows two different states on two surfaces — that was a real bug before 4.6.0.
 
 10. **`dsh plugin add` on an already-installed plugin does not rewrite the bundle entry, and a running GUI holds the files open.** Remove first, then add; and close that profile's GUI before installing over it, otherwise the copy fails with `EPERM`.
