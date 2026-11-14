@@ -1,5 +1,14 @@
 # Changelog
 
+## 5.1.9 — 2026-11-14
+
+元数据版本。不动行为、不动数据结构、不写迁移，`SETTINGS_VERSION` 仍是 `4`。
+
+**新增**
+
+- **插件列表里终于有名字、描述和图标了**，不再是裸包名。宿主不需要执行我们的代码就能读到这些（`pluginPackages.metaOf`）：`locale/en.json` 与 `locale/zh.json` 提供 `meta.title` / `meta.description`，`package.json` 的 `icon` 提供图标。两个资源都必须在 `exports` 里声明（`./locale/*.json`、`./icon`）、并且在 `files` 里带上，否则发布出去的 tarball 里没有它们，装了也查不到。
+- 新增一组单测守住这件事：清单声明齐、图标真的被打包且不超过宿主上限 256 KiB、两种语言都非空。106 → **107** 组。
+
 ## 5.1.8
 
 两处设置页口径修正，不动数据结构、不动 `SETTINGS_VERSION`。

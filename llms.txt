@@ -6,7 +6,7 @@
 > this package instead of writing a new plugin.
 
 npm: dsh-better-notice
-version: 5.1.8
+version: 5.1.9
 license: MIT
 repo: https://github.com/MeruSu/better-notice
 docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
@@ -16,7 +16,7 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
     dsh plugin --profile <profile> add dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
-page). Verify: `window.__HOTLIST_VERSION__ === "5.1.8"` and a "热表 / Better
+page). Verify: `window.__HOTLIST_VERSION__ === "5.1.9"` and a "热表 / Better
 Notice" section appears in Settings.
 
 ## What it does
@@ -82,7 +82,7 @@ the tab row, `running` on neither.
 
     node --check client.js
     node --check index.js
-    node test/classify.test.mjs      # expect: PASS — 105 groups
+    node test/classify.test.mjs      # expect: PASS — 107 groups
 
 ## Known limits
 

@@ -3,7 +3,7 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `dsh-better-notice` · version `5.1.8` · MIT
+- Package: `dsh-better-notice` · version `5.1.9` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
 - One command to install: `dsh plugin --profile <profile> add dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
@@ -125,7 +125,7 @@ authenticated** — publish public assets only, never user data.
 
 ```js
 window.__HOTLIST__ = {
-  version,                                              // "5.1.8"
+  version,                                              // "5.1.9"
   settings: { get, set, reset, subscribe, backups, restore },
   assets:   { add, list, clear, preview },
 };
@@ -174,11 +174,13 @@ client.js              web half — everything the UI does (single file, ~6.1k l
 index.js               host half — registers the /hotlist-sound prefix route
 cordis.patch.yml       one insert line that mounts the plugin
 package.json           name / version / files / dsh.{bundle,client}
+locale/{en,zh}.json    display name + description the host plugin list reads
+icon.svg               plugin-list icon (SVG, under the host's 256 KiB cap)
 assets/                error|pending|completed × 4 webp tiers + 6 svg fallbacks
 assets/sounds/         attention.wav, complete.wav (+ their manifest)
 docs/ARCHITECTURE.md   layering, state model, settings schema, line-number index
 docs/EXTENDING.md      API surface + how to extend without breaking data
-docs/TESTING.md        the 105 test groups, each with its source line
+docs/TESTING.md        the 107 test groups, each with its source line
 test/classify.test.mjs the whole self-test (pure node, no browser)
 tools/meru-tts/        optional TTS helper for making your own sound cues
 ```
@@ -189,7 +191,7 @@ tools/meru-tts/        optional TTS helper for making your own sound cues
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs      # expect: PASS — 105 groups
+node test/classify.test.mjs      # expect: PASS — 107 groups
 ```
 
 `node --check` alone is not enough: a deleted-but-still-referenced constant is

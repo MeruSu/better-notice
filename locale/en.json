@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Better Notice",
+    "description": "Turn session state into something you can see and hear: a hot-session table page, top-strip chips, sidebar state glyphs, six per-state sounds and popout artwork, with an export API for your own tooling."
+  }
+}

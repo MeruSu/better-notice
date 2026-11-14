@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - Package: `dsh-better-notice` (module id is the same string)
-- Version: `5.1.8` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `5.1.9` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -125,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.8`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.8.tgz` gives the same result and the same restart.
+- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.9`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.9.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
 - Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
@@ -150,7 +150,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.8'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.9'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -500,7 +500,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '5.1.8'
+api.version                                        // '5.1.9'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -684,7 +684,7 @@ The same ground as the pitfall list at the bottom of this file, in checklist for
 ```powershell
 node --check client.js          # syntax. client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 93 groups
+node test/classify.test.mjs     # expect a final line: PASS — 107 groups
 ```
 
 Plus a **static gate before saving**, available on the maintainer's machine only (not shipped with the repo):
@@ -700,7 +700,7 @@ cd <the directory you cloned into>
 
 node --check client.js          # client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 93 groups
+node test/classify.test.mjs     # expect a final line: PASS — 107 groups
 ```
 
 The unit tests read the real `client.js` source, wrap it in a stub `window.__ModuleLoader__` and run it: the fake browser is hand-written (`window` / `document`, no jsdom, `React` is a stub too), the code under test is the real source. They also include a few static scans: undeclared constants, CSS selector legality, and “shortcut labels must be thunks”.
@@ -715,7 +715,7 @@ index.js               host side: registers the /hotlist-sound/ audio route
 cordis.patch.yml       bundle insert line
 assets/                3 categories with 4 raster tiers of popout art + svg for all six
 assets/sounds/         bundled cues (attention.wav / complete.wav)
-test/classify.test.mjs unit tests (93 groups)
+test/classify.test.mjs unit tests (107 groups)
 docs/                  architecture, testing, extending
 tools/meru-tts/        TTS helper (generates cues; not part of the running plugin)
 ```

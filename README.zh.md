@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - 包名：`dsh-better-notice`（模块 id 与包名相同）
-- 版本：`5.1.8`（见 [CHANGELOG.md](CHANGELOG.md)）
+- 版本：`5.1.9`（见 [CHANGELOG.md](CHANGELOG.md)）
 - 许可：MIT
 - 设置位置：**账号菜单 →「设置」→ 左导航「热表」**（`settings.section`，id `hotlist`，order `30`）
 
@@ -125,7 +125,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `5.1.8`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/dsh-better-notice-5.1.8.tgz`，效果一样，同样要重启。
+- **已发布到 npm：**[dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice)（当前 `5.1.9`）。如果 npm 拉不动，同样的 tarball 也附在[最新 Release](https://github.com/MeruSu/better-notice/releases) 里——`dsh plugin --profile <profile> add <绝对路径>/dsh-better-notice-5.1.9.tgz`，效果一样，同样要重启。
 - 从**本地目录**安装时要用**绝对路径、正斜杠**：`dsh plugin` 是把参数在 profile 目录里转交给 pnpm 的，相对路径会指到 profile 里去。
 - 装目录用的是 `link:`，之后改代码不用重装：`client.js` 改完刷新页面即生效；`index.js` / `cordis.patch.yml` / `package.json` 改完要重启 GUI。
 - 想连 TTS 小工具一起用就装 git 仓库（见[提示音](#提示音与仓库自带的-tts-工具)）。npm 包的 `files` 只有 `index.js`、`client.js`、`cordis.patch.yml`、`assets`，`tools/` **不在包里**。
@@ -150,7 +150,7 @@ host 路由在进程启动时创建，只刷新页面不够。
 
 在 GUI 的浏览器控制台里依次确认：
 
-1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'5.1.8'`；
+1. `window.__HOTLIST_VERSION__` → 版本号，例如 `'5.1.9'`；
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`；
 3. 打开设置，左导航有**「热表」**，页面里是一块全局区 + **6** 张可折叠的类别卡；
 4. 侧栏的会话行前面出现了状态图标；
@@ -500,7 +500,7 @@ s.lastError()      // 最近一次写盘错误（字符串或 null）
 
 // 设置 + 三个素材池
 const api = window.__HOTLIST__;
-api.version                                        // '5.1.8'
+api.version                                        // '5.1.9'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -684,7 +684,7 @@ window.__HOTLIST_SETTINGS__.set({
 ```powershell
 node --check client.js          # 语法。client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 93 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 107 groups
 ```
 
 外加一道**保存前的静态闸门**（只在维护者机器上有，不随仓库分发）：
@@ -700,7 +700,7 @@ cd <你 clone 下来的那个目录>
 
 node --check client.js          # client.js 包在模块加载器里，语法错只在真机 boot 时炸
 node --check index.js
-node test/classify.test.mjs     # 期望最后一行：PASS — 93 groups
+node test/classify.test.mjs     # 期望最后一行：PASS — 107 groups
 ```
 
 单测把真实的 `client.js` 源文件读进来，塞进 `window.__ModuleLoader__` 的桩里执行：假的是浏览器（手写的极简 `window` / `document`，不引 jsdom，`React` 也是桩），跑的是真源码。里面还带几道静态扫描：引用未声明的常量、注入样式选择器合法性、快捷键 label 必须是 thunk。
@@ -715,7 +715,7 @@ index.js               宿主侧：注册 /hotlist-sound/ 音频路由
 cordis.patch.yml       bundle 插入行
 assets/                3 类各 4 档弹出图素材 + 六类各一份 svg
 assets/sounds/         内置音效（attention.wav / complete.wav）
-test/classify.test.mjs 单测（93 组）
+test/classify.test.mjs 单测（107 组）
 docs/                  架构、测试、扩展三份维护者文档
 tools/meru-tts/        TTS 小工具（生成提示音用，不参与插件运行）
 ```

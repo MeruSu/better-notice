@@ -1,6 +1,9 @@
 // test/classify.test.mjs — runs the real client.js in Node against stubs.
 // Covers the settings seam, the pure seat-plan builder, and the tab-row adapter.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DICT = {
   'tab.untitled': '未命名会话',
@@ -510,6 +513,8 @@ function walk(element, visit) {
 }
 
 let groups = 0;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 function test(name, fn) {
   try {
@@ -4365,6 +4370,23 @@ test('the cap has no auto mode and the window default replaces the old one', () 
     now: NOW, workspaceIds: null, limit: 1,
   }, settings);
   assert.equal(plan.length, 1, 'the plan is bounded by the width-derived limit it is handed');
+});
+
+
+test('display metadata: the plugin list can show a name and an icon', () => {
+  const pkg = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8'));
+  assert.equal(pkg.icon, './icon.svg', 'manifest icon');
+  assert.ok(pkg.exports['./icon'], 'the icon is reachable as a package resource');
+  assert.ok(pkg.exports['./locale/*.json'], 'locale files are reachable as package resources');
+  assert.ok(pkg.files.includes('icon.svg') && pkg.files.includes('locale'), 'both ship inside the tarball');
+  const svg = readFileSync(join(HERE, '..', 'icon.svg'), 'utf8');
+  assert.ok(svg.startsWith('<svg'), 'icon.svg is an SVG');
+  assert.ok(Buffer.byteLength(svg) <= 256 * 1024, 'under the hosts 256 KiB cap');
+  for (const lang of ['en', 'zh']) {
+    const meta = JSON.parse(readFileSync(join(HERE, '..', 'locale', lang + '.json'), 'utf8')).meta;
+    assert.ok(meta && typeof meta.title === 'string' && meta.title.trim(), lang + ' title');
+    assert.ok(meta && typeof meta.description === 'string' && meta.description.trim(), lang + ' description');
+  }
 });
 
 console.log(`PASS — ${groups} groups`);

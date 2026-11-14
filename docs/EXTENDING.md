@@ -34,7 +34,7 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
-插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.8'`）。
+插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.9'`）。
 
 写设置后不需要刷新页面：tab、侧栏、设置页都在同一个 store 上重算。
 

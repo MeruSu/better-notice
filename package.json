@@ -1,6 +1,6 @@
 {
   "name": "dsh-better-notice",
-  "version": "5.1.8",
+  "version": "5.1.9",
   "private": false,
   "description": "Better Notice — unified visual and audible session notices for DeepSeek Harness: hot-session tab seats, sidebar state glyphs, per-state sounds and popout artwork",
   "type": "module",
@@ -9,13 +9,17 @@
     ".": "./index.js",
     "./client": "./client.js",
     "./assets/*": "./assets/*",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
     "client.js",
     "cordis.patch.yml",
-    "assets"
+    "assets",
+    "locale",
+    "icon.svg"
   ],
   "keywords": [
     "dsh",
@@ -39,5 +43,6 @@
         "@deepseek-ai/dsh-client-ui-conversation"
       ]
     }
-  }
+  },
+  "icon": "./icon.svg"
 }
