@@ -1,7 +1,7 @@
 // test/classify.test.mjs — runs the real client.js in Node against stubs.
 // Covers the settings seam, the pure seat-plan builder, and the tab-row adapter.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -1312,10 +1312,16 @@ test('settings page', () => {
     'maxSeats', 'pinned.maxSeats', 'collect.completedTtlMs', 'sound.volume', 'recentWindow',
     'positions.tab', 'positions.topbar',
     'takeOverStatusDot',
+    'ring.pending', 'ring.error', 'ring.completed',
   ]) {
     assert.equal(rows.includes(key), true, `missing row ${key}`);
   }
   /** v4.4 and v4.5 removed these rows: the fields survive for compatibility, the controls do not. */
+  /** The full-screen ring is its own group, next to the sounds, not inside them. */
+  const ringGroups = collect(page, (props) => props['data-hotlist-ring'] !== undefined);
+  assert.equal(ringGroups.length, 1, 'the ring group renders once');
+  const ringTitles = collect(ringGroups[0], (props) => props.className === 'hl-groupTitle').map((node) => node.children);
+  assert.deepEqual(ringTitles, ['settings.group.ring'], 'the group is titled, and the title is the ring one');
   for (const key of ['hideNativeDot', 'shortcuts.jumpEnabled', 'shortcuts.overlayEnabled', 'shortcuts.keys', 'reset', 'within', 'overlay.size']) {
     assert.equal(rows.includes(key), false, `removed row ${key} is still rendered`);
   }
@@ -4387,6 +4393,168 @@ test('display metadata: the plugin list can show a name and an icon', () => {
     assert.ok(meta && typeof meta.title === 'string' && meta.title.trim(), lang + ' title');
     assert.ok(meta && typeof meta.description === 'string' && meta.description.trim(), lang + ' description');
   }
+});
+
+/**
+ * The full-screen ring: off at the factory, one request per class entry when
+ * switched on, and the three script arguments come from the host's clamp.
+ */
+test('ring player: off by default, one ring per entry when switched on', () => {
+  const settings = api.sanitizeSettings(api.defaultSettings());
+  assert.deepEqual(settings.ring, { pending: false, error: false, completed: false }, 'every ring switch ships off');
+
+  const requests = [];
+  const logs = [];
+  const player = api.createRingPlayer({
+    getSettings: () => settings,
+    request: (args) => requests.push(args),
+    log: (...args) => logs.push(args.join(' ')),
+  });
+  const shot = (entries) => {
+    const ids = entries.map(([id]) => id);
+    return {
+      list: { ids, byId: Object.fromEntries(ids.map((id) => [id, session({ id })])) },
+      statuses: new Map(entries),
+      errors: new Map(),
+      completedAt: new Map(),
+    };
+  };
+  const pending = { pendingInteraction: { kind: 'approval' } };
+
+  player.observe(shot([]), 1000);
+  player.observe(shot([['a', pending]]), 2000);
+  assert.equal(requests.length, 0, 'a switched-off class never asks the host for a ring');
+  assert.equal(logs.includes('off pending'), true, 'the refusal is visible in the console');
+
+  /** Same edge detector as the sounds: arming first, then one request per entry. */
+  settings.ring.pending = true;
+  player.observe(shot([]), 3000);
+  player.observe(shot([['a', pending]]), 5000);
+  assert.equal(requests.length, 1, 'the switch alone does not ring; entering the class does');
+  player.observe(shot([['a', pending]]), 6000);
+  assert.equal(requests.length, 1, 'the same session in the same class is a repaint');
+  assert.deepEqual(
+    requests[0],
+    { category: 'pending', seconds: 4, scope: 'Primary', anim: 'Expand' },
+    'the request carries the three implemented script arguments',
+  );
+
+  /** A cold player arms before it rings: the first sync after launch is never a reason to interrupt. */
+  const cold = api.createRingPlayer({
+    getSettings: () => ({ ...settings, ring: { pending: true, error: true, completed: true } }),
+    request: (args) => requests.push(args),
+    log: (...args) => logs.push(args.join(' ')),
+  });
+  cold.observe(shot([['c', pending]]), 9000);
+  assert.equal(requests.length, 1, 'the first sync of a fresh player only arms');
+  assert.equal(logs.includes('armed pending'), true);
+
+  /** A failing host must not surface as an exception — the ring is optional. */
+  const broken = api.createRingPlayer({
+    getSettings: () => ({ ...settings, ring: { pending: true, error: true, completed: true } }),
+    request: () => {
+      throw new Error('offline');
+    },
+    log: (...args) => logs.push(args.join(' ')),
+  });
+  broken.observe(shot([['b', pending]]), 100);
+  assert.doesNotThrow(() => broken.observe(shot([]), 200), 'an unarmed sync is silent');
+  assert.doesNotThrow(() => {
+    broken.observe(shot([['b', pending]]), 300);
+  }, 'a failed request stays a console line');
+});
+
+/**
+ * The host half: the arguments the script is started with, and the two ways a
+ * machine without `pwsh` could take the host down — a synchronous throw and an
+ * asynchronous `error` event on the child.
+ */
+await testAsync('host ring: script arguments and no-pwsh safety', async () => {
+  const host = await import(new URL('./../index.js', import.meta.url).href);
+
+  const clamped = host.ringArgs(new URLSearchParams('seconds=99999&scope=Bogus&anim=Breathe'));
+  assert.deepEqual(clamped, { seconds: 30, scope: 'Primary', anim: 'Breathe' }, 'seconds clamp, unknown scope falls back');
+  const low = host.ringArgs(new URLSearchParams('seconds=0'));
+  assert.equal(low.seconds, 1, 'the floor holds');
+
+  const built = host.ringCommand(clamped, 'C:/x/Show-AttnRing.ps1');
+  assert.equal(built.script, 'C:/x/Show-AttnRing.ps1');
+  for (const flag of ['-Seconds', '-Scope', '-Anim']) assert.ok(built.argv.includes(flag), `${flag} reaches the script`);
+  assert.equal(built.argv[built.argv.indexOf('-Seconds') + 1], '30');
+
+  const spawnCalls = [];
+  const okSpawn = (...args) => {
+    spawnCalls.push(args);
+    return { on() {}, unref() {} };
+  };
+
+  /** The marker header is the only thing a foreign page cannot set. */
+  const request = (url, headers) => new Request(url, { headers });
+  const noMarker = host.serveRing(request('http://127.0.0.1:1/hotlist-ring?seconds=4', {}), {
+    spawn: okSpawn,
+    log: () => {},
+  });
+  assert.equal(noMarker.status, 403, 'a request without the marker is refused before anything starts');
+  assert.equal(spawnCalls.length, 0);
+
+  const started = host.serveRing(request('http://127.0.0.1:1/hotlist-ring?seconds=6&scope=All&anim=None', { 'x-hotlist-ring': '1' }), {
+    spawn: okSpawn,
+    log: () => {},
+  });
+  assert.equal(started.status, 200, 'a marked request starts the ring');
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0][1].includes('-Seconds'), true, 'the spawned argv carries the three flags');
+  assert.deepEqual(spawnCalls[0][2], { stdio: 'ignore', windowsHide: true }, 'a pipe would be EPERM here, and detached silently kills the child');
+
+  const cooling = host.serveRing(request('http://127.0.0.1:1/hotlist-ring', { 'x-hotlist-ring': '1' }), {
+    spawn: okSpawn,
+    log: () => {},
+  });
+  assert.equal(cooling.status, 429, 'a burst cannot stack processes');
+
+  /** Missing script: no spawn, no throw, one debug line. */
+  const ringLogs = [];
+  const missing = host.spawnRing({ args: clamped, scriptPath: 'C:/nowhere/Show-AttnRing.ps1', log: (...a) => ringLogs.push(a.join(' ')) });
+  assert.equal(missing, false);
+  assert.equal(ringLogs.some((line) => line.startsWith('ring script missing')), true);
+
+  /** A synchronous throw from spawn (no such executable) is caught, not propagated. */
+  const throwLogs = [];
+  const threw = host.spawnRing({
+    args: clamped,
+    scriptPath: new URL('./../tools/attn-ring/Show-AttnRing.ps1', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+    spawn: () => {
+      throw new Error('spawn ENOENT');
+    },
+    log: (...a) => throwLogs.push(a.join(' ')),
+  });
+  assert.equal(threw, false, 'a missing pwsh is a false return');
+  assert.equal(throwLogs.some((line) => line.startsWith('ring spawn threw')), true, 'and one debug line');
+
+  /** An asynchronous error event without a listener kills the host, so the listener has to exist. */
+  const listeners = [];
+  const child = { on: (name, fn) => listeners.push([name, fn]), unref() {} };
+  host.spawnRing({
+    args: clamped,
+    scriptPath: new URL('./../tools/attn-ring/Show-AttnRing.ps1', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'),
+    spawn: () => child,
+    log: () => {},
+  });
+  assert.equal(listeners.length, 1);
+  assert.equal(listeners[0][0], 'error', 'the error listener is what keeps a failed spawn from killing the host');
+  await sleep(0);
+  assert.doesNotThrow(() => listeners[0][1](new Error('ENOENT')), 'the listener body never throws');
+
+  /**
+   * The script has to ship with the package or an installed copy can never ring —
+   * and only that folder: a bare `tools` would drag the bundled TTS helper and its
+   * 1.6 MB of pylibs into every install.
+   */
+  const pkg = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8'));
+  assert.equal(pkg.files.includes('tools/attn-ring'), true, 'tools/attn-ring travels inside the tarball');
+  assert.equal(pkg.files.includes('tools'), false, 'the rest of tools/ stays out of the package');
+  assert.equal(pkg.exports['./tools'], undefined, 'the script is read from disk, not imported through exports');
+  assert.equal(existsSync(host.RING_SCRIPT), true, `the host resolves ${host.RING_SCRIPT}`);
 });
 
 console.log(`PASS — ${groups} groups`);

@@ -13,7 +13,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 ```
 
 - Package: `dsh-better-notice` (module id is the same string)
-- Version: `5.1.9` (see [CHANGELOG.md](CHANGELOG.md))
+- Version: `5.2.0` (see [CHANGELOG.md](CHANGELOG.md))
 - License: MIT
 - Settings live in **account menu → Settings → “Better Notice”** (a `settings.section` entry, id `hotlist`, order `30`)
 
@@ -46,7 +46,7 @@ dsh plugin --profile <profile> add dsh-better-notice
 
 ## What it does
 
-Four surfaces, one shared decision:
+Five surfaces, one shared decision:
 
 1. **Conversation tab row** — each hot session takes one tab seat; click it to switch. The current session does not take a seat (it *is* the “Chat” tab).
 
@@ -60,6 +60,8 @@ Four surfaces, one shared decision:
 
 4. **On state change** — one sound plus one popout image that slides in from a window edge.
 
+5. **The whole screen, opt-in** — with one of the three ring switches on, the amber ring rises above every window for a few seconds. Off by default. See [The full-screen ring](#the-full-screen-ring).
+
 The glyph can also be your own square picture instead of an emoji:
 
 ![Uploaded square images used as sidebar icons](screenshots/uploaded-glyph.png)
@@ -70,15 +72,17 @@ The glyph can also be your own square picture instead of an emoji:
 
 **Only three states pop a picture: `error`, `pending`, `completed`.** In words: *something broke*, *you have to approve / choose / review*, *it just finished*. `pinned`, `running` and `idle` never pop — an idle session leaning into your screen would be noise, not news. A popout stays for a few seconds and then leaves on its own (`popout.displayMs`, default 7 s, configurable per category).
 
-**The bundled artwork follows colour semantics**, and it is **the author's placeholder art**, not a finished design:
+**The bundled artwork is animated and follows the interruption semantics**, and it is **the author's placeholder art**, not a finished design:
 
-| State | Character | Pose | Why this colour |
+| State | Clip | What moves | Why this pose |
 |---|---|---|---|
-| `error` | **red Meru** | `meru2-0-opinion` — leaning out sideways | red reads as warning: something needs you |
-| `pending` | **red Meru** | `meru2-0-id` — holding up an ID | red again: *you* have to act |
-| `completed` | **blue Lan** | `lan2-0-sleepy` | blue reads as calm / settled: done |
+| `error` | smack | the character punches the big red button | a hard whack reads as *something broke* |
+| `pending` | smack | same clip | a whack at you: **you** have to act |
+| `completed` | wave | the character waves hello | a wave reads as calm / settled: done |
 
-Only those three states ship raster art (4 tiers each: 64 / 320 / 780 / 1560 px, `.webp`). `pinned`, `running` and `idle` have no raster art — their popouts fall back to the packaged SVG and then to the emoji glyph. That is why the package is ~700 KB instead of ~1.6 MB, and it costs nothing functionally: those three do not pop by default anyway.
+Only those three states ship raster art (4 tiers each: 64 / 320 / 780 / 1560 px, `.webp`), and the art is **animated WebP** — no still frames to swap per tick, the browser plays it. The source clips are 500×500, which is 1:1 with the popout's default 390 CSS px at 1.25 DPR, so the `780` and `1560` slots hold the same 500 px animation (there is no more source resolution to be had; the browser scales it up if you enlarge the popout). The `320` tier is the same clip downscaled, and `64` — used only as a settings thumbnail — is a still from frame 0.
+
+`pinned`, `running` and `idle` have no raster art — their popouts fall back to the packaged SVG and then to the emoji glyph, which costs nothing functionally: those three do not pop by default anyway. The animated clips are the reason the artwork is ~1.6 MB: a 10-frame 500 px clip cannot be compressed down to a still's size, and trimming frames only makes the motion look broken.
 
 **You are meant to replace all of it.** Settings → the category card → *Popout → upload image*, or `window.__HOTLIST__.assets.add(category, 'popout', { name, dataUrl })`. Any square transparent PNG/JPG/WebP/GIF works; SVG is rejected.
 
@@ -125,10 +129,10 @@ dsh plugin --profile <profile> add dsh-better-notice
 dsh --profile <profile>
 ```
 
-- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.1.9`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.1.9.tgz` gives the same result and the same restart.
+- **Published on npm:** [dsh-better-notice](https://www.npmjs.com/package/dsh-better-notice) (current `5.2.0`). If npm is unreachable, the same tarball is attached to the [latest release](https://github.com/MeruSu/better-notice/releases) — `dsh plugin --profile <profile> add <absolute path>/dsh-better-notice-5.2.0.tgz` gives the same result and the same restart.
 - **Use an absolute path, forward slashes** when you install from a local directory instead of the registry: `dsh plugin` forwards the argument to pnpm *inside the profile directory*, so a relative path points into the profile.
 - Installing from a directory uses `link:` — code edits need no reinstall. `client.js` changes apply on page refresh; `index.js` / `cordis.patch.yml` / `package.json` changes need a GUI restart.
-- Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field only ships `index.js`, `client.js`, `cordis.patch.yml` and `assets`, so `tools/` is **not** in it.
+- Install from a git checkout when you also want the TTS helper (see [Sounds](#sounds-and-the-bundled-tts-tool)). The npm package's `files` field ships `index.js`, `client.js`, `cordis.patch.yml`, `assets`, `locale`, `icon.svg` and `tools/attn-ring`; `tools/meru-tts` is **not** in it.
 
 Uninstall:
 
@@ -150,7 +154,7 @@ The host route is created during process start-up, so a page refresh is not enou
 
 In the GUI's browser console:
 
-1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.1.9'`.
+1. `window.__HOTLIST_VERSION__` → the version string, e.g. `'5.2.0'`.
 2. `Object.keys(window.__HOTLIST__)` → `['version','settings','assets']`.
 3. Settings → the left nav has **“Better Notice”**, and the page shows a global block plus **6** collapsible category cards.
 4. Session rows in the sidebar now start with a status glyph.
@@ -223,6 +227,57 @@ All three modes **strip the emoji already in the session title**, so you never g
 | `topbar.customScope.{pinned,error,pending,completed,running,idle}` | `true` / `false` | all six `true` |
 
 Settings shows this as six chips on the second row of the category card, and the whole row disappears while the mode is `text` or `icon`, because it would do nothing there.
+
+## The full-screen ring
+
+Every surface above draws inside the page. When a session needs you and the GUI
+is buried behind something else, this plugin can also ring the **whole screen**:
+an amber ring with a glow rises above every window for a few seconds.
+
+It is **off by default** — three switches in their own group right below the
+global block, all `false`:
+
+| Switch | Rings when | Default |
+|---|---|---|
+| `ring.pending` | a session starts waiting for your approval / answer / plan review | `false` |
+| `ring.error` | a session fails its turn | `false` |
+| `ring.completed` | a session just finishes | `false` |
+
+- It fires on the **moment a session enters that state**, not on every repaint.
+  The judgement is the same edge detector the sounds use: blank sessions and
+  subagents are skipped, and the order is `error > pending > completed`. It has
+  its own 1500 ms throttle, so a burst of state changes cannot stack windows —
+  and the first sync after a page load only arms it, so opening the GUI never
+  rings.
+- It stays a few seconds and leaves on its own. **A click or `Esc` closes it at
+  once.**
+- It never takes keyboard focus, so typing in the session underneath keeps
+  working. The click that dismisses it is consumed by the ring — that one click
+  does not reach the window behind it.
+- Turning a switch on is a **user choice**: it is recorded in `choices`, so the
+  factory-preset upgrade rule will not switch it back off.
+
+**Why it is a separate process.** A page cannot draw outside its own window;
+covering the Windows taskbar and other applications is exactly the thing a DOM
+element cannot do. So the ring is drawn by `tools/attn-ring/Show-AttnRing.ps1` —
+PowerShell + WPF, zero dependencies — and it **ships inside the npm package**
+(`files` includes `tools/attn-ring`), so an installed copy can ring on its own.
+
+The page only asks the host half to start it:
+
+```
+GET /hotlist-ring?seconds=4&scope=Primary&anim=Expand
+x-hotlist-ring: 1        # required; without it the route refuses
+```
+
+| Gate | Answer | Why |
+|---|---|---|
+| no `x-hotlist-ring: 1` header | `403` | a bare `<img src>` cannot set a header, so no web page can pop a full-screen window |
+| a second request within 2.5 s | `429` | a burst of state changes must not stack processes |
+| the script is missing from the install | `503` | a partial install stays silent instead of throwing |
+
+Windows only, and it covers the primary display — see
+[Known limitations](#known-limitations).
 
 ## Customization index
 
@@ -314,6 +369,7 @@ Field-name-level documentation for people writing scripts.
 - **Collapsed card:** glyph preview, category name, `· order N`, five read-only chips (Tab / Bar / Top / Pop / Snd — highlighted = on), caret. Click the row to expand; **several cards may be open at once**. Open state lives in `sessionStorage` (`dsh.hotlist.open`), never in settings.
 - **Expanded area** (compact multi-column): ① glyph (source / upload / value / frequency slider); ② motion (`motion` + target `glyph`/`row`); ③ popout (enabled / image / entrance·ambient·exit / side·display time); ④ sound (enabled / source / preview); ⑤ order.
 - **Global block:** scope (workspace / all / smart), seat limit, **pinned seats**, completed TTL in minutes, global volume, **recent window** (minutes), `positions.tab`, `positions.topbar`, `positions.sidebar` (API only), `takeOverStatusDot`. The band block (style / label display / pill count / pill width / web preview) only exists while `positions.topbar` is on.
+- **Full-screen ring block**, directly below the global block: `ring.pending`, `ring.error`, `ring.completed` — all off. See [The full-screen ring](#the-full-screen-ring).
 - Out-of-range writes are clamped. A failed write (localStorage quota) is reported in the page footer and through `window.__HOTLIST_SETTINGS__.lastError()`.
 
 ### Global defaults
@@ -334,6 +390,7 @@ Field-name-level documentation for people writing scripts.
 | `topbar.customScope` | all `true` | six booleans, only read in `custom` mode |
 | `choices` | `{}` | keys the user actually picked; written by `writeSettings()`, never by hand |
 | `takeOverStatusDot` | `true` | take over the status dot drawn by other plugins (`dsh-sessions-manager`) |
+| `ring.pending` / `ring.error` / `ring.completed` | all `false` | one ring on top of the screen when that state appears; Windows only, primary display only — see [The full-screen ring](#the-full-screen-ring) |
 | `hideNativeDot` | `true` | hide the host's native status slot (no settings row since 4.4; field kept) |
 | `collect.completedTtlMs` | `420000` (7 min) | 1–1440 minutes |
 | `collect.recentWindowMinutes` | `17` | **minutes**. Settings offers `1`–`120`; API also accepts `0` (= hide `idle`) |
@@ -412,7 +469,7 @@ Rules for agents:
 
 The **GitHub repository** contains `tools/meru-tts/`: a single-file Python script that turns one sentence into an mp3 or wav. It is **not part of the running plugin** — it only produces assets.
 
-> **Limit up front:** `dsh plugin add` **cannot** give you this tool — the npm package has no `tools/` directory (`files` only lists `index.js`, `client.js`, `cordis.patch.yml`, `assets`). “Install the plugin” and “build your own cues” are two separate paths; the tool requires cloning the repo.
+> **Limit up front:** the npm package now ships `tools/attn-ring` — the full-screen ring script has to travel with the plugin, otherwise an installed copy cannot ring — but it still does **not** ship `tools/meru-tts`: 1.6 MB of `pylibs` has no business on every machine that installs a notification plugin. So “install the plugin” and “build your own cues” remain two separate paths, and this one still requires cloning the repo.
 
 ### 2. Where the API key comes from (there is a free tier)
 
@@ -500,7 +557,7 @@ s.lastError()      // last storage write error (string or null)
 
 // settings + the three asset pools
 const api = window.__HOTLIST__;
-api.version                                        // '5.1.9'
+api.version                                        // '5.2.0'
 api.settings.get() / .set(patch) / .reset() / .subscribe(fn)
 api.settings.backups()                             // → [{ at, version }]
 api.settings.restore(index)                        // → { ok, at? }
@@ -541,6 +598,7 @@ More examples (bulk import, loading assets from URLs, the three preview paths) i
 10. **Motion is sampled, not always-on.** Each category rolls its own frequency; on a hit, one seat of that category plays one animation. At most 4 animate at once (`MOTION_CONCURRENCY`).
 11. **Sounds have a 1.5 s global throttle.** A cue arriving less than 1500 ms after the previous one is dropped; the first round after a cold start only records. This is verified by source and unit test (group `sound player dedupe`) — on a real machine it is hard to produce two genuine transitions that fast.
 12. **Settings are bound to the page origin.** `localStorage` belongs to the origin, so a different GUI port means a different origin.
+13. **The full-screen ring is Windows-only and covers the primary display.** The script is PowerShell + WPF, and the page can only *ask* the host to run it: on other platforms the switch saves your choice and nothing rises. It also covers the primary screen only, so a second monitor does not flash.
 
 ## Modifying this plugin
 
@@ -554,8 +612,8 @@ One npm package, two halves:
 
 | File | Runs in | Does |
 |---|---|---|
-| `index.js` | Host (Node) | **One job only**: registers the `/hotlist-sound` prefix route that serves `assets/sounds/*.wav`, because the host's shared asset route only accepts images (`.wav` / `.mp3` would 404 there). |
-| `client.js` | Browser | **All UI logic** (~4,700 lines, single file, no build): tab seats, sidebar glyphs, popout, sounds, settings page. Registered via `window.__ModuleLoader__.load({ id: '<package name>' })`. |
+| `index.js` | Host (Node) | **Two prefix routes, nothing else**: `/hotlist-sound` serves `assets/sounds/*.wav` (the host's shared asset route only accepts images, so audio would 404 there) and `/hotlist-ring` starts the full-screen ring script. No UI, no state. |
+| `client.js` | Browser | **All UI logic** (~7,000 lines, single file, no build): tab seats, sidebar glyphs, top bar, popout, sounds, ring triggers, settings page. Registered via `window.__ModuleLoader__.load({ id: '<package name>' })`. |
 | `cordis.patch.yml` | Config | The bundle insert line that makes a profile aware of the package. |
 
 `client.js` pulls in no dependencies except `require('react')`; DOM is written with `h()` (an alias of `React.createElement`). No bundling and no `npm install` are needed to change it.
@@ -569,24 +627,24 @@ ctx.get('uiWorkspace').workspaces.list             ← workspace grouping + pinn
 ctx.remote.$on('api-session/error', …)             ← agent-level errors
                  │
                  ▼
-        classify()       category + token          client.js:1900
-        sortSeats()      ordering within a category client.js:1977
-        buildSeatPlan()  apply limits, assign order client.js:2000
+        classify()       category + token          client.js:2082
+        sortSeats()      ordering within a category client.js:2148
+        buildSeatPlan()  apply limits, assign order client.js:2171
                  │
      ┌───────────┴────────────┬──────────────────┐
      ▼                        ▼                  ▼
 mountTabSeats()        createSidebarAdapter()  HotlistSettingsPage()
 tab seats (conversation.view)   sidebar DOM      settings page (settings.section)
-client.js:5233                client.js:2633    client.js:3368
+client.js:5582                client.js:2993    client.js:3741
 ```
 
-The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:6036` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
+The three pure functions (`classify` / `sortSeats` / `buildSeatPlan`) never touch the DOM and can be fed fake data — they are the safest entry point for behaviour changes. Their results are also the only debugging handle besides `window.__HOTLIST__`: the export table at the end of `client.js` (`client.js:6932` onwards) exposes `classify`, `sortSeats`, `buildSeatPlan`, `readSettings`, `defaultSettings`, `sanitizeSettings`, `sidebarStateOf`, `HotlistSettingsPage` and more, and the unit tests run the real source through it.
 
 ### Touch points: change one thing, change these
 
 **1) Add a category**
 
-`CATEGORY_IDS` (`client.js:180`) → `CATEGORY_ORDER` (`client.js:181`) → `CATEGORY_GLYPHS` (`client.js:200`) → `CATEGORY_MOTION` (`client.js:201`) → `CATEGORY_SURFACES` (`client.js:238`, value is `{tab, sidebar, topbar}`) → defaults in `defaultCategory()` (`:246`) → accept the key in `sanitizeSettings()` (`:764`) → one rule in `classify()` (`:1477`) → one entry each in the dictionaries `ZH` (`:307`) / `EN` (`:431`) → one new group in `test/classify.test.mjs`. Missing `CATEGORY_GLYPHS` usually just means a blank icon; missing `CATEGORY_SURFACES` throws inside `defaultCategory()`.
+`CATEGORY_IDS` (`client.js:184`) → `CATEGORY_ORDER` (`client.js:185`) → `CATEGORY_GLYPHS` (`client.js:204`) → `CATEGORY_MOTION` (`client.js:205`) → `CATEGORY_SURFACES` (`client.js:258`, value is `{tab, sidebar, topbar}`) → defaults in `defaultCategory()` (`:359`) → accept the key in `sanitizeSettings()` (`:1192`) → one rule in `classify()` (`:2082`) → one entry each in the dictionaries `ZH` (`:497`) / `EN` (`:696`) → one new group in `test/classify.test.mjs`. Missing `CATEGORY_GLYPHS` usually just means a blank icon; missing `CATEGORY_SURFACES` throws inside `defaultCategory()`.
 
 **2) Add a setting**
 
@@ -594,7 +652,7 @@ Five places, or you get “writes but does not read” / “Chinese leaking into
 
 **3) Add a motion**
 
-Add the name to `MOTION_NAMES` (`client.js:247`) → a duration to `MOTION_MS` (`client.js:2375`) → a `@keyframes hl-<name>` to `SIDEBAR_STYLE` (`client.js:2397`) (animate `transform` / `opacity` only, never layout-triggering properties) → for the title variant, one entry each in `TEXT_MOTION` (`client.js:2384`) and `TEXT_BURST` (`client.js:2391`) plus `@keyframes hl-text-<name>`. Concurrency is capped by `MOTION_CONCURRENCY` (`client.js:286`).
+Add the name to `MOTION_NAMES` (`client.js:267`) → a duration to `MOTION_MS` (`client.js:2725`) → a `@keyframes hl-<name>` to `SIDEBAR_STYLE` (`client.js:2747`) (animate `transform` / `opacity` only, never layout-triggering properties) → for the title variant, one entry each in `TEXT_MOTION` (`client.js:2734`) and `TEXT_BURST` (`client.js:2741`) plus `@keyframes hl-text-<name>`. Concurrency is capped by `MOTION_CONCURRENCY` (`client.js:305`).
 
 **4) Add a popout-art slot**
 
@@ -602,11 +660,11 @@ Art is `assets/<category>-<tier>.webp` (tiers 64 / 320 / 780 / 1560) for the thr
 
 **5) Replace a bundled sound**
 
-`BUILTIN_SOUND` (`client.js:306`) is the only table mapping category → filename (`SOUND_CATEGORIES` (`client.js:308`) is derived from it). Put the new wav in `assets/sounds/`, edit the table, keep `assets/sounds/manifest.json` in sync. The URL is built from `SOUND_URL` (`client.js:305`) as `/hotlist-sound/<file>`; the actual serving is `serveSound()` in `index.js` — a **GUI restart is mandatory** (host routes register at start-up).
+`BUILTIN_SOUND` (`client.js:325`) is the only table mapping category → filename (`SOUND_CATEGORIES` (`client.js:327`) is derived from it). Put the new wav in `assets/sounds/`, edit the table, keep `assets/sounds/manifest.json` in sync. The URL is built from `SOUND_URL` (`client.js:324`) as `/hotlist-sound/<file>`; the actual serving is `serveSound()` in `index.js` — a **GUI restart is mandatory** (host routes register at start-up).
 
 **6) Change ordering or priority**
 
-- **Display order:** `CATEGORY_ORDER` (`client.js:181`) plus each category's `order`, consumed by `sortSeats()` (`:1541`). Placement only, never classification.
+- **Display order:** `CATEGORY_ORDER` (`client.js:185`) plus each category's `order`, consumed by `sortSeats()` (`:2148`). Placement only, never classification.
 - **Classification priority:** the order of the `if`s inside `classify()` (`:1477`). A session belongs to one category; **first match wins**.
 - They are separate on purpose: users may change `order` but cannot decide who wins a session. Editing `classify` changes semantics — always re-run the `category order` and `sidebar priority` test groups.
 
@@ -616,10 +674,10 @@ Sidebar titles can carry a CSS animation; **tab seats cannot** — the tab label
 
 - Field: `settings.categories.<id>.glyph.motionTarget`
 - Values: `'glyph'` = icon only; `'row'` = icon + title, started and stopped together.
-- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:327`).
+- **Since 4.6.0 the default is `'row'`** (`defaultGlyph()`, `client.js:346`).
 
 ```js
-// Option A: change the default for every category (source edit, defaultGlyph() at client.js:327)
+// Option A: change the default for every category (source edit, defaultGlyph() at client.js:346)
 function defaultGlyph(category) {
   return {
     kind: 'emoji',
@@ -634,7 +692,7 @@ function defaultGlyph(category) {
 ```
 
 ```js
-// Option B: per category (source edit, override inside defaultCategory() at client.js:271)
+// Option B: per category (source edit, override inside defaultCategory() at client.js:359)
 // e.g. only "pending" animates its title, everything else animates the icon only:
 glyph: { ...defaultGlyph(category), motionTarget: category === 'pending' ? 'row' : 'glyph' },
 ```
@@ -648,16 +706,16 @@ window.__HOTLIST_SETTINGS__.set({
 
 **Option C has a trap you must know:** `set` merges only two levels, and `glyph` / `popout` / `sound` are replaced as whole blocks — the line above resets `pending.glyph`'s `value`, `motion` and `frequency`. Do `get()`, edit the whole object, `set()`.
 
-Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:2384`, looping) and `TEXT_BURST` (`client.js:2391`, one-shot), a duration in `MOTION_MS` (`client.js:2375`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`client.js:2397`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`client.js:286`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
+Adding a new title motion: one entry each in `TEXT_MOTION` (`client.js:2734`, looping) and `TEXT_BURST` (`client.js:2741`, one-shot), a duration in `MOTION_MS` (`client.js:2725`), and `@keyframes hl-text-<name>` in `SIDEBAR_STYLE` (`client.js:2747`). Title keyframes **only animate `opacity` and 1–2 px of translation, never `scale`** (text goes blurry); concurrency is still capped by `MOTION_CONCURRENCY` (`client.js:305`) and the rate is the per-category `glyph.frequency` (0–1, `0` = never).
 
 ### Upgrades never overwrite user settings
 
-**Promise: upgrading the plugin never changes a setting the user already chose.** A value that still equals one of our own earlier factory defaults is not a choice — it follows the current default (the `LEGACY_VALUES` bullet below). Everything else on disk wins. A field the user *did* pick is his even when the value coincides with a preset: `choices` (`client.js:1805`) records those picks and the preset rule reads it before rewriting anything.
+**Promise: upgrading the plugin never changes a setting the user already chose.** A value that still equals one of our own earlier factory defaults is not a choice — it follows the current default (the `LEGACY_VALUES` bullet below). Everything else on disk wins. A field the user *did* pick is his even when the value coincides with a preset: `choices` (`client.js:1967`) records those picks and the preset rule reads it before rewriting anything.
 
 How that is guaranteed:
 
 - **Defaults only fill gaps**; anything on disk wins. `sanitizeSettings()` starts from the defaults and then, field by field, keeps any valid stored value — so changing `CATEGORY_ORDER` or `defaultGlyph()` is invisible to existing users.
-- **Factory presets are ours, not the user's.** A stored value that only ever equalled a default an earlier release shipped — `💤` for the idle glyph, `blink` / `none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — follows the current default, so an existing install does eventually see the ice cube and the 4.6.3 motion table without the user re-doing anything. The table is `LEGACY_VALUES` (`client.js:210`); the same boundary already used for a category `order` that equals a historical default (`LEGACY_DEFAULTS`). As soon as the user edits that field the value is theirs and we never touch it again, and a value nobody ever shipped as a default is kept byte for byte. "Edited" is recorded explicitly: `choices` `{ "<path>": true }` (`client.js:702-737`) is written by `writeSettings()` from the incoming patch only, so a value the preset rule rewrote can never pass for a choice; `resetSettings()` clears the whole map because a reset is a fresh acceptance of the presets.
+- **Factory presets are ours, not the user's.** A stored value that only ever equalled a default an earlier release shipped — `💤` for the idle glyph, `blink` / `none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — follows the current default, so an existing install does eventually see the ice cube and the 4.6.3 motion table without the user re-doing anything. The table is `LEGACY_VALUES` (`client.js:214`); the same boundary already used for a category `order` that equals a historical default (`LEGACY_DEFAULTS`). As soon as the user edits that field the value is theirs and we never touch it again, and a value nobody ever shipped as a default is kept byte for byte. "Edited" is recorded explicitly: `choices` `{ "<path>": true }` (`client.js:1009-1050`) is written by `writeSettings()` from the incoming patch only, so a value the preset rule rewrote can never pass for a choice; `resetSettings()` clears the whole map because a reset is a fresh acceptance of the presets.
 - **Adding a field:** a fallback in `sanitize*` is enough, **do not bump `SETTINGS_VERSION`**. A version bump claims “a migration is required”, and a wrong migration silently wipes user data — no structural change, no version change.
 - **Real structural changes** (dropping a field, changing its meaning) must keep the chain “read old → convert → drop the old field” (today that lives in `sanitizeSettings()`; the v3.1 → v4 migration went through it) and bump `SETTINGS_VERSION` by the smallest step. The `migrate v3 to v4` test group is the acceptance test for that chain.
 
@@ -684,7 +742,7 @@ The same ground as the pitfall list at the bottom of this file, in checklist for
 ```powershell
 node --check client.js          # syntax. client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 107 groups
+node test/classify.test.mjs     # expect a final line: PASS — 109 groups
 ```
 
 Plus a **static gate before saving**, available on the maintainer's machine only (not shipped with the repo):
@@ -700,7 +758,7 @@ cd <the directory you cloned into>
 
 node --check client.js          # client.js lives inside a module loader, so a syntax error only explodes when the real page boots
 node --check index.js
-node test/classify.test.mjs     # expect a final line: PASS — 107 groups
+node test/classify.test.mjs     # expect a final line: PASS — 109 groups
 ```
 
 The unit tests read the real `client.js` source, wrap it in a stub `window.__ModuleLoader__` and run it: the fake browser is hand-written (`window` / `document`, no jsdom, `React` is a stub too), the code under test is the real source. They also include a few static scans: undeclared constants, CSS selector legality, and “shortcut labels must be thunks”.
@@ -715,8 +773,9 @@ index.js               host side: registers the /hotlist-sound/ audio route
 cordis.patch.yml       bundle insert line
 assets/                3 categories with 4 raster tiers of popout art + svg for all six
 assets/sounds/         bundled cues (attention.wav / complete.wav)
-test/classify.test.mjs unit tests (107 groups)
+test/classify.test.mjs unit tests (109 groups)
 docs/                  architecture, testing, extending
+tools/attn-ring/       full-screen ring script (PowerShell + WPF; ships in the package)
 tools/meru-tts/        TTS helper (generates cues; not part of the running plugin)
 ```
 
@@ -724,7 +783,7 @@ tools/meru-tts/        TTS helper (generates cues; not part of the running plugi
 
 Eleven things that have already cost real debugging time — including a broken release. Each one says what happens if you ignore it.
 
-1. **Callbacks handed to the host must be thunks, not values.** The host calls `command.label()` itself inside `refreshLabels()` (`dsh-client-shortcuts/lib/client.js:1190`). Pass a string and you get `TypeError: command.label is not a function`, which takes `uiWorkspace` down with it: **the whole Web UI boots to `Failed to load plugins` with roughly twenty plugin entries stuck pending.** That is exactly how v4.3.0 shipped broken. The settings section's `label: () => t('settings.nav')` (`client.js:3987`) is a thunk for the same reason. The unit test cannot catch it because the stubbed `shortcuts` service never invokes `label()` — **if the host will call a callback you pass in, make the stub actually call it.**
+1. **Callbacks handed to the host must be thunks, not values.** The host calls `command.label()` itself inside `refreshLabels()` (`dsh-client-shortcuts/lib/client.js:1190`). Pass a string and you get `TypeError: command.label is not a function`, which takes `uiWorkspace` down with it: **the whole Web UI boots to `Failed to load plugins` with roughly twenty plugin entries stuck pending.** That is exactly how v4.3.0 shipped broken. The settings section's `label: () => t('settings.nav')` (`client.js:5230`) is a thunk for the same reason. The unit test cannot catch it because the stubbed `shortcuts` service never invokes `label()` — **if the host will call a callback you pass in, make the stub actually call it.**
    *If you ignore it:* the plugin does not just fail to work, it prevents the entire page from loading.
 
 2. **Package name, module id and bundle entry must all be the same string.** `package.json`'s `name` = the `id` in `window.__ModuleLoader__.load({ id })` = the entry recorded in the profile's `dsh.profile.bundles`.
@@ -736,7 +795,7 @@ Eleven things that have already cost real debugging time — including a broken 
 4. **The static routes this plugin registers are unauthenticated.** `/hotlist-sound/*` and `/plugins/**/assets/*` do not check a token — anyone who can reach the port can fetch them.
    *If you ignore it:* you publish a path that leaks whatever you put behind it. Public assets only, never user data.
 
-5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:1085`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:165`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1530`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:167`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
+5. **User settings may never be overwritten.** `sanitizeSettings()` (`client.js:1192`) is pure and falls back **per field, never wholesale**; unknown keys are parked in `PRESERVED_KEY` (`client.js:169`) and come back on the next read; out-of-range values are recorded (`outOfRangeOf`, `client.js:1692`) and restored; the last five writes live in a rolling backup ring (`BACKUP_KEY`, `client.js:171`, `BACKUP_LIMIT = 5`). Never rebuild the settings object from `defaultSettings()` inside a migration — that silently wipes every custom value the user has.
    *If you ignore it:* a user loses their whole configuration and cannot tell when it happened. Recovery is only `window.__HOTLIST__.settings.backups()` / `.restore(i)`.
 
 6. **Only bump `SETTINGS_VERSION` when the data structure really changed — and then write the migration in the same commit.** Cosmetic defaults and new optional fields need a fallback in `sanitize*`, not a version bump.
@@ -745,10 +804,10 @@ Eleven things that have already cost real debugging time — including a broken 
 7. **A `client.js` change needs a page refresh; everything else needs a GUI restart.** `index.js`, `package.json` and `cordis.patch.yml` are read at host start-up (the `/hotlist-sound` route is created there). Loaded client modules are not hot-replaced either.
    *If you ignore it:* you debug stale code and conclude the change did nothing.
 
-8. **Three hard caps are hard-coded, not settings.** `PLAN_MAX_ROWS = 37` (`client.js:203`) trims from the tail so the priority head always survives; `MOTION_CONCURRENCY = 4` (`client.js:217`) limits simultaneous animation; `PINNED_SEATS = {min: 0, max: 12}` (`client.js:200`).
+8. **Three hard caps are hard-coded, not settings.** `PLAN_MAX_ROWS = 37` (`client.js:292`) trims from the tail so the priority head always survives; `MOTION_CONCURRENCY = 4` (`client.js:305`) limits simultaneous animation; `PINNED_SEATS = {min: 0, max: 12}` (`client.js:289`).
    *If you ignore it:* you "fix" a truncated plan by raising `maxSeats`, which cannot exceed the row cap.
 
-9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:1900-1969`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:2605-2631`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
+9. **There is exactly one source of truth for priority, and it is two functions.** `classify()` (`client.js:2082-2140`) decides tab seats and popouts; `sidebarStateOf()` (`client.js:2955-2991`) decides the sidebar glyph. They share the order `error > pending > completed > running > pinned > idle` but apply different extra conditions.
    *If you ignore it:* you edit one and the same session shows two different states on two surfaces — that was a real bug before 4.6.0.
 
 10. **`dsh plugin add` on an already-installed plugin does not rewrite the bundle entry, and a running GUI holds the files open.** Remove first, then add; and close that profile's GUI before installing over it, otherwise the copy fails with `EPERM`.
@@ -765,6 +824,7 @@ Eleven things that have already cost real debugging time — including a broken 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module structure, classification and ordering semantics, and the constraints that look dirty but would get worse if “cleaned up”
 - [docs/TESTING.md](docs/TESTING.md) — what each unit-test group covers, and the real-machine acceptance checklist
 - [docs/EXTENDING.md](docs/EXTENDING.md) — public API, settings shape, asset limits, bulk import
+- [tools/attn-ring/README.md](tools/attn-ring/README.md) — the ring script's own docs (ships in the package)
 - [tools/meru-tts/README.md](tools/meru-tts/README.md) — the TTS helper's own docs (only when you cloned the repo)
 - [CHANGELOG.md](CHANGELOG.md) — version history
 

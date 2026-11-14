@@ -1,92 +1,92 @@
 {
-  "note": "Three categories ship raster art (error, pending, completed) — exactly the states that pop a picture by default. pinned / running / idle have no raster art: their popouts fall back to the packaged SVG and then to the emoji glyph. These are the author's placeholder character art; replace them with your own square transparent PNGs (see README > Artwork).",
+  "note": "Three categories ship art (error, pending, completed) — exactly the states that pop a picture by default. All three are now animated WebP: error and pending show the button-smack clip, completed shows the wave. The source clips are 500x500, which is 1:1 with the popout's default 390 CSS px at 1.25 DPR, so the 780 and 1560 slots hold the same 500 px animation (the browser scales it up when the popout is enlarged; there is no more source resolution to be had). pinned / running / idle have no art: their popouts fall back to the packaged SVG and then to the emoji glyph. Replace them with your own square transparent art (see README > Artwork).",
   "tiers": {
-    "1560": "3x on HiDPI (popout 780 CSS px * 2)",
-    "780": "3x popout / 2x on HiDPI",
-    "320": "1.5x-2x popout",
-    "64": "settings thumb only; the sidebar uses emoji"
+    "1560": "same animated 500 px source as 780 (upscaled by the browser when the popout is large)",
+    "780": "the tier the popout actually renders at (390 CSS px at this DPR)",
+    "320": "animated, downscaled",
+    "64": "static first frame; settings thumb only, the sidebar uses emoji"
   },
   "categories": {
     "error": {
-      "source": "meru2-0-opinion.png",
-      "why": "Meru, red, leaning out — the warning pose. Used for `error` (and `pending`).",
+      "source": "deepseek-niang button-smack GIF (500x500, 10f)",
+      "why": "Same character punching the big red button — the 'something went wrong' pose. Animated. Used for `error`.",
       "files": {
         "1560": {
           "file": "error-1560.webp",
-          "bytes": 131530,
-          "px": 1560
+          "bytes": 194156,
+          "px": 500
         },
         "780": {
           "file": "error-780.webp",
-          "bytes": 60462,
-          "px": 780
+          "bytes": 194156,
+          "px": 500
         },
         "320": {
           "file": "error-320.webp",
-          "bytes": 21790,
+          "bytes": 142098,
           "px": 320
         },
         "64": {
           "file": "error-64.webp",
-          "bytes": 3112,
+          "bytes": 2976,
           "px": 64
         }
       }
     },
     "pending": {
-      "source": "meru2-0-id.png",
-      "why": "Meru, red, holding up an ID — the 'you need to act' pose. Used for `pending`.",
+      "source": "deepseek-niang button-smack GIF (500x500, 10f)",
+      "why": "Same smack animation — the 'you need to act' nudge. Animated. Used for `pending`.",
       "files": {
         "1560": {
           "file": "pending-1560.webp",
-          "bytes": 154108,
-          "px": 1560
+          "bytes": 194156,
+          "px": 500
         },
         "780": {
           "file": "pending-780.webp",
-          "bytes": 68372,
-          "px": 780
+          "bytes": 194156,
+          "px": 500
         },
         "320": {
           "file": "pending-320.webp",
-          "bytes": 21300,
+          "bytes": 142098,
           "px": 320
         },
         "64": {
           "file": "pending-64.webp",
-          "bytes": 3054,
+          "bytes": 2976,
           "px": 64
         }
       }
     },
     "completed": {
-      "source": "lan2-0-sleepy.png",
-      "why": "Lan, blue — the calm/done pose. Used for `completed`.",
+      "source": "deepseek-niang greeting GIF (500x500, frame 22-32 of 66)",
+      "why": "Waving hello — the calm/done pose. Animated from the steady wave cycle so it loops cleanly. Used for `completed`.",
       "files": {
         "1560": {
           "file": "completed-1560.webp",
-          "bytes": 128080,
-          "px": 1560
+          "bytes": 207074,
+          "px": 500
         },
         "780": {
           "file": "completed-780.webp",
-          "bytes": 62966,
-          "px": 780
+          "bytes": 207074,
+          "px": 500
         },
         "320": {
           "file": "completed-320.webp",
-          "bytes": 23552,
+          "bytes": 142920,
           "px": 320
         },
         "64": {
           "file": "completed-64.webp",
-          "bytes": 3136,
+          "bytes": 2914,
           "px": 64
         }
       }
     }
   },
-  "total_webp_bytes": 681462,
+  "total_webp_bytes": 1626754,
   "svg_fallbacks": [
     "completed.svg",
     "error.svg",

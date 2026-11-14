@@ -6,7 +6,7 @@
 > this package instead of writing a new plugin.
 
 npm: dsh-better-notice
-version: 5.1.9
+version: 5.2.0
 license: MIT
 repo: https://github.com/MeruSu/better-notice
 docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
@@ -16,18 +16,24 @@ docs: https://github.com/MeruSu/better-notice/blob/main/docs/ARCHITECTURE.md
     dsh plugin --profile <profile> add dsh-better-notice
 
 Then restart that profile's GUI (a `client.js`-only change may just reload the
-page). Verify: `window.__HOTLIST_VERSION__ === "5.1.9"` and a "热表 / Better
+page). Verify: `window.__HOTLIST_VERSION__ === "5.2.0"` and a "热表 / Better
 Notice" section appears in Settings.
 
 ## What it does
 
-Four surfaces, six states (the window top bar is new in v5, Windows desktop only):
+Five surfaces, six states (the window top bar is v5, Windows desktop only; the ring
+is v5.2 and ships switched off):
 - conversation tab row: one tab seat per hot session (click = switch to it)
 - left session sidebar: one state glyph before each row title, optionally animated
 - window top bar (Windows desktop): a row of session pills in the 40 px title
   strip, alongside the tab row (not instead of it). In a browser it only shows
   with `topbar.previewInWeb` on. macOS is not supported and will not be.
 - on state change: a sound and/or a popout picture
+- on state change (**opt-in**): a full-screen amber ring, drawn by a separate
+  process (`tools/attn-ring/Show-AttnRing.ps1`). Windows only. Three switches
+  (`ring.pending` / `ring.error` / `ring.completed`) all default to off. The host
+  route `GET /hotlist-ring` needs the `x-hotlist-ring: 1` header (else 403), is
+  cooled down for 2.5 s (else 429), and answers 503 when the script is missing.
 
 States, one per session, judged in this order (highest wins):
 `error` > `pending` (approval / question / plan review) > `completed` >
@@ -77,12 +83,16 @@ the tab row, `running` on neither.
 3. `.mp3` / `.wav` cannot be served by the host's package-asset route (images
    only). Sounds go through the `/hotlist-sound` prefix route that `index.js`
    registers on the host web server.
+4. The ring route `/hotlist-ring` refuses requests without `x-hotlist-ring: 1`.
+   Any page can write an `<img src="http://127.0.0.1:<port>/hotlist-ring">`;
+   that header is the only thing stopping an arbitrary tab from popping a
+   full-screen window.
 
 ## Test
 
     node --check client.js
     node --check index.js
-    node test/classify.test.mjs      # expect: PASS — 107 groups
+    node test/classify.test.mjs      # expect: PASS — 109 groups
 
 ## Known limits
 
@@ -95,11 +105,21 @@ the tab row, `running` on neither.
   API-writable); the window-control guard of 138 px is hard-coded.
 - Static routes are unauthenticated — publish public assets only.
 - On desktop, the top 40 px of the window is the window-drag region.
+- The full-screen ring is Windows-only (PowerShell + WPF) and covers the primary
+  screen only. On other platforms the switches save but nothing rises. Browser
+  automation cannot screenshot it either — it is a separate window.
+- The npm package ships `tools/attn-ring` but **not** `tools/meru-tts` (the TTS
+  helper is repo-only, ~1.6 MB of bundled libs).
 
 ## Bundled artwork
 
-Only the three states that pop a picture by default ship raster art:
-`error` and `pending` use red Meru, `completed` uses blue Lan. `pinned`,
-`running` and `idle` fall back to packaged SVG and then to an emoji glyph.
+Only the three states that pop a picture by default ship raster art, and it is
+**animated WebP**: `error` and `pending` use a button-smack clip, `completed` uses
+a wave clip. `pinned`, `running` and `idle` fall back to packaged SVG and then to
+an emoji glyph. Four tiers per category (`64` / `320` / `780` / `1560`); `780` is
+the tier actually rendered (390 CSS px at DPR 1.25) and shares its 500 px source
+with `1560`; `320` is downscaled and `64` is a still from frame 0. The clips are
+why `assets/*.webp` totals ~1.6 MB — a 10-frame 500 px clip does not shrink to a
+still's size, and dropping frames makes the motion look broken.
 Replace them per category in Settings, or with
 `window.__HOTLIST__.assets.add(category, 'popout', {...})`.

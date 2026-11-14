@@ -34,7 +34,7 @@ api.lastError()        // 最近一次写盘错误（字符串或 null）
 ```
 
 同一对象也挂在旧名 `window.__SESSION_SWITCHER_SETTINGS__`（v2.x 兼容，别在新代码里用）。
-插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.1.9'`）。
+插件版本号在 `window.__HOTLIST_VERSION__`（当前 `'5.2.0'`）。
 
 写设置后不需要刷新页面：tab、侧栏、设置页都在同一个 store 上重算。
 
@@ -133,6 +133,8 @@ window.__HOTLIST__.topbar();
   sound: { volume: 60 },        // 全局音量 0–100
   pins: { '<sessionId>': 1 },   // 【v4.6.0 起废弃】置顶改读宿主原生 pinnedSessionIds，此字段不再参与判定，旧盘上读时丢弃
   pinned: { maxSeats: 3 },      // v4.6.0 新增：置顶最多占几个座位，0–12，0 = 不显示置顶
+  ring: { pending: false, error: false, completed: false },  // v5.2.0 新增：全屏光圈三开关，出厂全关；只有 Windows 有效
+                                // 开了的存在 choices 里，所以出厂预设规则不会把它们关回去
   categories: { <cat>: { …见下… } },
 }
 ```
@@ -323,6 +325,26 @@ window.__HOTLIST_SETTINGS__.set({ categories: { error: { sound: now.categories.e
 - 音量 = `sound.volume / 100`；autoplay 被拒时静默 + 一条 console.debug，不刷屏。
 
 ---
+
+### 6.1 手动试一次光圈
+
+光圈没有设置页预览（它是独立进程画的窗口，塞不进网页里的预览框）。三条路：
+
+```js
+// 1) 真触发：打开开关，然后让一个会话进入那个状态（用 state-fixture 面板最快）
+window.__HOTLIST__.settings.set({ ring: { pending: true, error: false, completed: false } })
+
+// 2) 直接打宿主路由（要带 marker 头，否则 403）
+await fetch('/hotlist-ring?category=pending&seconds=4&scope=Primary&anim=Expand',
+  { headers: { 'x-hotlist-ring': '1' } }).then(r => r.json())
+// → { ok: true, seconds: 4, scope: 'Primary', anim: 'Expand' }
+
+// 3) 只想要更长的光圈：seconds 夹在 1–30，anim 只认 Expand / Breathe / None
+```
+
+**2.5 秒冷却**：连发第二条返回 429 `{ ok: false, reason: 'cooling' }`。**没带 marker 头**返回 403 `reason: 'no-marker'`。**脚本缺失**（只装了 npm 包而包里没带 `tools/attn-ring`）返回 503 `reason: 'not-started'`，宿主日志一行 `[hotlist] ring script missing`。
+
+再用 Playwright 抓不到它——那是另一个进程的窗口，只能抓真实屏幕（`System.Windows.Forms.Screen` + `Graphics.CopyFromScreen`）。
 
 ## 7. 你大概会遇到的三个坑
 

@@ -79,7 +79,7 @@ window.__ModuleLoader__.load({
 
     const SLOT = 'conversation.view';
     const NS = 'hotlist';
-    const VERSION = '5.1.9';
+    const VERSION = '5.2.0';
     /** Seat view ids are namespaced so a persisted leftover can be recognised and repaired. */
     const SEAT_PREFIX = 'hotlist-seat-';
     /** Every prefix ever written for a seat id; a persisted one is repaired back to `chat` on load. */
@@ -236,7 +236,18 @@ window.__ModuleLoader__.load({
      */
     const CHOICE_SLOTS = ['glyph', 'glyphSecondary'];
     const CHOICE_FIELDS = ['value', 'motion', 'motionTarget', 'frequency'];
-    const CHOICE_KEY = /^(?:categories\.[a-z]+\.[a-zA-Z]+(?:\.[a-zA-Z]+)?|positions\.topbar|collect\.recentWindowMinutes)$/;
+    const CHOICE_KEY = /^(?:categories\.[a-z]+\.[a-zA-Z]+(?:\.[a-zA-Z]+)?|positions\.topbar|collect\.recentWindowMinutes|ring\.(?:pending|error|completed))$/;
+    /**
+     * The three classes that can ring the whole screen. They are the same three
+     * the band calls urgent; `running` and `idle` never take the screen away.
+     */
+    const RING_CATEGORIES = ['pending', 'error', 'completed'];
+    /** The host route that starts the ring process; `client.js` only ever asks. */
+    const RING_ROUTE = '/hotlist-ring';
+    /** What the page asks for: the script's own documented defaults, spelled out once. */
+    const RING_OPTIONS = { seconds: 4, scope: 'Primary', anim: 'Expand' };
+    /** Two rings closer than this are one event: the host enforces the same idea. */
+    const RING_THROTTLE_MS = 1500;
     const CHOICE_LIMIT = 256;
     /**
      * Which surface each class belongs to. The split is the point of the feature: the band is
@@ -395,6 +406,12 @@ window.__ModuleLoader__.load({
         overlay: { side: 'auto', sizeMin: OVERLAY_SIZE.fallbackMin, sizeMax: OVERLAY_SIZE.fallbackMax, fallbackImage: '' },
         collect: { completedTtlMs: 7 * 60 * 1000, recentWindowMinutes: RECENT_WINDOW_MINUTES.fallback },
         sound: { volume: 60 },
+        /**
+         * The full-screen ring, one switch per class. All three are off at the
+         * factory: taking over the whole screen is the user's decision, never a
+         * surprise from an upgrade.
+         */
+        ring: { pending: false, error: false, completed: false },
         pinned: { maxSeats: PINNED_SEATS.fallback },
         /** Fields the user picked himself; anything absent here is still a factory preset. */
         choices: {},
@@ -584,6 +601,7 @@ window.__ModuleLoader__.load({
       'settings.group.icon': '图标',
       'settings.group.popout': '弹出',
       'settings.group.sound': '音效',
+      'settings.group.ring': '全屏提醒',
       'settings.group.order': '顺序',
       'settings.category.pinned': '置顶',
       'settings.category.error': '报错',
@@ -655,6 +673,13 @@ window.__ModuleLoader__.load({
       'settings.sound.enabled': '播放音效',
       'settings.sound.preview': '试听',
       'settings.sound.previewHint': '点一下立刻播一条；浏览器可能拦截自动播放。',
+      'settings.ring.pending': '有待处理时',
+      'settings.ring.pendingHint': '有会话在等你批准或回答时，在最上层闪一次光圈。',
+      'settings.ring.error': '有报错时',
+      'settings.ring.errorHint': '有会话这一轮失败时闪一次。',
+      'settings.ring.completed': '有会话跑完时',
+      'settings.ring.completedHint': '有会话刚结束时闪一次。',
+      'settings.ring.hint': '光圈盖住整块屏幕、只显示几秒，不抢键盘焦点；点一下或按 Esc 立刻关。三个开关默认都关。',
       'settings.order': '顺序',
       'settings.orderHint': '1–99，数字越小越靠前。',
       'settings.takeOverStatusDotOff': '已停用：dsh-sessions-manager 的状态点将恢复显示。',
@@ -773,6 +798,7 @@ window.__ModuleLoader__.load({
       'settings.group.icon': 'Icon',
       'settings.group.popout': 'Popout',
       'settings.group.sound': 'Sound',
+      'settings.group.ring': 'Full-screen ring',
       'settings.group.order': 'Order',
       'settings.category.pinned': 'Pinned',
       'settings.category.error': 'Failed',
@@ -844,6 +870,13 @@ window.__ModuleLoader__.load({
       'settings.sound.enabled': 'Play sound',
       'settings.sound.preview': 'Preview',
       'settings.sound.previewHint': 'Clicking plays one now; the browser may still block autoplay.',
+      'settings.ring.pending': 'When something waits',
+      'settings.ring.pendingHint': 'One ring on top of the screen while a session waits for your approval or answer.',
+      'settings.ring.error': 'On a failure',
+      'settings.ring.errorHint': 'One ring when a session fails its turn.',
+      'settings.ring.completed': 'When a run finishes',
+      'settings.ring.completedHint': 'One ring when a session just finished.',
+      'settings.ring.hint': 'The ring covers the screen for a few seconds and never takes keyboard focus; a click or Esc closes it at once. All three switches start off.',
       'settings.order': 'Order',
       'settings.orderHint': '1–99, lower comes first.',
       'settings.takeOverStatusDotOff': 'Disabled: status dots from dsh-sessions-manager show again.',
@@ -996,6 +1029,15 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       if (isPlainObject(patch.positions) && typeof patch.positions.topbar === 'boolean') next['positions.topbar'] = true;
       if (isPlainObject(patch.collect) && typeof patch.collect.recentWindowMinutes === 'number') {
         next['collect.recentWindowMinutes'] = true;
+      }
+      /**
+       * The ring switches are the newest default the presets could clobber: a
+       * user who turns one on must keep it even though the factory ships it off.
+       */
+      if (isPlainObject(patch.ring)) {
+        for (const category of RING_CATEGORIES) {
+          if (typeof patch.ring[category] === 'boolean') next[`ring.${category}`] = true;
+        }
       }
       const categories = isPlainObject(patch.categories) ? patch.categories : {};
       for (const [category, change] of Object.entries(categories)) {
@@ -1227,6 +1269,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
             next.sound.volume = clamp(Math.round(legacy.volume), 0, 100);
             break;
           }
+        }
+      }
+      if (isPlainObject(raw.ring)) {
+        for (const category of RING_CATEGORIES) {
+          if (typeof raw.ring[category] === 'boolean') next.ring[category] = raw.ring[category];
         }
       }
       if (isPlainObject(raw.collect) && typeof raw.collect.completedTtlMs === 'number' && Number.isFinite(raw.collect.completedTtlMs)) {
@@ -1555,6 +1602,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         'overlay.side', 'overlay.fallbackImage', 'overlay.sizeMin', 'overlay.sizeMax',
         'collect.completedTtlMs', 'collect.recentWindowMinutes',
         'sound.volume', 'pinned.maxSeats',
+        'ring.pending', 'ring.error', 'ring.completed',
       ]);
       for (const category of CATEGORY_IDS) {
         const base = `categories.${category}`;
@@ -1571,7 +1619,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     }
 
     function knownContainers() {
-      const containers = new Set(['positions', 'topbar', 'display', 'shortcuts', 'overlay', 'collect', 'sound', 'pinned', 'categories']);
+      const containers = new Set(['positions', 'topbar', 'display', 'shortcuts', 'overlay', 'collect', 'sound', 'ring', 'pinned', 'categories']);
       for (const category of CATEGORY_IDS) {
         containers.add(`categories.${category}`);
         for (const side of ['glyph', 'glyphSecondary', 'popout', 'sound']) containers.add(`categories.${category}.${side}`);
@@ -4081,6 +4129,19 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         }
       };
 
+      /**
+       * The full-screen ring group. It sits next to the sound group rather than
+       * inside it: sounds play under you, the ring covers the screen, and the
+       * three switches are the whole feature's user-facing surface.
+       */
+      const ringSection = () => h('section', { key: 'ring', className: 'hl-global', 'data-hotlist-ring': '' }, [
+        h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.group.ring')),
+        switchRow('ring.pending', t('settings.ring.pending'), t('settings.ring.pendingHint'), settings.ring.pending === true, () => patch({ ring: { ...settings.ring, pending: settings.ring.pending !== true } })),
+        switchRow('ring.error', t('settings.ring.error'), t('settings.ring.errorHint'), settings.ring.error === true, () => patch({ ring: { ...settings.ring, error: settings.ring.error !== true } })),
+        switchRow('ring.completed', t('settings.ring.completed'), t('settings.ring.completedHint'), settings.ring.completed === true, () => patch({ ring: { ...settings.ring, completed: settings.ring.completed !== true } })),
+        h('p', { key: 'hint', className: 'hl-rowHint' }, t('settings.ring.hint')),
+      ]);
+
       const globalSection = () => h('section', { key: 'global', className: 'hl-global', 'data-hotlist-global': '' }, [
         h('h3', { key: 'title', className: 'hl-groupTitle' }, t('settings.group.global')),
         h('div', { key: 'scope', className: 'hl-row', 'data-hotlist-row': 'scope' }, [
@@ -4199,6 +4260,7 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
         ]),
         ...notices,
         globalSection(),
+        ringSection(),
         h('div', { key: 'cards', className: 'hl-cards' }, cardOrder.map(card)),
         h('div', { key: 'foot', className: 'hl-foot' }, [
           h('button', { key: 'close', type: 'button', className: 'hl-step', onClick: close }, t('settings.close')),
@@ -5008,6 +5070,76 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
     }
 
     /**
+     * The one-shot full-screen ring. Same edge detector as the sounds — a ring
+     * belongs to the moment a class is entered, not to every repaint — with two
+     * extra gates: the class has to be switched on, and the request is a
+     * `fetch` to the host (the browser cannot start a process, and this half
+     * never tries). Every failure is a `console.debug`: a profile without
+     * `pwsh` must keep working exactly as before.
+     */
+    function createRingPlayer(options) {
+      const getSettings = options.getSettings;
+      const request = options.request;
+      const log = typeof options.log === 'function' ? options.log : () => {};
+      const seen = new Map();
+      let armed = false;
+      let lastAt = -Infinity;
+
+      function ring(category, at) {
+        const settings = getSettings();
+        if (settings.ring?.[category] !== true) {
+          log('off', category);
+          return false;
+        }
+        if (at - lastAt < RING_THROTTLE_MS) {
+          log('throttle', category, at - lastAt);
+          return false;
+        }
+        lastAt = at;
+        log('ring', category);
+        try {
+          request({ category, seconds: RING_OPTIONS.seconds, scope: RING_OPTIONS.scope, anim: RING_OPTIONS.anim });
+          return true;
+        } catch (thrown) {
+          log('failed', thrown instanceof Error ? thrown.message : String(thrown));
+          return false;
+        }
+      }
+
+      /** Only the three urgent classes: a ring never interrupts for running or idle. */
+      function observe(snapshot, now) {
+        const byId = snapshot.list.byId;
+        for (const sessionId of snapshot.list.ids) {
+          const session = byId[sessionId];
+          if (session === undefined || session.blank === true) continue;
+          if (session.origin === 'subagent' || session.parentId != null) continue;
+          const status = snapshot.statuses.get(sessionId);
+          let category;
+          if (snapshot.errors.has(sessionId)) category = 'error';
+          else if (status?.pendingInteraction != null) category = 'pending';
+          else {
+            const at = snapshot.completedAt.get(sessionId);
+            if (at !== undefined && now - at <= getSettings().collect.completedTtlMs) category = 'completed';
+          }
+          if (category === undefined || RING_CATEGORIES.includes(category) === false) {
+            seen.delete(sessionId);
+            continue;
+          }
+          if (seen.get(sessionId) === category) continue;
+          seen.set(sessionId, category);
+          if (armed) ring(category, now);
+          else log('armed', category);
+        }
+        for (const sessionId of [...seen.keys()]) {
+          if (byId[sessionId] === undefined) seen.delete(sessionId);
+        }
+        armed = true;
+      }
+
+      return { observe };
+    }
+
+    /**
      * The scripting surface: settings plus the three asset pools. Every write goes
      * through `writeSettings`, so the tab row, the sidebar and the page all react
      * at once and the same quotas apply as for a click in the page.
@@ -5175,6 +5307,8 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       let popout = null;
       /** Category sounds: one player for the window, armed by the first sync. */
       let sound = null;
+      /** One-shot full-screen ring: the same edges as the sounds, one class each. */
+      let ring = null;
       /**
        * The hotkey cycle walks exactly the seats the last sync decided were live
        * (`buildSeatPlan` after limit and surface clipping), never "all sessions".
@@ -6414,6 +6548,17 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           completedAt,
         }, now);
         /**
+         * The ring watches the same three urgent classes. It runs before the
+         * popout so a person who asked for both gets the ring first and the
+         * picture on top of it, never the other way round.
+         */
+        ring?.observe({
+          list: snapshot.list,
+          statuses: snapshot.statuses,
+          errors,
+          completedAt,
+        }, now);
+        /**
          * The popout follows category *entries* (see `observe`), independent of the
          * tab row: turning the tab position off must not silence the overlay.
          */
@@ -6603,6 +6748,31 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
           soundPreview = () => false;
         };
       }, 'hotlist: category sounds');
+
+      /**
+       * The full-screen ring. The browser cannot start a process, so this half
+       * only asks the host over the route it already owns; the host half owns
+       * `pwsh`, the script and every failure of both. A missing route, an
+       * offline profile or a machine without `pwsh` therefore costs one
+       * `console.debug` line and nothing else.
+       */
+      ctx.effect(() => {
+        ring = createRingPlayer({
+          getSettings: readSettings,
+          request: ({ seconds, scope, anim }) => {
+            const query = new URLSearchParams({ seconds: String(seconds), scope, anim });
+            void fetch(`${RING_ROUTE}?${query.toString()}`, {
+              method: 'GET',
+              headers: { 'x-hotlist-ring': '1' },
+              cache: 'no-store',
+            }).catch((thrown) => console.debug('[hotlist] ring', thrown instanceof Error ? thrown.message : String(thrown)));
+          },
+          log: (...args) => console.debug('[hotlist] ring', ...args),
+        });
+        return () => {
+          ring = null;
+        };
+      }, 'hotlist: full-screen ring');
 
       /**
        * Keyboard. `fixed` commands are display-only, so every guard lives in the
@@ -6824,6 +6994,11 @@ const FULL_WIDTH = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-
       BUILTIN_SOUND,
       SOUND_CATEGORIES,
       createSoundPlayer,
+      createRingPlayer,
+      RING_CATEGORIES,
+      RING_OPTIONS,
+      RING_ROUTE,
+      RING_THROTTLE_MS,
       createHotlistApi,
       ASSET_POOL_MAX,
       POPOUT_MAX_BYTES,

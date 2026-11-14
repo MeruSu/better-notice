@@ -1,5 +1,32 @@
 # Changelog
 
+## 5.2.0 — 2026-11-14
+
+两个新东西：随包的图会动了，以及整块屏幕的提醒光圈。不动数据结构、不写迁移，`SETTINGS_VERSION` 仍是 `4`。
+
+**新增：全屏提醒（光圈）**
+
+- 三个会话状态各一个开关：`ring.pending` / `ring.error` / `ring.completed`，**出厂全关**。开了以后，对应状态第一次出现时，屏幕最上层升起一圈琥珀色光环（带光晕），几秒后自己消失；点一下或按 Esc 立刻关，**不抢键盘焦点，不挡鼠标**。
+- 光圈是**独立进程画的**（`tools/attn-ring/Show-AttnRing.ps1`，WPF 零依赖），所以它能盖住任务栏，也能盖住别的窗口，不像网页里的元素只能待在自己那一格里。
+- 宿主半边新增一条路由 `GET /hotlist-ring`（`index.js`）。**必须带 `x-hotlist-ring: 1` 才会真的升起**，否则 403 —— 这样任何网页都没法靠 `<img src>` 弹一个全屏窗口出来。另有 2.5 秒冷却（连发返回 429）和「脚本缺失就 503」两道闸。
+- 判定复用声音播放器的同一套边缘检测（跳过空会话与子代理；error > pending > completed），1500 毫秒节流共享。
+- 三个开关走 `choices`：你自己打开就是你的选择，出厂预设覆盖规则不会把它关回去。
+
+**新增：随包素材变成动图**
+
+- `error` 与 `pending` 用「捶红按钮」那一小段，`completed` 用「打招呼」那一小段，都是 **动画 WebP**，浏览器直接播，没有逐帧换图的抖动。
+- 源片是 500×500，正好等于弹出图默认的 390 CSS px @1.25 DPR，所以 `780` 与 `1560` 两档放同一个 500 px 动画（没有更高分辨率可取），`320` 是缩小版，`64`（只用于设置页缩略图）是第 0 帧静帧。
+- **代价：`assets/*.webp` 从约 0.65 MB 涨到约 1.6 MB**，29 个文件变成 35 个。砍帧能瘦下来，但动作会一顿一顿，不值。
+
+**新增：`tools/attn-ring/` 进仓库**
+
+- `package.json` 的 `files` 只放 `tools/attn-ring`，**不带** `tools/meru-tts` —— 那个是给你自己造音效用的，1.6 MB 的 `pylibs` 不该塞进每个装了插件的人机器里。
+
+**文档**
+
+- 新增单测 2 组（`107 → 109`）：一组守光圈路由的三种闸门与「脚本真的在包里 + 真的在磁盘上」，一组守 `files` 白名单只放 attn-ring。
+- 全文 `client.js:N` 行号按 7038 行版本重新映射（`6863 → 7038`，脚本逐条对符号定义取真值，0 条未映射）。
+
 ## 5.1.9 — 2026-11-14
 
 元数据版本。不动行为、不动数据结构、不写迁移，`SETTINGS_VERSION` 仍是 `4`。
@@ -117,7 +144,7 @@
 **设置页减法 + 内置音效换成两个 wav。首个公开版本。**
 
 - **删掉设置页「浮层尺寸」那一栏**（`overlay.sizeMin` / `sizeMax`）。字段与「取中值再按视口收窄」的算法都保留，只是不再有 UI；想改用 API。
-- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:237`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
+- **内置音效从 21 条 mp3 换成 2 个 wav**：`pending` / `error` → `attention.wav`，`completed` → `complete.wav`（`BUILTIN_SOUND`，`client.js:325`）。固定映射、一对一，不再随机挑 7 条之一。旧的 21 条 `*-1..7.mp3` 从 `assets/sounds/` 删除；上传池机制不变。
 - 包名从本地命名空间 `@local/dsh-hotlist` 改为 **`dsh-better-notice`**，`package.json` 的 `version` 与 `VERSION` 对齐到 `4.5.0`（此前是 `1.0.0`）。
 - 仓库随附 `tools/meru-tts/`：生成这两条提示音用的 TTS 小工具（不参与插件运行）。
 
@@ -139,7 +166,7 @@
 
 - 症状：加载后只剩一条 `Failed to load plugins` 横幅，`web boot: 20 entries did not activate`，`ui-workspace` / `ui-open-in-app` / `ui-sidebar-terminal` 直接 `failed`，其余 UI 全 `pending (waiting for service: uiWorkspace)`；console 里 24 条重复的 `locale subscriber crashed: TypeError: command.label is not a function`。
 - 根因：宿主要求快捷键命令的 `label` 是 **thunk**——`dsh-client-shortcuts/lib/client.js:1190` 与 `:1249` 都是 `label: command.label()`，直接调用。我们传的是 `t(...)` 的返回值（字符串），于是在 `refreshLabels()` 里抛错，把 `uiWorkspace` 一起拖下水。
-- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4615-4617`）。
+- 修法：三处 `registerFixed` 的 label 改成 `() => t(...)`（`client.js:4677-4679`）。
 - 为什么没被拦住：单测里 `shortcuts` 是桩，桩不调用 `label()`，所以「传字符串」在单测里永远看不见。补了一组 **`shortcut labels are thunks`** 断言：`typeof spec.label === 'function'`、调用返回非空字符串。教训写进 `docs/TESTING.md`：凡宿主会调用我们传入的回调，桩必须真的调一次。
 
 ## 4.3.0

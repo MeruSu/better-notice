@@ -3,7 +3,7 @@
 This file is for AI coding agents. It says what this plugin already does, so you
 do not rebuild it, and what will break the host if you get it wrong.
 
-- Package: `dsh-better-notice` · version `5.1.9` · MIT
+- Package: `dsh-better-notice` · version `5.2.0` · MIT
 - Host: DeepSeek Harness (DSH) Web UI
 - One command to install: `dsh plugin --profile <profile> add dsh-better-notice`
 - One-page summary for scrapers: [llms.txt](llms.txt) · human docs: [README.md](README.md)
@@ -16,14 +16,15 @@ do not rebuild it, and what will break the host if you get it wrong.
 many sessions you cannot tell which one is waiting for approval, which one just
 finished, which one failed.
 
-**Four surfaces, one state per session:**
+**Five surfaces, one state per session:**
 
 | Surface | What you see | Where the code lives |
 |---|---|---|
-| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:5233`) |
-| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:2633` / `2605`) |
-| Window top bar (**Windows desktop**, new in v5) | a row of session pills in the 40 px title strip, next to the tab row | `mountTopbar` (`client.js:5658`) |
-| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:4635`) · `mountPopout` (`client.js:4080`) |
+| Conversation tab row | one tab seat per hot session; click switches to it | `mountTabSeats` (`client.js:5582`) |
+| Left session sidebar | one glyph before each row title, optionally animated | `createSidebarAdapter` / `sidebarStateOf` (`client.js:2993` / `2955`) |
+| Window top bar (**Windows desktop**, new in v5) | a row of session pills in the 40 px title strip, next to the tab row | `mountTopbar` (`client.js:6248`) |
+| On state change | a sound and/or a popout picture | `createSoundPlayer` (`client.js:4977`) · `mountPopout` (`client.js:4422`) |
+| On state change (**opt-in**) | a full-screen amber ring, drawn by a separate process | `createRingPlayer` (`client.js:5080`) · `serveRing` (`index.js:167`) |
 
 **Who is drawn where** (`buildSeatPlan()` takes a `surface` argument): `error` /
 `pending` / `completed` go to the window top bar, `pinned` / `idle` go to the tab
@@ -46,24 +47,24 @@ error  >  pending  >  completed  >  running  >  pinned  >  idle
 | `pinned` | pinned **in the host's own UI** — read from `pinnedSessionIds`, never stored by this plugin | no | — |
 | `idle` | active within the global recent window | no | — |
 
-The two functions that decide this are `classify()` (`client.js:1900-1955`) and
-`sidebarStateOf()` (`client.js:2605-2626`). They share the same order but apply
+The two functions that decide this are `classify()` (`client.js:2082-2140`) and
+`sidebarStateOf()` (`client.js:2955-2991`). They share the same order but apply
 different extra conditions (the sidebar has an error TTL and honours
 `completionUnread`). Change both, or you get two different answers for the same
 session on two surfaces.
 
-**Default display order** (`CATEGORY_ORDER`, `client.js:181`):
+**Default display order** (`CATEGORY_ORDER`, `client.js:185`):
 `error 10 · pending 10 · pinned 60 · completed 20 · running 30 · idle 50`.
 
-**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:272`). Rows past it are cut
+**Hard row cap:** `PLAN_MAX_ROWS = 37` (`client.js:292`). Rows past it are cut
 from the tail — the priority head always survives. `plan.overflow` reports how
 many were dropped.
 
-**Settings are never overwritten.** `sanitizeSettings()` (`client.js:1085`) is
+**Settings are never overwritten.** `sanitizeSettings()` (`client.js:1192`) is
 pure and falls back per field, never wholesale. Unknown keys go to
-`PRESERVED_KEY` (`client.js:165`) and come back on the next read; out-of-range
-values come back too (`outOfRangeOf`, `client.js:1530`); the last five writes
-are kept as a rolling backup ring under `BACKUP_KEY` (`client.js:167`,
+`PRESERVED_KEY` (`client.js:169`) and come back on the next read; out-of-range
+values come back too (`outOfRangeOf`, `client.js:1692`); the last five writes
+are kept as a rolling backup ring under `BACKUP_KEY` (`client.js:171`,
 `BACKUP_LIMIT = 5`). There is deliberately **no `SETTINGS_VERSION` bump** for
 cosmetic changes — a version bump means writing a migration, and a wrong
 migration silently wipes user data.
@@ -72,8 +73,8 @@ migration silently wipes user data.
 equals a default an earlier release shipped — `💤` for the idle glyph,
 `blink`/`none` motion, `motionTarget: 'glyph'`, frequency `1`, sound off — is
 not a user choice, so it follows the current default (`LEGACY_VALUES`,
-`client.js:210`). A value the user actually picked is recorded in `choices`
-(`client.js:1805`, written by `writeSettings()` from the incoming patch
+`client.js:214`). A value the user actually picked is recorded in `choices`
+(`client.js:1967`, written by `writeSettings()` from the incoming patch
 only) and the preset rule never touches it; `resetSettings()` clears the map.
 
 ---
@@ -125,7 +126,7 @@ authenticated** — publish public assets only, never user data.
 
 ```js
 window.__HOTLIST__ = {
-  version,                                              // "5.1.9"
+  version,                                              // "5.2.0"
   settings: { get, set, reset, subscribe, backups, restore },
   assets:   { add, list, clear, preview },
 };
@@ -171,7 +172,7 @@ name never renders two emoji.
 
 ```
 client.js              web half — everything the UI does (single file, ~6.1k lines)
-index.js               host half — registers the /hotlist-sound prefix route
+index.js               host half — registers /hotlist-sound and /hotlist-ring
 cordis.patch.yml       one insert line that mounts the plugin
 package.json           name / version / files / dsh.{bundle,client}
 locale/{en,zh}.json    display name + description the host plugin list reads
@@ -180,9 +181,10 @@ assets/                error|pending|completed × 4 webp tiers + 6 svg fallbacks
 assets/sounds/         attention.wav, complete.wav (+ their manifest)
 docs/ARCHITECTURE.md   layering, state model, settings schema, line-number index
 docs/EXTENDING.md      API surface + how to extend without breaking data
-docs/TESTING.md        the 107 test groups, each with its source line
+docs/TESTING.md        the 109 test groups, each with its source line
 test/classify.test.mjs the whole self-test (pure node, no browser)
-tools/meru-tts/        optional TTS helper for making your own sound cues
+tools/attn-ring/       the full-screen ring script — SHIPS in the npm package
+tools/meru-tts/        optional TTS helper; repo only, NOT in the package (~1.6 MB)
 ```
 
 ## 5. Verify before you say it works
@@ -191,7 +193,7 @@ tools/meru-tts/        optional TTS helper for making your own sound cues
 node --check client.js
 node --check index.js
 node --check test/classify.test.mjs
-node test/classify.test.mjs      # expect: PASS — 107 groups
+node test/classify.test.mjs      # expect: PASS — 109 groups
 ```
 
 `node --check` alone is not enough: a deleted-but-still-referenced constant is
@@ -248,15 +250,24 @@ Git may not be under `C:\Program Files\Git`. Ask the tool itself:
    an overlay a background there.
 6. `settings.pins` is dead weight kept for read compatibility only — pinning now
    comes from the host's `pinnedSessionIds`.
-7. `hideNativeDot`, `shortcuts.*` and `overlay.size` still exist as fields but
+7. **The full-screen ring is Windows-only.** It is a WPF window started by PowerShell
+   (`tools/attn-ring/Show-AttnRing.ps1`); on other platforms the switches save but
+   nothing rises. It covers the primary screen only (`-Scope Primary`), and all three
+   switches ship off — default silence is the point of that feature.
+8. `hideNativeDot`, `shortcuts.*` and `overlay.size` still exist as fields but
    have no settings-page row. Their behaviour is unchanged; only the UI is gone.
 
 ## 7. Bundled artwork is a placeholder, and that is on purpose
 
-Only the three states that pop a picture by default ship raster art:
-`error` and `pending` use **red Meru**, `completed` uses **blue Lan**. The other
-three fall back to a packaged SVG and then to an emoji glyph — which is why the
-package ships 700 KB instead of 1.6 MB.
+Only the three states that pop a picture by default ship raster art, and it is
+**animated WebP**: `error` and `pending` use the button-smack clip, `completed`
+uses the wave clip. The other three fall back to a packaged SVG and then to an
+emoji glyph. The clips are the reason `assets/*.webp` totals ~1.6 MB — a 500 px
+10-frame clip does not compress to a still's size, and dropping frames makes the
+motion look broken. `error`/`pending`/`completed` each need four tiers named
+`<category>-<tier>.webp` for 64 / 320 / 780 / 1560; `780` and `1560` hold the same
+500 px animation because the source has no more resolution, `320` is downscaled,
+and `64` is a still from frame 0 (settings thumbnail only).
 
 The author intends to publish the full artwork-generation workflow as a skill in
 this repository in a later release. If a user wants custom art and does not know
