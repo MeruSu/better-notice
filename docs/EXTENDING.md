@@ -366,7 +366,14 @@ await fetch('/hotlist-ring?category=pending&seconds=4&scope=Primary&anim=Expand'
 ## 8. 想加功能而不是配置
 
 - 纯判定（分类、排序、上限）在 `classify/sortSeats/buildSeatPlan`，改这里要同步跑单测（`node test/classify.test.mjs`）。
-- 新渲染面才需要碰宿主槽位；现有三面之外加第四个面，先看 `docs/ARCHITECTURE.md` 的「扩展点」一节。
+- 新渲染面先判断它要不要宿主槽位。现在一共五个面，只有两个走 slot、另外三个各有各的挂法：
+  - **tab 座位** —— `conversation.view` slot（`SLOT`，`client.js:80`），`mountTabSeats()` 注册。
+  - **窗口顶栏** —— `shell.overlay` slot（`TOPBAR_SLOT`，`client.js:115`），`mountTopbar()` 注册。
+  - **左侧会话栏图标** —— 不占 slot，直接增强宿主 DOM（`[role="treeitem"][data-row-key^="session:"]` 行里插 `span[data-hotlist-glyph]`），`createSidebarAdapter()`。
+  - **音效 + 弹出图** —— 不占 slot：音效走宿主 web 路由 `/hotlist-sound`，弹出图由 `mountPopout()`（`client.js:4422`）append 到 `document.body`。
+  - **全屏光圈** —— 不占 slot，也不是 DOM：页面 `fetch('/hotlist-ring')` 让宿主半边起一个独立进程（`createRingPlayer` `client.js:5080` · `serveRing` `index.js:167` · `tools/attn-ring/Show-AttnRing.ps1`）。
+
+  加第六个面时，照上面挑一种挂法，再看 `docs/ARCHITECTURE.md` 的「扩展点」一节。
 - 改动后必须跑：`node --check client.js`、`node --check index.js`、`node --check test/classify.test.mjs`、`node test/classify.test.mjs`。四样全绿才算完。
 
 ---
